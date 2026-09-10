@@ -150,7 +150,9 @@ class App(SimpleHTTPRequestHandler):
         super().end_headers()
 
     def translate_path(self, path):
-        clean = unquote(urlparse(path).path)
+        # Treat Windows and URL path separators identically on every host.
+        # This keeps traversal checks deterministic on both Windows and Linux.
+        clean = unquote(urlparse(path).path).replace("\\", "/")
         target = "index.html" if clean == "/" else clean.lstrip("/")
         resolved = (STATIC / target).resolve()
         if not resolved.is_relative_to(STATIC.resolve()):
