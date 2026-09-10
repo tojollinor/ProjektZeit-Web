@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="ProjektZeit – sichere, webbasierte Zeiterfassung">
+  <title>ProjektZeit Web</title>
+  <link rel="stylesheet" href="/styles.css?v=0.6.0">
+  <link rel="stylesheet" href="/workday.css?v=0.6.0">
+  <link rel="stylesheet" href="/integrations.css?v=0.6.0">
+</head>
+<body>
+  <section id="login" class="login-shell">
+    <div class="login-card">
+      <div class="brand-mark">PZ</div>
+      <p class="eyebrow">PROJEKTZEIT WEB</p>
+      <h1>Willkommen zurück</h1>
+      <p class="muted">Melde dich an, um Zeiten und Projekte zu verwalten.</p>
+      <form id="login-form">
+        <label>Benutzername<input id="login-user" autocomplete="username" required></label>
+        <label>Passwort<input id="login-password" type="password" autocomplete="current-password" required></label>
+        <button class="primary wide" type="submit">Anmelden</button>
+      </form>
+      <p class="demo-login"><strong>Testzugang</strong><span>admin / admin</span></p>
+      <p id="login-error" class="error" role="alert"></p>
+    </div>
+  </section>
+
+  <div id="app" class="app hidden">
+    <aside class="sidebar">
+      <div class="brand"><div class="brand-mark small">PZ</div><div><strong>ProjektZeit</strong><span>Web Portal</span></div></div>
+      <nav aria-label="Hauptnavigation">
+        <button class="nav active" data-view="dashboard"><span>◫</span>Übersicht</button>
+        <button class="nav" data-view="tracking"><span>◷</span>Zeiterfassung</button>
+        <button class="nav admin-only" data-view="users"><span>♙</span>Benutzer</button>
+        <button class="nav admin-only" data-view="settings"><span>⚙</span>Einstellungen</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="user-chip"><span id="avatar">A</span><div><strong id="username">admin</strong><small id="role">Administrator</small></div></div>
+        <button id="logout" class="ghost">Abmelden</button>
+      </div>
+    </aside>
+
+    <main>
+      <header><button id="menu-toggle" aria-label="Navigation öffnen">☰</button><div><p class="eyebrow">ARBEITSBEREICH</p><h2 id="page-title">Übersicht</h2></div><div id="live-pill" class="live-pill stopped"><i></i><span>Timer gestoppt</span></div></header>
+
+      <section class="panel work-panel" aria-label="Arbeitstag und Projektwechsel">
+        <div class="panel-head"><div><p class="eyebrow">ARBEITSTAG</p><h3 id="work-status">Noch nicht begonnen</h3><small id="work-detail"></small></div><div class="panel-actions"><button id="work-begin" class="primary">Arbeitsbeginn</button><button id="work-end" class="secondary">Arbeitsende</button></div></div>
+        <p id="current-task">Kein Projekt läuft</p>
+        <div id="quick-projects" class="quick-projects" aria-label="Aktive Projekte wechseln"></div>
+        <button id="project-pause" class="secondary subtle">Projekt stoppen · unproduktiv</button>
+      </section>
+      <section id="view-dashboard" class="view active-view">
+        <div class="stats">
+          <article><span>Heute erfasst</span><strong id="today-total">00:00:00</strong><small>über alle Projekte</small></article>
+          <article><span>Aktive Projekte</span><strong id="project-count">0</strong><small>in deinem Bereich</small></article>
+          <article><span>Stempelungen</span><strong id="entry-count">0</strong><small>inklusive unproduktiver Arbeitszeit</small></article>
+        </div>
+        <div class="panel timeline-panel">
+          <div class="panel-head timeline-head"><div><p class="eyebrow">TAGESVERLAUF</p><h3>Aufträge und freie Zeiten</h3></div><div class="date-controls"><button id="day-prev" class="icon-control" aria-label="Vorheriger Tag">‹</button><input id="timeline-date" type="date" aria-label="Tag auswählen"><button id="day-today" class="secondary">Heute</button><button id="day-next" class="icon-control" aria-label="Nächster Tag">›</button></div></div>
+          <div class="zoom-controls"><small>Mausrad: zoomen · Scrollleiste: verschieben · Balken anklicken: Details</small><button id="zoom-reset" class="secondary subtle" type="button">Ganzer Tag · 100 %</button></div>
+          <div class="timeline-scroll">
+            <div class="timeline-layout">
+            <div class="timeline-hours" aria-hidden="true"><span>00:00</span><span>03:00</span><span>06:00</span><span>09:00</span><span>12:00</span><span>15:00</span><span>18:00</span><span>21:00</span><span>24:00</span></div>
+            <div id="timeline-track" class="timeline-track" aria-label="Zeitstrahl von 00:00 bis 24:00"></div>
+            </div>
+          </div>
+          <div id="timeline-summary" class="timeline-summary"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><div><p class="eyebrow">VERLAUF</p><h3>Letzte Stempelungen</h3></div><div class="panel-actions"><button id="csv-import-button" class="secondary subtle" type="button">CSV importieren</button><button id="csv-export-button" class="secondary subtle" type="button">CSV exportieren</button><button class="secondary" data-go="tracking">Neue Zeit erfassen</button></div></div>
+          <input id="csv-file" class="hidden" type="file" accept=".csv,text/csv" aria-label="CSV-Datei auswählen">
+          <div class="table-wrap"><table><thead><tr><th>Projekt / Bemerkung</th><th>Kunde</th><th>Kategorie</th><th>Start / Ende</th><th>Dauer</th><th>Bearbeiten</th></tr></thead><tbody id="entry-table"></tbody></table></div>
+        </div>
+      </section>
+
+      <section id="view-tracking" class="view">
+        <div class="tracking-grid">
+          <article class="timer-card">
+            <p class="eyebrow">AKTUELLE ZEIT</p><div id="timer">00:00:00</div>
+            <div class="field-grid">
+              <label>Projekt<select id="project-select"></select></label>
+              <label>Zeitkategorie<select id="category-select"></select></label>
+            </div>
+            <label>Bemerkung<textarea id="note" rows="3" placeholder="Optionaler Hinweis zur Tätigkeit"></textarea></label>
+            <button id="timer-button" class="primary wide">Zeiterfassung starten</button>
+          </article>
+          <div class="stack">
+            <article class="panel compact"><h3>Aktive Projekte</h3><p class="muted">Aktivierte Projekte erscheinen oben in der Schnellwahl. Es läuft immer nur ein Timer.</p><div id="project-activity"></div></article>
+            <article class="panel compact"><div class="panel-head"><div><p class="eyebrow">STAMMDATEN</p><h3>Neuer Kunde</h3></div></div><form id="customer-form" class="inline-form"><input id="customer-name" placeholder="Kundenname" required><button class="secondary">Anlegen</button></form></article>
+            <article class="panel compact"><div class="panel-head"><div><p class="eyebrow">STAMMDATEN</p><h3>Neues Projekt</h3></div></div><form id="project-form"><label>Projektname<input id="project-name" required></label><label>Kunde<select id="project-customer"></select></label><button class="secondary">Projekt anlegen</button></form></article>
+            <article class="panel compact"><div class="panel-head"><div><p class="eyebrow">STAMMDATEN</p><h3>Neue Zeitkategorie</h3></div></div><form id="category-form" class="inline-form"><input id="category-name" placeholder="z. B. Support" required><button class="secondary">Anlegen</button></form></article>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-users" class="view">
+        <div class="users-grid">
+          <div class="panel"><div class="panel-head"><div><p class="eyebrow">ZUGRIFFE</p><h3>Benutzerverwaltung</h3></div></div><div id="user-list" class="user-list"></div></div>
+          <div class="panel"><div class="panel-head"><div><p class="eyebrow">NEUER ZUGANG</p><h3>Benutzer anlegen</h3></div></div><form id="user-form"><label>Benutzername<input id="new-username" required></label><label>Passwort<input id="new-password" type="password" minlength="12" required></label><label>Rolle<select id="new-role"><option value="user">Benutzer</option><option value="admin">Administrator</option></select></label><button class="primary">Benutzer anlegen</button></form></div>
+        </div>
+      </section>
+      <section id="view-settings" class="view">
+        <div class="settings-intro"><p class="eyebrow">SCHNITTSTELLEN</p><h3>Verbindungen &amp; Diagnose</h3><p class="muted">Zugangsdaten für deinen Benutzer konfigurieren. Der Debug-Test prüft die eingegebenen Daten, ohne Stempelungen zu erzeugen. Speichern ist ein eigener Schritt.</p></div>
+        <div id="integration-cards" class="integration-grid"></div>
+      </section>
+      <div id="toast" role="status"></div>
+    </main>
+  </div>
+  <dialog id="entry-dialog" aria-labelledby="edit-title"><form id="entry-edit-form">
+    <h2 id="edit-title">Stempelung bearbeiten</h2>
+    <p id="edit-hint" class="muted"></p>
+    <label>Projekt<select id="edit-project"></select></label>
+    <label>Zeitkategorie<select id="edit-category"></select></label>
+    <div class="field-grid"><label>Start<input id="edit-start" type="datetime-local" step="1" required></label><label>Ende<input id="edit-end" type="datetime-local" step="1"></label></div>
+    <label>Bemerkung<textarea id="edit-note" rows="4" maxlength="2000"></textarea></label>
+    <p id="edit-error" class="error" role="alert"></p>
+    <div class="panel-actions"><button id="edit-cancel" type="button" class="secondary subtle">Abbrechen</button><button type="submit" class="primary">Speichern</button></div>
+  </form></dialog>
+  <dialog id="timeline-detail" aria-labelledby="detail-title">
+    <h2 id="detail-title">Stempelung</h2><dl id="detail-fields"></dl>
+    <p id="detail-conflict" class="timeline-conflict"></p>
+    <div class="panel-actions"><button id="detail-close" type="button" class="secondary">Schließen</button></div>
+  </dialog>
+  <script src="/app.js?v=0.6.0" defer></script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+services:
+  projektzeit-web:
+    build: .
+    image: projektzeit-web:local
+    pull_policy: never

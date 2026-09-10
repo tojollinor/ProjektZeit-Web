@@ -1,0 +1,7 @@
+data/
+*.db
+*.key
+testdata*/
+__pycache__/
+.env
+.git/

@@ -1,0 +1,29 @@
+services:
+  projektzeit-web:
+    image: ${PROJEKTZEIT_IMAGE}
+    pull_policy: always
+    container_name: projektzeit-web
+    restart: unless-stopped
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${HTTP_PORT:-8080}:8080"
+    environment:
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      DEMO_MODE: ${DEMO_MODE:-0}
+      APP_SECURE_COOKIE: ${APP_SECURE_COOKIE:-0}
+      SEED_DEMO: ${SEED_DEMO:-0}
+      INTEGRATION_KEY: ${INTEGRATION_KEY:-}
+      TZ: ${TZ:-Europe/Berlin}
+    volumes:
+      - projektzeit-data:/app/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp
+
+volumes:
+  projektzeit-data:
