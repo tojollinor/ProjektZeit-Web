@@ -47,24 +47,25 @@ def install(app):
             # Customer cards must still open when TeamViewer is temporarily offline.
             pass
 
-    def current_devices(c,uid,customer_id):
-        devices=[dict(r) for r in c.execute('SELECT id,provider,external_id,name FROM customer_devices WHERE owner_id=? AND customer_id=? ORDER BY id',(uid,customer_id))]
-        tv_events=[]
+    def available_teamviewer_devices(c,uid):
+        found={}
         for r in c.execute('SELECT raw_json,captured_at FROM provider_events WHERE owner_id=? AND provider=? ORDER BY captured_at DESC',(uid,'teamviewer')):
             try: raw=json.loads(r['raw_json'])
             except Exception: continue
-            tv_events.append((raw,r['captured_at']))
+            value=next((raw.get(k) for k in ('deviceid','device_id','partner_id','remotecontrol_id') if raw.get(k) not in (None,'')),None)
+            if value is None: continue
+            key=str(value)
+            if key not in found:
+                found[key]={'id':key,'name':str(raw.get('devicename') or raw.get('device_name') or key),'last_seen':str(raw.get('start_date') or r['captured_at'] or '')}
+        return list(found.values())
+
+    def current_devices(c,uid,customer_id):
+        devices=[dict(r) for r in c.execute('SELECT id,provider,external_id,name FROM customer_devices WHERE owner_id=? AND customer_id=? ORDER BY id',(uid,customer_id))]
+        tv={x['id']:x for x in available_teamviewer_devices(c,uid)}
         for device in devices:
-            device['current_name']=device['name']
-            device['last_seen']=''
-            if device['provider']!='teamviewer':continue
-            target=str(device['external_id'] or '')
-            for raw,captured in tv_events:
-                ids=[raw.get(k) for k in ('deviceid','device_id','partner_id','remotecontrol_id')]
-                if target and any(str(v)==target for v in ids if v not in (None,'')):
-                    device['current_name']=str(raw.get('devicename') or raw.get('device_name') or device['name'] or target)
-                    device['last_seen']=str(raw.get('start_date') or captured or '')
-                    break
+            device['current_name']=device['name'];device['last_seen']=''
+            if device['provider']=='teamviewer' and str(device['external_id']) in tv:
+                current=tv[str(device['external_id'])];device['current_name']=current['name'];device['last_seen']=current['last_seen']
         return devices
 
     original_post = app.App.do_POST
@@ -86,19 +87,17 @@ def install(app):
         uid=session['id']
         try:
             if path in ('/api/v1/customers/detail','/api/v1/customers/activity'):
-                # A rename in TeamViewer must not break the customer link. Refresh
-                # globally, then resolve the stable device ID against current rows.
                 refresh_teamviewer(uid)
             with app.db() as c:
                 if path=='/api/v1/customers/data':
                     return self.send_json(200,{'customers':customer_data.list_all(c,uid),'links':{p:customer_data.links(c,uid,p) for p in customer_data.PROVIDERS}})
                 if path=='/api/v1/customers/workshop':
-                    return self.send_json(200,{'suggestions':customer_data.suggestions(c,uid)})
+                    return self.send_json(200,{'suggestions':customer_data.suggestions(c,uid),'teamviewer_devices':available_teamviewer_devices(c,uid)})
                 if path in ('/api/v1/customers/detail','/api/v1/customers/activity'):
                     cid=int(body.get('id'));customers=[x for x in customer_data.list_all(c,uid) if x['id']==cid]
                     if not customers: raise ValueError('Unbekannter Kunde.')
                     customer=customers[0];customer['devices']=current_devices(c,uid,cid)
-                    return self.send_json(200,{'customer':customer,'activity':customer_data.activity(c,uid,cid)})
+                    return self.send_json(200,{'customer':customer,'activity':customer_data.activity(c,uid,cid),'teamviewer_devices':available_teamviewer_devices(c,uid)})
                 if path=='/api/v1/customers/assign':
                     cid=customer_data.assign(c,uid,body);return self.send_json(200,{'ok':True,'customer_id':cid})
                 if path=='/api/v1/customers/phone':
