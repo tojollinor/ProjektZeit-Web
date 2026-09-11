@@ -53,6 +53,7 @@
           clearInterval(pollTimer);
           card.querySelector('.desktop-launch').classList.add('hidden');
           card.querySelector('.badge').textContent='Verbunden';
+          window.dispatchEvent(new Event('starface-connected'));
           const status=card.querySelector('.integration-status');status.className='integration-status success';status.textContent='STARFACE ist verbunden. Die Verbindung liegt jetzt auf dem ProjektZeit-Server und funktioniert auch ohne laufenden Windows-Client.';
         }
       }catch{}
