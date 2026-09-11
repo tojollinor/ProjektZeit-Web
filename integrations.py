@@ -61,7 +61,7 @@ def domain(value, provider):
         if parsed.path not in ('', allowed_path):
             raise ValueError()
         host = parsed.hostname.encode('idna').decode('ascii').lower()
-        if '%' in host or any(ord(c) < 33 for c in value) or (port is not None and not 1 <= port <= 65535):
+        if '%' in host or '\\' in value or any(c.isspace() or ord(c) < 33 for c in value) or (port is not None and not 1 <= port <= 65535):
             raise ValueError()
         if provider == 'teamviewer' and (host != 'webapi.teamviewer.com' or port not in (None,443)):
             raise ValueError('Für TeamViewer bitte https://webapi.teamviewer.com verwenden.')

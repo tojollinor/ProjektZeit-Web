@@ -211,8 +211,23 @@ async function loadIntegrations(){
     state.integrationsLoaded=true;
   }catch(error){container.textContent=error.message;}
 }
+function normalizeStarfaceAddress(value){
+  const raw=value.trim();
+  const message='Bitte eine HTTPS-Domain eingeben, z. B. https://starface.it-walther.de (keine Anmelde- oder Callback-URL).';
+  if(!raw || /[\s\\]/.test(raw))throw new Error(message);
+  let url;try{url=new URL(raw.includes('://')?raw:'https://'+raw);}catch{throw new Error(message);}
+  if(url.protocol!=='https:' || !url.hostname || url.username || url.password || url.search || url.hash || !['','/rest'].includes(url.pathname.replace(/\/+$/,'')))throw new Error(message);
+  return url.origin;
+}
+$('#integration-cards').addEventListener('focusout',event=>{
+  const card=event.target.closest('[data-provider="starface"]');
+  if(!card || event.target.dataset.field!=='domain')return;
+  try{event.target.value=normalizeStarfaceAddress(event.target.value);event.target.setCustomValidity('');}
+  catch(error){event.target.setCustomValidity(error.message);card.querySelector('.integration-status').textContent=error.message;}
+});
 $('#integration-cards').addEventListener('input',event=>{
   const card=event.target.closest('[data-provider]');if(!card)return;
+  if(event.target.setCustomValidity)event.target.setCustomValidity('');
   card.querySelector('.debug-output').replaceChildren();card.querySelector('.debug-output').classList.add('hidden');card.querySelector('.integration-status').textContent='Eingaben geändert – noch nicht gespeichert oder getestet.';
 });
 $('#integration-cards').addEventListener('click',async event=>{
@@ -221,6 +236,10 @@ $('#integration-cards').addEventListener('click',async event=>{
   const field=name=>card.querySelector(`[data-field="${name}"]`),status=card.querySelector('.integration-status'),output=card.querySelector('.debug-output');
   if(action==='remove'&&!confirm(`Gespeicherte ${integrationInfo[provider].name}-Zugangsdaten entfernen?`))return;
   const body={provider,domain:field('domain').value,username:field('username').value,secret:field('secret').value};
+  if(provider==='starface' && action!=='remove'){
+    try{body.domain=normalizeStarfaceAddress(body.domain);field('domain').value=body.domain;field('domain').setCustomValidity('');}
+    catch(error){status.textContent=error.message;status.className='integration-status failure';field('domain').setCustomValidity(error.message);field('domain').reportValidity();return;}
+  }
   const controls=[...card.querySelectorAll('button,input')];controls.forEach(x=>x.disabled=true);
   status.className='integration-status';status.textContent=action==='test'?'Verbindung wird geprüft …':'Wird gespeichert …';output.replaceChildren();output.classList.add('hidden');
   try{
