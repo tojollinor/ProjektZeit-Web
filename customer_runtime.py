@@ -2,7 +2,9 @@
 import json
 import threading
 from urllib.parse import urlparse
+
 import customer_data
+import provider_archive
 import starface_directory
 
 
@@ -13,17 +15,26 @@ def install(app):
         with app.db() as c:
             customer_data.migrate(c)
             starface_directory.migrate(c)
+            provider_archive.migrate(c)
     app.init_db = init_db
 
     context = threading.local()
     original_integration_list = app.App.integration_list
     original_sf_load = app.starface_calls.load
     original_provider_load = app.provider_lists.load
+
     def cache(provider, result):
         uid=getattr(context,'uid',None)
         if uid and isinstance(result,dict):
-            with app.db() as c: customer_data.cache_rows(c,uid,provider,result)
+            with app.db() as c:
+                stats=provider_archive.cache_with_stats(c,uid,provider,result)
+                if provider in ('starface','teamviewer'):
+                    state=provider_archive.update_sync_state(c,uid,provider)
+                    provider_archive.add_log(c,uid,provider,'success','refresh',
+                        f'{provider.upper() if provider=="starface" else "TeamViewer"} aktualisiert · {stats["received"]} geprüft · {stats["new"]} neu',
+                        {**stats,**state})
         return result
+
     def sf_load(config,*args,**kwargs): return cache('starface',original_sf_load(config,*args,**kwargs))
     def provider_load(config,*args,**kwargs): return cache(config.get('provider',''),original_provider_load(config,*args,**kwargs))
     def integration_list(self,session,body):
@@ -34,15 +45,27 @@ def install(app):
     app.provider_lists.load=provider_load
     app.App.integration_list=integration_list
 
+    def integration_config(uid,provider):
+        with app.db() as c:
+            if provider=='starface':
+                return app.starface_oauth.access(c,uid,app.DATA_DIR)
+            row=c.execute('SELECT * FROM integrations WHERE owner_id=? AND provider=?',(uid,provider)).fetchone()
+            if not row: raise ValueError('Bitte zuerst die Schnittstelle in den Einstellungen verknüpfen.')
+            return app.integrations.config(c,uid,dict(provider=provider,domain=row['domain'],username=row['username'],secret=''),app.DATA_DIR)
+
     def refresh_teamviewer(uid):
         try:
-            with app.db() as c:
-                row=c.execute('SELECT * FROM integrations WHERE owner_id=? AND provider=?',(uid,'teamviewer')).fetchone()
-                if not row:return
-                config=app.integrations.config(c,uid,dict(provider='teamviewer',domain=row['domain'],username=row['username'],secret=''),app.DATA_DIR)
-            config['days']=0
+            config=integration_config(uid,'teamviewer');config['days']=0
             result=original_provider_load(config)
-            with app.db() as c: customer_data.cache_rows(c,uid,'teamviewer',result)
+            with app.db() as c: provider_archive.cache_with_stats(c,uid,'teamviewer',result)
+        except (ValueError,OSError): pass
+
+    def refresh_zammad_orgs(uid,force=False):
+        try:
+            with app.db() as c:
+                if not force and c.execute('SELECT 1 FROM zammad_organizations WHERE owner_id=? LIMIT 1',(uid,)).fetchone(): return
+            config=integration_config(uid,'zammad')
+            with app.db() as c: provider_archive.refresh_zammad_organizations(c,uid,config)
         except (ValueError,OSError): pass
 
     def available_teamviewer_devices(c,uid):
@@ -54,7 +77,7 @@ def install(app):
             if value is None: continue
             key=str(value)
             if key not in found: found[key]={'id':key,'name':str(raw.get('devicename') or raw.get('device_name') or key),'last_seen':str(raw.get('start_date') or r['captured_at'] or '')}
-        return list(found.values())
+        return sorted(found.values(),key=lambda x:x['name'].casefold())
 
     def current_devices(c,uid,customer_id):
         devices=[dict(r) for r in c.execute('SELECT id,provider,external_id,name FROM customer_devices WHERE owner_id=? AND customer_id=? ORDER BY id',(uid,customer_id))]
@@ -66,24 +89,24 @@ def install(app):
         return devices
 
     def available_zammad_orgs(c,uid):
+        stored=provider_archive.zammad_organizations(c,uid)
+        if stored:return stored
         found={}
-        for r in c.execute('SELECT raw_json,hint_json,captured_at FROM provider_events WHERE owner_id=? AND provider=? ORDER BY captured_at DESC',(uid,'zammad')):
+        for r in c.execute('SELECT raw_json,hint_json FROM provider_events WHERE owner_id=? AND provider=? ORDER BY captured_at DESC',(uid,'zammad')):
             try: raw=json.loads(r['raw_json']);hint=json.loads(r['hint_json'])
             except Exception: continue
             oid=raw.get('organization_id') or raw.get('organizationId')
             if oid in (None,''): continue
             key=str(oid);org=raw.get('organization')
-            if isinstance(org,dict): name=str(org.get('name') or '')
-            else: name=str(org or '')
-            name=name or str(hint.get('name') or key)
-            if key not in found: found[key]={'id':key,'name':name}
-        return list(found.values())
+            name=str(org.get('name') or '') if isinstance(org,dict) else str(org or '')
+            found.setdefault(key,{'id':key,'name':name or str(hint.get('name') or key)})
+        return sorted(found.values(),key=lambda x:x['name'].casefold())
 
     def assigned_zammad_orgs(c,uid,customer_id):
         result=[]
         for r in c.execute('SELECT external_key,label FROM customer_provider_links WHERE owner_id=? AND customer_id=? AND provider=?',(uid,customer_id,'zammad')):
             key=str(r['external_key'])
-            if key.startswith('zammad:organization:'): result.append({'id':key.split(':',2)[2],'name':r['label']})
+            if key.startswith('zammad:organization:'):result.append({'id':key.split(':',2)[2],'name':r['label']})
         return result
 
     def zammad_tickets(c,uid,customer_id):
@@ -93,11 +116,18 @@ def install(app):
             try: raw=json.loads(r['raw_json'])
             except Exception: continue
             oid=str(raw.get('organization_id') or raw.get('organizationId') or '')
-            if oid in ids: out.append({'occurred_at':r['occurred_at'],'summary':r['summary'],'raw':raw})
-        return out[:200]
+            if oid in ids:out.append({'occurred_at':r['occurred_at'],'summary':r['summary'],'raw':raw})
+        return out[:500]
 
     original_post = app.App.do_POST
-    paths={'/api/v1/customers/data','/api/v1/customers/assign','/api/v1/customers/profile','/api/v1/customers/detail','/api/v1/customers/activity','/api/v1/customers/phone','/api/v1/customers/contact','/api/v1/customers/contact-phone','/api/v1/customers/device','/api/v1/customers/workshop','/api/v1/customers/zammad-organization','/api/v1/starface/users','/api/v1/starface/users/save'}
+    paths={
+      '/api/v1/customers/data','/api/v1/customers/assign','/api/v1/customers/profile','/api/v1/customers/detail','/api/v1/customers/activity',
+      '/api/v1/customers/phone','/api/v1/customers/phone/update','/api/v1/customers/phone/delete','/api/v1/customers/contact',
+      '/api/v1/customers/contact-phone','/api/v1/customers/device','/api/v1/customers/workshop','/api/v1/customers/zammad-organization',
+      '/api/v1/customers/timeline','/api/v1/starface/users','/api/v1/starface/users/save','/api/v1/archive/sync','/api/v1/archive/status',
+      '/api/v1/logs/list','/api/v1/debug/raw','/api/v1/zammad/organizations/refresh'
+    }
+
     def do_POST(self):
         path=urlparse(self.path).path
         if path not in paths:return original_post(self)
@@ -109,18 +139,46 @@ def install(app):
         if not session:return
         uid=session['id']
         try:
+            if path=='/api/v1/archive/sync':
+                provider=str(body.get('provider') or '').lower()
+                if provider not in ('starface','teamviewer'):raise ValueError('History-Sync ist nur für STARFACE und TeamViewer verfügbar.')
+                if not app.integrations.TEST_LOCK.acquire(blocking=False):return self.send_json(429,{'error':'Es läuft bereits eine Schnittstellenabfrage.'})
+                try:
+                    config=integration_config(uid,provider)
+                    result=provider_archive.sync_starface(app.db,uid,config,True) if provider=='starface' else provider_archive.sync_teamviewer(app.db,uid,config,True)
+                    return self.send_json(200,result)
+                finally:app.integrations.TEST_LOCK.release()
+            if path=='/api/v1/archive/status':
+                with app.db() as c:return self.send_json(200,{'states':provider_archive.sync_states(c,uid)})
+            if path=='/api/v1/logs/list':
+                with app.db() as c:return self.send_json(200,{'logs':provider_archive.list_logs(c,uid,str(body.get('category') or ''),str(body.get('level') or ''),body.get('limit',300))})
+            if path=='/api/v1/debug/raw':
+                provider=str(body.get('provider') or '').lower()
+                if provider not in provider_archive.PROVIDERS:raise ValueError('Unbekannter Debug-Dienst.')
+                config=integration_config(uid,provider)
+                result=provider_archive.debug_raw(uid,provider,config)
+                with app.db() as c:provider_archive.add_log(c,uid,provider,'info','debug_raw',f'{provider} Rohdaten abgerufen',{'endpoint':result.get('endpoint'),'http_status':result.get('http_status')})
+                return self.send_json(200,result)
+            if path=='/api/v1/zammad/organizations/refresh':
+                config=integration_config(uid,'zammad')
+                with app.db() as c:
+                    count=provider_archive.refresh_zammad_organizations(c,uid,config)
+                    return self.send_json(200,{'ok':True,'count':count,'organizations':provider_archive.zammad_organizations(c,uid)})
             if path=='/api/v1/starface/users/save':
-                with app.db() as c: starface_directory.save_manual(c,uid,body.get('extension'),body.get('name'));return self.send_json(200,{'ok':True,'users':starface_directory.list_all(c,uid)})
+                with app.db() as c:
+                    starface_directory.save_manual(c,uid,body.get('extension'),body.get('name'))
+                    return self.send_json(200,{'ok':True,'users':starface_directory.list_all(c,uid)})
             if path=='/api/v1/starface/users':
                 auto={'imported':0,'errors':[]}
                 try:
-                    with app.db() as c: config=app.starface_oauth.access(c,uid,app.DATA_DIR)
-                    with app.db() as c: auto=starface_directory.refresh(c,uid,config);users=starface_directory.list_all(c,uid)
+                    config=integration_config(uid,'starface')
+                    with app.db() as c:auto=starface_directory.refresh(c,uid,config);users=starface_directory.list_all(c,uid)
                 except (ValueError,OSError) as error:
                     auto['errors'].append(str(error))
-                    with app.db() as c: users=starface_directory.list_all(c,uid)
+                    with app.db() as c:users=starface_directory.list_all(c,uid)
                 return self.send_json(200,{'users':users,'auto':auto})
-            if path in ('/api/v1/customers/detail','/api/v1/customers/activity'):refresh_teamviewer(uid)
+            if path in ('/api/v1/customers/detail','/api/v1/customers/activity'):
+                refresh_teamviewer(uid);refresh_zammad_orgs(uid)
             with app.db() as c:
                 if path=='/api/v1/customers/data':return self.send_json(200,{'customers':customer_data.list_all(c,uid),'links':{p:customer_data.links(c,uid,p) for p in customer_data.PROVIDERS}})
                 if path=='/api/v1/customers/workshop':return self.send_json(200,{'suggestions':customer_data.suggestions(c,uid),'teamviewer_devices':available_teamviewer_devices(c,uid)})
@@ -129,11 +187,15 @@ def install(app):
                     if not customers:raise ValueError('Unbekannter Kunde.')
                     customer=customers[0];customer['devices']=current_devices(c,uid,cid)
                     return self.send_json(200,{'customer':customer,'activity':customer_data.activity(c,uid,cid),'teamviewer_devices':available_teamviewer_devices(c,uid),'zammad_organizations':available_zammad_orgs(c,uid),'zammad_assigned':assigned_zammad_orgs(c,uid,cid),'zammad_tickets':zammad_tickets(c,uid,cid)})
+                if path=='/api/v1/customers/timeline':
+                    cid=int(body.get('id'));return self.send_json(200,{'events':provider_archive.customer_timeline(c,uid,cid,body.get('day'))})
                 if path=='/api/v1/customers/zammad-organization':
                     cid=int(body.get('customer_id'));oid=str(body.get('organization_id') or '').strip();name=str(body.get('name') or oid).strip()
                     if not oid or not customer_data._customer(c,uid,cid):raise ValueError('Ungültige Zammad-Organisation.')
                     key='zammad:organization:'+oid;c.execute('DELETE FROM customer_provider_links WHERE owner_id=? AND provider=? AND external_key=?',(uid,'zammad',key));c.execute('INSERT INTO customer_provider_links(owner_id,customer_id,provider,external_key,label) VALUES(?,?,?,?,?)',(uid,cid,'zammad',key,name));return self.send_json(200,{'ok':True})
                 if path=='/api/v1/customers/assign':cid=customer_data.assign(c,uid,body);return self.send_json(200,{'ok':True,'customer_id':cid})
+                if path=='/api/v1/customers/phone/update':provider_archive.phone_update(c,uid,body);return self.send_json(200,{'ok':True})
+                if path=='/api/v1/customers/phone/delete':provider_archive.phone_delete(c,uid,body);return self.send_json(200,{'ok':True})
                 if path=='/api/v1/customers/phone':
                     cid=int(body.get('customer_id'));ok=customer_data.add_company_phone(c,uid,cid,body.get('number'),body.get('label'),body.get('source','manual'))
                     if not ok:raise ValueError('Kundenrufnummern müssen mehr als fünf Ziffern enthalten.')
@@ -148,7 +210,12 @@ def install(app):
                 if cid:customer_data.update(c,uid,int(cid),body);cid=int(cid)
                 else:cid=customer_data.create(c,uid,body)
                 return self.send_json(200,{'ok':True,'customer_id':cid})
-        except (ValueError,TypeError) as error:return self.send_json(400,{'error':str(error)})
+        except (ValueError,TypeError,OSError) as error:
+            try:
+                if path.startswith('/api/v1/archive/') or path=='/api/v1/debug/raw':
+                    with app.db() as c:provider_archive.add_log(c,uid,str(body.get('provider') or 'system'),'error','request_failed',str(error),{'path':path})
+            except Exception:pass
+            return self.send_json(400,{'error':str(error) if isinstance(error,(ValueError,TypeError)) else 'Schnittstelle nicht erreichbar.'})
     app.App.do_POST=do_POST
 
 
