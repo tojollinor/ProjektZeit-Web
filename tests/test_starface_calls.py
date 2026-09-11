@@ -67,6 +67,7 @@ class CallsTest(unittest.TestCase):
         connection=factory.return_value
         response=connection.getresponse.return_value
         response.status=200;response.getheaders.return_value=[('Set-Cookie','JSESSIONID=session; Secure; HttpOnly')]
+        response.getheader.return_value=None
         def reply(value):response.read1.side_effect=[dumps((value,),methodresponse=True).encode(),b'']
         reply(True);rpc=sf.UciClient(CONFIG);self.assertTrue(rpc.call('connection.login'))
         sent=connection.request.call_args
@@ -78,7 +79,14 @@ class CallsTest(unittest.TestCase):
         with self.assertRaises(ValueError) as error:rpc.call('connection.login')
         self.assertNotIn('private-token',str(error.exception))
         response.status=302
-        with self.assertRaises(ValueError):rpc.call('connection.login')
+        response.read1.side_effect=[b'<html>Login private-token?access_token=private-token</html>',b'']
+        response.getheader.side_effect=lambda name: 'text/html; charset=utf-8' if name=='Content-Type' else ('https://pbx.example.com/login?token=private-token' if name=='Location' else None)
+        with self.assertRaises(ValueError) as error:rpc.call('connection.login')
+        message=str(error.exception)
+        self.assertIn('Antworttyp: HTML',message)
+        self.assertIn('Content-Type: text/html',message)
+        self.assertNotIn('private-token',message)
+        self.assertIn('AUSGEBLENDET',message)
 
     def test_route_uses_logged_in_owner_and_refreshed_oauth_token(self):
         import app
