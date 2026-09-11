@@ -5,6 +5,7 @@ https://knowledge.starface.de/pages/viewpage.action?pageId=46568050
 https://api.starface.de/uci-3.0.5/de/starface/integration/uci/java/v30/ucp/messages/requests/UcpCallListRequests.html
 https://api.starface.de/uci-3.0.5/de/starface/integration/uci/java/v30/values/CallListEntryProperties.html
 """
+import re
 import ssl
 import time
 from datetime import datetime, timedelta, timezone
@@ -17,14 +18,63 @@ import integrations
 PREFIX = 'ucp.v30.requests.'
 
 
+def _safe_debug_text(raw, secret):
+    """Return a short diagnostic preview without exposing OAuth credentials."""
+    if not raw:
+        return '(leer)'
+    try:
+        text = raw[:4096].decode('utf-8', errors='replace')
+    except Exception:
+        return '(nicht als Text lesbar)'
+    if secret:
+        text = text.replace(secret, '[TOKEN AUSGEBLENDET]')
+    text = re.sub(r'(?i)(de\.vertico\.starface\.jwt=)[^&\s"\'<>]+', r'\1[TOKEN AUSGEBLENDET]', text)
+    text = re.sub(r'(?i)(authorization\s*[:=]\s*bearer\s+)[^\s"\'<>]+', r'\1[TOKEN AUSGEBLENDET]', text)
+    text = re.sub(r'(?i)([?&](?:code|token|access_token|refresh_token|id_token)=)[^&\s"\'<>]+', r'\1[AUSGEBLENDET]', text)
+    text = ' '.join(text.split())
+    return text[:1200] or '(nur Leerraum)'
+
+
+def _response_kind(raw):
+    head = raw.lstrip()[:200].lower()
+    if head.startswith(b'<?xml') or b'<methodresponse' in head:
+        return 'XML/XML-RPC'
+    if head.startswith(b'<!doctype html') or b'<html' in head:
+        return 'HTML'
+    if head.startswith((b'{', b'[')):
+        return 'JSON/Text'
+    if not raw:
+        return 'leer'
+    return 'unbekannt'
+
+
+def _debug_summary(response, raw, secret):
+    content_type = response.getheader('Content-Type') or '(nicht gesetzt)'
+    location = response.getheader('Location') or ''
+    if secret:
+        location = location.replace(secret, '[TOKEN AUSGEBLENDET]')
+    location = re.sub(r'(?i)([?&](?:code|token|access_token|refresh_token|id_token|de\.vertico\.starface\.jwt)=)[^&\s]+', r'\1[AUSGEBLENDET]', location)
+    bits = [
+        'HTTP %s' % response.status,
+        'Content-Type: %s' % content_type[:160],
+        'Antworttyp: %s' % _response_kind(raw),
+        'Größe: %s Byte' % len(raw),
+    ]
+    if location:
+        bits.append('Location: %s' % location[:300])
+    bits.append('Vorschau: %s' % _safe_debug_text(raw, secret))
+    return ' · '.join(bits)
+
+
 class UciClient:
     def __init__(self, config):
         origin = integrations.domain(config['domain'], 'starface')
         target = urlsplit(origin)
         self.host, self.port = target.hostname, target.port or 443
+        self.secret = config['secret']
         # STARFACE 10 specifies this query parameter for OAuth XML-RPC.
         # Never log this path or include it in user-facing errors.
-        self.path = '/xml-rpc?' + urlencode({'de.vertico.starface.jwt': config['secret']})
+        self.path = '/xml-rpc?' + urlencode({'de.vertico.starface.jwt': self.secret})
         self.cookies = {}
 
     def call(self, method, params=()):
@@ -38,8 +88,6 @@ class UciClient:
         try:
             conn.request('POST', self.path, body=body, headers=headers)
             response = conn.getresponse()
-            if response.status != 200:
-                raise ValueError('STARFACE-Anrufliste nicht erreichbar (HTTP %s). OAuth-Anmeldung und UCI-Berechtigung prüfen.' % response.status)
             for key, value in response.getheaders():
                 if key.lower() == 'set-cookie':
                     jar = SimpleCookie(); jar.load(value)
@@ -55,18 +103,21 @@ class UciClient:
                     raise ValueError('STARFACE-Anrufliste ist zu groß. Kürzeren Zeitraum wählen.')
                 chunks.append(chunk)
             raw = b''.join(chunks)
+            debug = _debug_summary(response, raw, self.secret)
+            if response.status != 200:
+                raise ValueError('STARFACE-Anrufliste nicht erreichbar. STARFACE-Debug: ' + debug)
             if b'<!DOCTYPE' in raw.upper() or b'<!ENTITY' in raw.upper():
-                raise ValueError('Ungültige XML-Antwort von STARFACE.')
+                raise ValueError('Ungültige XML-Antwort von STARFACE. STARFACE-Debug: ' + debug)
             try:
                 result, _ = loads(raw, use_builtin_types=True)
             except Fault as error:
                 # Fault strings can contain credentials/URLs. Only expose the numeric code.
                 code = error.faultCode if type(error.faultCode) is int else 'unbekannt'
-                raise ValueError('STARFACE hat die UCI-Abfrage abgewiesen (Code %s). API-/UCI-Berechtigung des verknüpften Benutzers prüfen.' % code) from None
+                raise ValueError('STARFACE hat die UCI-Abfrage abgewiesen (Code %s). API-/UCI-Berechtigung des verknüpften Benutzers prüfen. STARFACE-Debug: %s' % (code, debug)) from None
             except (ExpatError, ValueError, TypeError):
-                raise ValueError('STARFACE lieferte keine gültige XML-RPC-Antwort.') from None
+                raise ValueError('STARFACE lieferte keine gültige XML-RPC-Antwort. STARFACE-Debug: ' + debug) from None
             if len(result) != 1:
-                raise ValueError('Unerwartete STARFACE-Antwort.')
+                raise ValueError('Unerwartete STARFACE-Antwort. STARFACE-Debug: ' + debug)
             return result[0]
         except OSError:
             raise ValueError('STARFACE für Anruflisten nicht erreichbar. Netzwerk und TLS-Verbindung prüfen.') from None
@@ -80,7 +131,6 @@ def server_info(config, client_factory=integrations.Client):
         status, payload, _ = client_factory(config['domain']).request('/rest/server/version', headers)
         version = payload.get('version') if isinstance(payload, dict) else payload
         # Display only a version number, never arbitrary server response content.
-        import re
         if status == 200 and isinstance(version, str) and re.fullmatch(r'\d+(?:\.\d+){1,5}(?:[-+][a-zA-Z0-9._-]+)?', version):
             return {'version': version, 'version_note': ''}
         return {'version': None, 'version_note': 'Version nicht verfügbar' + (' (keine Berechtigung).' if status == 403 else '.')}
