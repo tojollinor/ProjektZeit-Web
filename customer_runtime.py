@@ -3,13 +3,16 @@ import json
 import threading
 from urllib.parse import urlparse
 import customer_data
+import starface_directory
 
 
 def install(app):
     original_init = app.init_db
     def init_db(create_admin=True):
         original_init(create_admin)
-        with app.db() as c: customer_data.migrate(c)
+        with app.db() as c:
+            customer_data.migrate(c)
+            starface_directory.migrate(c)
     app.init_db = init_db
 
     # Provider data is stored once globally per user. Customer records only keep
@@ -73,7 +76,7 @@ def install(app):
       '/api/v1/customers/data','/api/v1/customers/assign','/api/v1/customers/profile',
       '/api/v1/customers/detail','/api/v1/customers/activity','/api/v1/customers/phone',
       '/api/v1/customers/contact','/api/v1/customers/contact-phone','/api/v1/customers/device',
-      '/api/v1/customers/workshop'
+      '/api/v1/customers/workshop','/api/v1/starface/users','/api/v1/starface/users/save'
     }
     def do_POST(self):
         path=urlparse(self.path).path
@@ -86,6 +89,21 @@ def install(app):
         if not session:return
         uid=session['id']
         try:
+            if path=='/api/v1/starface/users/save':
+                with app.db() as c:
+                    starface_directory.save_manual(c,uid,body.get('extension'),body.get('name'))
+                    return self.send_json(200,{'ok':True,'users':starface_directory.list_all(c,uid)})
+            if path=='/api/v1/starface/users':
+                auto={'imported':0,'errors':[]}
+                try:
+                    with app.db() as c: config=app.starface_oauth.access(c,uid,app.DATA_DIR)
+                    with app.db() as c:
+                        auto=starface_directory.refresh(c,uid,config)
+                        users=starface_directory.list_all(c,uid)
+                except (ValueError,OSError) as error:
+                    auto['errors'].append(str(error))
+                    with app.db() as c: users=starface_directory.list_all(c,uid)
+                return self.send_json(200,{'users':users,'auto':auto})
             if path in ('/api/v1/customers/detail','/api/v1/customers/activity'):
                 refresh_teamviewer(uid)
             with app.db() as c:
