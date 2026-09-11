@@ -6,7 +6,7 @@
   <meta name="description" content="ProjektZeit – sichere, webbasierte Zeiterfassung">
   <title>ProjektZeit Web</title>
   <link rel="icon" href="/projektzeit.ico">
-  <link rel="stylesheet" href="/portal.css?v=0.7.0-3">
+  <link rel="stylesheet" href="/portal.css?v=0.7.0-4">
   <link rel="stylesheet" href="/styles.css?v=0.6.0">
   <link rel="stylesheet" href="/workday.css?v=0.6.0">
   <link rel="stylesheet" href="/integrations.css?v=0.6.0">
@@ -63,75 +63,26 @@
         <div class="panel timeline-panel">
           <div class="panel-head timeline-head"><div><p class="eyebrow">TAGESVERLAUF</p><h3>Aufträge und freie Zeiten</h3></div><div class="date-controls"><button id="day-prev" class="icon-control" aria-label="Vorheriger Tag">‹</button><input id="timeline-date" type="date" aria-label="Tag auswählen"><button id="day-today" class="secondary">Heute</button><button id="day-next" class="icon-control" aria-label="Nächster Tag">›</button></div></div>
           <div class="zoom-controls"><small>Mausrad: zoomen · Scrollleiste: verschieben · Balken anklicken: Details</small><button id="zoom-reset" class="secondary subtle" type="button">Ganzer Tag · 100 %</button></div>
-          <div class="timeline-scroll">
-            <div class="timeline-layout">
-            <div class="timeline-hours" aria-hidden="true"><span>00:00</span><span>03:00</span><span>06:00</span><span>09:00</span><span>12:00</span><span>15:00</span><span>18:00</span><span>21:00</span><span>24:00</span></div>
-            <div id="timeline-track" class="timeline-track" aria-label="Zeitstrahl von 00:00 bis 24:00"></div>
-            </div>
-          </div>
+          <div class="timeline-scroll"><div class="timeline-layout"><div class="timeline-hours" aria-hidden="true"><span>00:00</span><span>03:00</span><span>06:00</span><span>09:00</span><span>12:00</span><span>15:00</span><span>18:00</span><span>21:00</span><span>24:00</span></div><div id="timeline-track" class="timeline-track" aria-label="Zeitstrahl von 00:00 bis 24:00"></div></div></div>
           <div id="timeline-summary" class="timeline-summary"></div>
         </div>
-        <div class="panel">
-          <div class="panel-head"><div><p class="eyebrow">VERLAUF</p><h3>Letzte Stempelungen</h3></div><div class="panel-actions"><button id="csv-import-button" class="secondary subtle" type="button">CSV importieren</button><button id="csv-export-button" class="secondary subtle" type="button">CSV exportieren</button><button class="secondary" data-go="tracking">Neue Zeit erfassen</button></div></div>
-          <input id="csv-file" class="hidden" type="file" accept=".csv,text/csv" aria-label="CSV-Datei auswählen">
-          <div class="table-wrap"><table><thead><tr><th>Projekt / Bemerkung</th><th>Kunde</th><th>Kategorie</th><th>Start / Ende</th><th>Dauer</th><th>Bearbeiten</th></tr></thead><tbody id="entry-table"></tbody></table></div>
-        </div>
+        <div class="panel"><div class="panel-head"><div><p class="eyebrow">VERLAUF</p><h3>Letzte Stempelungen</h3></div><div class="panel-actions"><button id="csv-import-button" class="secondary subtle" type="button">CSV importieren</button><button id="csv-export-button" class="secondary subtle" type="button">CSV exportieren</button><button class="secondary" data-go="tracking">Neue Zeit erfassen</button></div></div><input id="csv-file" class="hidden" type="file" accept=".csv,text/csv" aria-label="CSV-Datei auswählen"><div class="table-wrap"><table><thead><tr><th>Projekt / Bemerkung</th><th>Kunde</th><th>Kategorie</th><th>Start / Ende</th><th>Dauer</th><th>Bearbeiten</th></tr></thead><tbody id="entry-table"></tbody></table></div></div>
       </section>
 
-      <section id="view-tracking" class="view">
-        <div class="tracking-grid">
-          <article class="timer-card">
-            <p class="eyebrow">AKTUELLE ZEIT</p><div id="timer">00:00:00</div>
-            <div class="field-grid">
-              <label>Projekt<select id="project-select"></select></label>
-              <label>Zeitkategorie<select id="category-select"></select></label>
-            </div>
-            <label>Bemerkung<textarea id="note" rows="3" placeholder="Optionaler Hinweis zur Tätigkeit"></textarea></label>
-            <button id="timer-button" class="primary wide">Zeiterfassung starten</button>
-          </article>
-          <div class="stack">
-            <article class="panel compact"><h3>Aktive Projekte</h3><p class="muted">Aktivierte Projekte erscheinen oben in der Schnellwahl. Es läuft immer nur ein Timer.</p><div id="project-activity"></div></article>
-            <article class="panel compact"><div class="panel-head"><div><p class="eyebrow">STAMMDATEN</p><h3>Neuer Kunde</h3></div></div><form id="customer-form" class="inline-form"><input id="customer-name" placeholder="Kundenname" required><button class="secondary">Anlegen</button></form></article>
-            <article class="panel compact"><div class="panel-head"><div><p class="eyebrow">STAMMDATEN</p><h3>Neues Projekt</h3></div></div><form id="project-form"><label>Projektname<input id="project-name" required></label><label>Kunde<select id="project-customer"></select></label><button class="secondary">Projekt anlegen</button></form></article>
-            <article class="panel compact"><div class="panel-head"><div><p class="eyebrow">STAMMDATEN</p><h3>Neue Zeitkategorie</h3></div></div><form id="category-form" class="inline-form"><input id="category-name" placeholder="z. B. Support" required><button class="secondary">Anlegen</button></form></article>
-          </div>
-        </div>
-      </section>
+      <section id="view-tracking" class="view"><div class="tracking-grid"><article class="timer-card"><p class="eyebrow">AKTUELLE ZEIT</p><div id="timer">00:00:00</div><div class="field-grid"><label>Projekt<select id="project-select"></select></label><label>Zeitkategorie<select id="category-select"></select></label></div><label>Bemerkung<textarea id="note" rows="3" placeholder="Optionaler Hinweis zur Tätigkeit"></textarea></label><button id="timer-button" class="primary wide">Zeiterfassung starten</button></article><div class="stack"><article class="panel compact"><h3>Aktive Projekte</h3><p class="muted">Aktivierte Projekte erscheinen oben in der Schnellwahl. Es läuft immer nur ein Timer.</p><div id="project-activity"></div></article><article class="panel compact"><div class="panel-head"><div><p class="eyebrow">STAMMDATEN</p><h3>Neuer Kunde</h3></div></div><form id="customer-form" class="inline-form"><input id="customer-name" placeholder="Kundenname" required><button class="secondary">Anlegen</button></form></article><article class="panel compact"><div class="panel-head"><div><p class="eyebrow">STAMMDATEN</p><h3>Neues Projekt</h3></div></div><form id="project-form"><label>Projektname<input id="project-name" required></label><label>Kunde<select id="project-customer"></select></label><button class="secondary">Projekt anlegen</button></form></article><article class="panel compact"><div class="panel-head"><div><p class="eyebrow">STAMMDATEN</p><h3>Neue Zeitkategorie</h3></div></div><form id="category-form" class="inline-form"><input id="category-name" placeholder="z. B. Support" required><button class="secondary">Anlegen</button></form></article></div></div></section>
 
-      <section id="view-users" class="view">
-        <div class="users-grid">
-          <div class="panel"><div class="panel-head"><div><p class="eyebrow">ZUGRIFFE</p><h3>Benutzerverwaltung</h3></div></div><div id="user-list" class="user-list"></div></div>
-          <div class="panel"><div class="panel-head"><div><p class="eyebrow">NEUER ZUGANG</p><h3>Benutzer anlegen</h3></div></div><form id="user-form"><label>Benutzername<input id="new-username" required></label><label>Passwort<input id="new-password" type="password" minlength="12" required></label><label>Rolle<select id="new-role"><option value="user">Benutzer</option><option value="admin">Administrator</option></select></label><button class="primary">Benutzer anlegen</button></form></div>
-        </div>
-      </section>
-      <section id="view-settings" class="view">
-        <article class="panel"><h3>Windows-Client</h3><p>STARFACE sicher im Browser verknüpfen und Arbeitsbeginn/-ende erfassen.</p><p><a class="primary" href="https://github.com/tojollinor/ProjektZeit-Web/releases/download/windows-client/ProjektZeit-Windows.exe" target="_blank" rel="noopener noreferrer">Windows-Client herunterladen (.exe)</a></p><p class="muted">Download direkt von GitHub, verfügbar nach dem ersten erfolgreichen Windows-Build. Die EXE ist noch nicht signiert.</p></article>
-        <div class="settings-intro"><p class="eyebrow">SCHNITTSTELLEN</p><h3>Verbindungen &amp; Diagnose</h3><p class="muted">Zugangsdaten für deinen Benutzer konfigurieren. Der Debug-Test prüft die eingegebenen Daten, ohne Stempelungen zu erzeugen. Speichern ist ein eigener Schritt.</p></div>
-        <div id="integration-cards" class="integration-grid"></div>
-      </section>
+      <section id="view-users" class="view"><div class="users-grid"><div class="panel"><div class="panel-head"><div><p class="eyebrow">ZUGRIFFE</p><h3>Benutzerverwaltung</h3></div></div><div id="user-list" class="user-list"></div></div><div class="panel"><div class="panel-head"><div><p class="eyebrow">NEUER ZUGANG</p><h3>Benutzer anlegen</h3></div></div><form id="user-form"><label>Benutzername<input id="new-username" required></label><label>Passwort<input id="new-password" type="password" minlength="12" required></label><label>Rolle<select id="new-role"><option value="user">Benutzer</option><option value="admin">Administrator</option></select></label><button class="primary">Benutzer anlegen</button></form></div></div></section>
+      <section id="view-settings" class="view"><article class="panel"><h3>Windows-Client</h3><p>STARFACE sicher im Browser verknüpfen und Arbeitsbeginn/-ende erfassen.</p><p><a class="primary" href="https://github.com/tojollinor/ProjektZeit-Web/releases/download/windows-client/ProjektZeit-Windows.exe" target="_blank" rel="noopener noreferrer">Windows-Client herunterladen (.exe)</a></p><p class="muted">Download direkt von GitHub, verfügbar nach dem ersten erfolgreichen Windows-Build. Die EXE ist noch nicht signiert.</p></article><div class="settings-intro"><p class="eyebrow">SCHNITTSTELLEN</p><h3>Verbindungen &amp; Diagnose</h3><p class="muted">Zugangsdaten für deinen Benutzer konfigurieren. Der Debug-Test prüft die eingegebenen Daten, ohne Stempelungen zu erzeugen. Speichern ist ein eigener Schritt.</p></div><div id="integration-cards" class="integration-grid"></div></section>
       <section id="view-zammad" class="view provider-view" data-source="zammad"></section>
       <section id="view-starface" class="view provider-view" data-source="starface"></section>
       <section id="view-teamviewer" class="view provider-view" data-source="teamviewer"></section>
       <div id="toast" role="status"></div>
     </main>
   </div>
-  <dialog id="entry-dialog" aria-labelledby="edit-title"><form id="entry-edit-form">
-    <h2 id="edit-title">Stempelung bearbeiten</h2>
-    <p id="edit-hint" class="muted"></p>
-    <label>Projekt<select id="edit-project"></select></label>
-    <label>Zeitkategorie<select id="edit-category"></select></label>
-    <div class="field-grid"><label>Start<input id="edit-start" type="datetime-local" step="1" required></label><label>Ende<input id="edit-end" type="datetime-local" step="1"></label></div>
-    <label>Bemerkung<textarea id="edit-note" rows="4" maxlength="2000"></textarea></label>
-    <p id="edit-error" class="error" role="alert"></p>
-    <div class="panel-actions"><button id="edit-cancel" type="button" class="secondary subtle">Abbrechen</button><button type="submit" class="primary">Speichern</button></div>
-  </form></dialog>
-  <dialog id="timeline-detail" aria-labelledby="detail-title">
-    <h2 id="detail-title">Stempelung</h2><dl id="detail-fields"></dl>
-    <p id="detail-conflict" class="timeline-conflict"></p>
-    <div class="panel-actions"><button id="detail-close" type="button" class="secondary">Schließen</button></div>
-  </dialog>
+  <dialog id="entry-dialog" aria-labelledby="edit-title"><form id="entry-edit-form"><h2 id="edit-title">Stempelung bearbeiten</h2><p id="edit-hint" class="muted"></p><label>Projekt<select id="edit-project"></select></label><label>Zeitkategorie<select id="edit-category"></select></label><div class="field-grid"><label>Start<input id="edit-start" type="datetime-local" step="1" required></label><label>Ende<input id="edit-end" type="datetime-local" step="1"></label></div><label>Bemerkung<textarea id="edit-note" rows="4" maxlength="2000"></textarea></label><p id="edit-error" class="error" role="alert"></p><div class="panel-actions"><button id="edit-cancel" type="button" class="secondary subtle">Abbrechen</button><button type="submit" class="primary">Speichern</button></div></form></dialog>
+  <dialog id="timeline-detail" aria-labelledby="detail-title"><h2 id="detail-title">Stempelung</h2><dl id="detail-fields"></dl><p id="detail-conflict" class="timeline-conflict"></p><div class="panel-actions"><button id="detail-close" type="button" class="secondary">Schließen</button></div></dialog>
   <script src="/starface-connect.js?v=0.7.0-3" defer></script>
   <script src="/app.js?v=0.7.0-5" defer></script>
-  <script src="/portal.js?v=0.7.0-8" defer></script>
+  <script src="/portal.js?v=0.7.0-9" defer></script>
 </body>
 </html>
