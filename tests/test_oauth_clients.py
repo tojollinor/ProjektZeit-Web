@@ -24,22 +24,32 @@ class OAuthTests(unittest.TestCase):
             c.execute('INSERT INTO sessions VALUES(?,?,?,?)', (session['token_hash'], self.uid, 'csrf', int(time.time()) + 600))
         return session
 
-    def begin(self, session):
-        with patch.dict('os.environ', {'APP_PUBLIC_URL':'https://time.example.com'}), patch.object(oauth, 'request_url', return_value={
-            'authorization_endpoint':'https://pbx.example.com/auth/authorize', 'token_endpoint':'https://pbx.example.com/auth/token'}):
+    def begin(self, session, metadata=None):
+        discovery = {
+            'authorization_endpoint':'https://pbx.example.com/auth/authorize',
+            'token_endpoint':'https://pbx.example.com/auth/token',
+            'token_endpoint_auth_methods_supported':['none'],
+            'code_challenge_methods_supported':['S256']}
+        if metadata:
+            discovery.update(metadata)
+        with patch.dict('os.environ', {'APP_PUBLIC_URL':'https://time.example.com'}), patch.object(oauth, 'request_url', return_value=discovery):
             return oauth.start(app.db, session, {'domain':'https://pbx.example.com'}, app.DATA_DIR)
 
     def test_pkce_callback_encryption_and_replay(self):
         session = self.session()
         result = self.begin(session)
         query = parse_qs(urlsplit(result['url']).query)
+        self.assertEqual(query['client_id'], ['rest-client'])
         self.assertEqual(query['code_challenge_method'], ['S256'])
         self.assertEqual(query['scope'], ['pbx-login'])
         self.assertEqual(query['redirect_uri'], ['https://time.example.com' + oauth.CALLBACK])
         token = {'access_token':'private-access', 'refresh_token':'private-refresh', 'expires_in':3600, 'token_type':'Bearer'}
         with patch.object(oauth,'request_url',return_value=token) as request:
             oauth.finish(app.db, session, {'state':query['state'], 'code':['test-code']}, app.DATA_DIR)
-            verifier = request.call_args.args[2]['code_verifier']
+            body = request.call_args.args[2]
+            verifier = body['code_verifier']
+            self.assertEqual(body['client_id'], 'rest-client')
+            self.assertNotIn('client_secret', body)
             self.assertEqual(query['code_challenge'][0],base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip('='))
             with self.assertRaises(ValueError):
                 oauth.finish(app.db, session, {'state':query['state'], 'code':['test-code']}, app.DATA_DIR)
@@ -53,20 +63,39 @@ class OAuthTests(unittest.TestCase):
         session = dict(self.session(), bearer=True)
         with patch.object(oauth, 'request_url', return_value={
                 'authorization_endpoint':'https://pbx.example.com/auth',
-                'token_endpoint':'https://pbx.example.com/token'}):
+                'token_endpoint':'https://pbx.example.com/token',
+                'token_endpoint_auth_methods_supported':['none'],
+                'code_challenge_methods_supported':['S256']}):
             result = oauth.start(app.db, session, {'domain':'https://pbx.example.com',
-                                'redirect_uri':'http://127.0.0.1:49152/callback'}, app.DATA_DIR)
+                                'redirect_uri':'http://127.0.0.1:49152'}, app.DATA_DIR)
         query = parse_qs(urlsplit(result['url']).query)
-        self.assertEqual(query['redirect_uri'], ['http://127.0.0.1:49152/callback'])
+        self.assertEqual(query['redirect_uri'], ['http://127.0.0.1:49152'])
         with patch.object(oauth, 'request_url', return_value={
                 'access_token':'secret', 'expires_in':3600, 'token_type':'Bearer'}) as request:
             oauth.finish(app.db, session, {'state':query['state'], 'code':['code']}, app.DATA_DIR)
             self.assertEqual(request.call_args.args[2]['redirect_uri'], query['redirect_uri'][0])
-        for invalid in ('https://evil.example.com/callback', 'http://localhost:5000/callback',
-                        'http://127.0.0.1:5000/other', 'http://127.0.0.1:5000/callback?x=1',
-                        'http://127.0.0.1:80/callback', 'http://user@127.0.0.1:5000/callback'):
+        for invalid in ('https://evil.example.com', 'http://localhost:5000',
+                        'http://127.0.0.1:5000/callback', 'http://127.0.0.1:5000/?x=1',
+                        'http://127.0.0.1:80', 'http://user@127.0.0.1:5000'):
             with self.assertRaises(ValueError):
                 oauth.local_callback(invalid)
+
+    def test_discovery_requires_public_client_and_s256(self):
+        session = self.session()
+        with patch.object(oauth, 'request_url', return_value={
+                'authorization_endpoint':'https://pbx.example.com/auth',
+                'token_endpoint':'https://pbx.example.com/token',
+                'token_endpoint_auth_methods_supported':['client_secret_basic'],
+                'code_challenge_methods_supported':['S256']}):
+            with self.assertRaisesRegex(ValueError, 'Public-Client-Modus'):
+                oauth.start(app.db, session, {'domain':'https://pbx.example.com'}, app.DATA_DIR)
+        with patch.object(oauth, 'request_url', return_value={
+                'authorization_endpoint':'https://pbx.example.com/auth',
+                'token_endpoint':'https://pbx.example.com/token',
+                'token_endpoint_auth_methods_supported':['none'],
+                'code_challenge_methods_supported':['plain']}):
+            with self.assertRaisesRegex(ValueError, 'PKCE S256'):
+                oauth.start(app.db, session, {'domain':'https://pbx.example.com'}, app.DATA_DIR)
 
     def test_state_session_expiry_and_host_binding(self):
         session=self.session(); query=parse_qs(urlsplit(self.begin(session)['url']).query)
@@ -83,12 +112,14 @@ class OAuthTests(unittest.TestCase):
 
     def test_refresh_rotates_and_provider_token_is_redacted(self):
         data=dict(origin='https://pbx.example.com',token_endpoint='https://pbx.example.com/token',client_id='rest-client',
-                  redirect_uri='https://time.example.com'+oauth.CALLBACK,access_token='old-access',refresh_token='old-refresh',expires_at=0)
+                  redirect_uri='https://time.example.com'+oauth.CALLBACK,token_auth_methods=['none'],access_token='old-access',refresh_token='old-refresh',expires_at=0)
         with app.db() as c:
             c.execute('INSERT INTO oauth_tokens VALUES(?,?)',(self.uid,oauth.pack(data,app.DATA_DIR)))
             with patch.object(oauth,'request_url',return_value={'access_token':'new-access','refresh_token':'new-refresh','expires_in':3600,'token_type':'Bearer'}) as req:
                 actual=oauth.access(c,self.uid,app.DATA_DIR)
                 self.assertEqual(req.call_args.args[2]['grant_type'],'refresh_token')
+                self.assertEqual(req.call_args.args[2]['client_id'],'rest-client')
+                self.assertNotIn('client_secret',req.call_args.args[2])
                 self.assertEqual(actual['secret'],'new-access')
             saved=oauth.unpack(c.execute('SELECT secret FROM oauth_tokens').fetchone()['secret'],app.DATA_DIR)
             self.assertEqual(saved['refresh_token'],'new-refresh')
