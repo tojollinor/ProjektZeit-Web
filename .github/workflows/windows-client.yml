@@ -14,13 +14,10 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-dotnet@v4
         with:
-          python-version: '3.12'
-      - run: python -m pip install pyinstaller==6.11.1 Pillow==11.3.0
-      - name: Logo prüfen
-        run: python -c "from PIL import Image; im = Image.open('static/projektzeit-logo.png'); im.verify()"
-      - run: python -m PyInstaller --onefile --windowed --name ProjektZeit-Windows --icon static/projektzeit-logo.png windows-client/client.py
+          dotnet-version: '8.0.x'
+      - run: dotnet publish windows-client/ProjektZeit.Windows.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o dist
       - uses: actions/upload-artifact@v4
         with:
           name: ProjektZeit-Windows

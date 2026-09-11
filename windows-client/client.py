@@ -48,7 +48,7 @@ class Client:
         self.password = self.entry(frame, 'ProjektZeit-Passwort', secret=True)
         self.buttons = []
         self.button(frame, 'Anmelden', self.login)
-        self.pbx = self.entry(frame, 'STARFACE-Domain', 'https://starface.it-walther.de')
+        self.pbx = self.entry(frame, 'STARFACE-Domain')
         self.button(frame, 'STARFACE im Browser verknüpfen', self.oauth)
         row = ttk.Frame(frame)
         row.pack(fill='x', pady=8)
