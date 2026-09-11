@@ -68,8 +68,10 @@ class ProviderListsTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             oauth.request_url('https://pbx.example.com/discovery', 'https://pbx.example.com')
         self.assertEqual(factory.return_value.request.call_count, 4)
-        factory.return_value.request.reset_mock()
-        with self.assertRaises(ValueError):
-            oauth.request_url('https://pbx.example.com/token', 'https://pbx.example.com', b'code=test')
-        self.assertEqual(factory.return_value.request.call_count, 1)
-        self.assertNotIn('allow_discovery_redirect', factory.return_value.request.call_args.kwargs)
+        with patch('starface_oauth.integrations.Connection') as connection:
+            response = Mock(status=302)
+            response.read.return_value = b''
+            connection.return_value.getresponse.return_value = response
+            with self.assertRaises(ValueError):
+                oauth.request_url('https://pbx.example.com/token', 'https://pbx.example.com', {'code':'test'})
+            self.assertEqual(connection.return_value.request.call_count, 1)
