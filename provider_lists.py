@@ -1,5 +1,7 @@
-"""Normalized read-only provider lists. Credentials stay on the server."""
+"""Normalized provider lists plus safe raw fields for customer assignment."""
 import base64
+import hashlib
+import json
 import re
 from html.parser import HTMLParser
 from datetime import datetime, timezone, timedelta
@@ -41,6 +43,48 @@ def get(client, path, headers):
     return data
 
 
+def safe_raw(value, secret=''):
+    """Keep provider data visible while excluding credentials and unsafe huge/nested values."""
+    def clean(v, depth=0):
+        if depth > 3:
+            return '[verschachtelt]'
+        if isinstance(v, dict):
+            result = {}
+            for key, item in v.items():
+                name = str(key)[:120]
+                if re.search(r'pass|secret|token|auth|cookie', name, re.I):
+                    continue
+                result[name] = clean(item, depth+1)
+            return result
+        if isinstance(v, list):
+            return [clean(x, depth+1) for x in v[:40]]
+        if isinstance(v, (str, int, float, bool)) or v is None:
+            out = str(v)[:2000] if isinstance(v, str) else v
+            return out.replace(secret, '[ausgeblendet]') if isinstance(out, str) and secret else out
+        return str(v)[:500]
+    return clean(value)
+
+
+def external_key(provider, raw):
+    for key in ('id', 'connection_id', 'sessionid', 'deviceid', 'ticket_id', 'number'):
+        value = raw.get(key) if isinstance(raw, dict) else None
+        if value not in (None, ''):
+            return provider + ':' + key + ':' + str(value)[:180]
+    wire = json.dumps(raw, sort_keys=True, ensure_ascii=False, default=str, separators=(',', ':'))
+    return provider + ':sha256:' + hashlib.sha256(wire.encode()).hexdigest()
+
+
+def raw_columns(records):
+    names = set()
+    for record in records:
+        if isinstance(record, dict):
+            names.update(str(k) for k in record.keys())
+    priority = ['id','number','title','name','organization_id','organization','customer_id','customer','deviceid','devicename','username','start_date','end_date','duration','state','state_id','created_at','updated_at']
+    ordered = [x for x in priority if x in names]
+    ordered.extend(sorted(names-set(ordered), key=str.lower))
+    return ordered
+
+
 def teamviewer(config, client):
     headers = {'Authorization': 'Bearer ' + config['secret']}
     now = datetime.now(timezone.utc)
@@ -68,11 +112,18 @@ def teamviewer(config, client):
         offsets.add(str(offset));params['offset'] = str(offset)
         limited = page == 4
     records.sort(key=lambda r: stamp(r.get('start_date')) or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
-    rows = [dict(cells=[text(r.get('devicename'), 'Unbenanntes Gerät'), text(r.get('username')),
-                       date(r.get('start_date')), date(r.get('end_date')), duration(r.get('start_date'),r.get('end_date'))]) for r in records[:100]]
-    return dict(columns=['Gerätename','Benutzer','Beginn','Ende','Verbindungsdauer'], date_columns=[2,3], rows=rows,
+    rows=[]
+    for r in records[:100]:
+        raw=safe_raw(r,config['secret'])
+        rows.append(dict(cells=[text(r.get('devicename'), 'Unbenanntes Gerät'), text(r.get('username')),
+                       date(r.get('start_date')), date(r.get('end_date')), duration(r.get('start_date'),r.get('end_date'))],
+                       raw=raw,external_key=external_key('teamviewer',raw),
+                       customer_hint={'name': text(r.get('username'), '').strip('–'), 'contact_person':'', 'phones':[],
+                                      'device_id': text(r.get('deviceid'), '').strip('–'), 'device_name': text(r.get('devicename'), '').strip('–')}))
+    return dict(columns=['Gerätename','Benutzer','Beginn','Ende','Verbindungsdauer'], raw_columns=raw_columns([r['raw'] for r in rows]),
+                date_columns=[2,3], rows=rows,
                 note=(f'Letzte {days} Tage' if days else 'API-Standardzeitraum (ohne Datumsfilter)') + ' · neueste geladene Verbindungen zuerst · maximal 100 angezeigt.' +
-                     (' TeamViewer meldet keine Verbindungen. Bitte Zeitraum, Verbindungsprotokollierung und Zugriff des Script-Tokens auf die Berichte prüfen. Ein gültiger Token allein garantiert keine Berichtsdaten.' if not rows else '') +
+                     (' TeamViewer meldet keine Verbindungen. Bitte Zeitraum, Verbindungsprotokollierung und Zugriff des Script-Tokens auf die Berichte prüfen.' if not rows else '') +
                      (' Die API-Liste ist begrenzt; weitere Verbindungen können vorhanden sein.' if limited else ''))
 
 
@@ -91,8 +142,6 @@ def zammad(config, client):
         oid=str(ticket.get('organization_id') or '')
         if not organization and re.fullmatch(r'[1-9][0-9]*',oid):
             if oid not in organizations:
-                # Expansion normally resolves this; cap fallback calls to avoid
-                # an unbounded request fan-out for older Zammad installations.
                 if len(organizations) < 10:
                     status, item, _ = client.request('/api/v1/organizations/'+oid,headers)
                     organizations[oid]=text(item.get('name'),'Name nicht verfügbar') if status==200 and isinstance(item,dict) else 'Name nicht verfügbar'
@@ -100,11 +149,17 @@ def zammad(config, client):
             organization=organizations[oid]
         state=text(ticket.get('state'))
         tid=str(ticket.get('id') or '')
+        raw=safe_raw(ticket,config['secret'])
+        customer=ticket.get('customer') if isinstance(ticket.get('customer'),dict) else {}
         rows.append(dict(cells=[text(ticket.get('id')),text(ticket.get('number')),text(ticket.get('title')),
                                 organization or 'Keine Organisation',states.get(state.lower(),state),date(ticket.get('updated_at'))],
-                         ticket_id=tid if re.fullmatch(r'[1-9][0-9]*',tid) else None))
-    return dict(columns=['ID','Ticketnummer','Titel','Organisation','Status','Aktualisiert'],date_columns=[5],rows=rows,
-                note='Bis zu 100 Tickets · Klick öffnet die Ticketdetails und Nachrichten in ProjektZeit.')
+                         ticket_id=tid if re.fullmatch(r'[1-9][0-9]*',tid) else None,
+                         raw=raw,external_key=external_key('zammad',raw),
+                         customer_hint={'name': organization or text(customer.get('organization'), '').strip('–') or text(customer.get('name'), '').strip('–'),
+                                        'contact_person': text(customer.get('name'), '').strip('–'),
+                                        'email': text(customer.get('email'), '').strip('–'), 'phones': []}))
+    return dict(columns=['ID','Ticketnummer','Titel','Organisation','Status','Aktualisiert'], raw_columns=raw_columns([r['raw'] for r in rows]),date_columns=[5],rows=rows,
+                note='Bis zu 100 Tickets · Klick auf Ticketdetails bleibt verfügbar · Rohdaten enthalten alle von Zammad gelieferten Felder.')
 
 
 def ticket_detail(config, ticket_id, client_factory=integrations.Client):
@@ -131,22 +186,11 @@ def ticket_detail(config, ticket_id, client_factory=integrations.Client):
         if isinstance(article,dict) and article.get('content_type') == 'text/html':
             parser=PlainText(); parser.feed(str(article.get('body') or ''))
             article['body']=''.join(parser.parts); article['content_type']='text/plain'
-    # HTML bodies are returned as data and displayed as inert text by the UI.
-    def scrub(value):
-        if isinstance(value, dict):
-            return {k: scrub(v) for k,v in value.items() if not any(s in k.lower() for s in ('password','token','secret'))}
-        if isinstance(value, list): return [scrub(v) for v in value]
-        if isinstance(value, str) and config['secret']: return value.replace(config['secret'], '[ausgeblendet]')
-        return value
-    return scrub(dict(ticket=ticket, articles=articles))
+    return safe_raw(dict(ticket=ticket, articles=articles), config['secret'])
 
 
 def load(config, client_factory=integrations.Client):
     if config['provider'] not in ('teamviewer','zammad'):
         raise ValueError('Für diese Schnittstelle ist keine Live-Liste eingerichtet.')
     client=client_factory(config['domain'])
-    result=(teamviewer if config['provider']=='teamviewer' else zammad)(config,client)
-    # Filter any accidental reflection of the configured secret in API fields.
-    for row in result['rows']:
-        row['cells']=[value.replace(config['secret'],'[ausgeblendet]') if isinstance(value,str) else value for value in row['cells']]
-    return result
+    return (teamviewer if config['provider']=='teamviewer' else zammad)(config,client)
