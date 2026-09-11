@@ -48,6 +48,25 @@ class OAuthTests(unittest.TestCase):
             self.assertNotIn('private-refresh', row['secret'])
             self.assertEqual(oauth.access(c,self.uid,app.DATA_DIR)['secret'],'private-access')
 
+    def test_native_loopback_callback(self):
+        session = dict(self.session(), bearer=True)
+        with patch.object(oauth, 'request_url', return_value={
+                'authorization_endpoint':'https://pbx.example.com/auth',
+                'token_endpoint':'https://pbx.example.com/token'}):
+            result = oauth.start(app.db, session, {'domain':'https://pbx.example.com',
+                                'redirect_uri':'http://127.0.0.1:49152/callback'}, app.DATA_DIR)
+        query = parse_qs(urlsplit(result['url']).query)
+        self.assertEqual(query['redirect_uri'], ['http://127.0.0.1:49152/callback'])
+        with patch.object(oauth, 'request_url', return_value={
+                'access_token':'secret', 'expires_in':3600, 'token_type':'Bearer'}) as request:
+            oauth.finish(app.db, session, {'state':query['state'], 'code':['code']}, app.DATA_DIR)
+            self.assertEqual(request.call_args.args[2]['redirect_uri'], query['redirect_uri'][0])
+        for invalid in ('https://evil.example.com/callback', 'http://localhost:5000/callback',
+                        'http://127.0.0.1:5000/other', 'http://127.0.0.1:5000/callback?x=1',
+                        'http://127.0.0.1:80/callback', 'http://user@127.0.0.1:5000/callback'):
+            with self.assertRaises(ValueError):
+                oauth.local_callback(invalid)
+
     def test_state_session_expiry_and_host_binding(self):
         session=self.session(); query=parse_qs(urlsplit(self.begin(session)['url']).query)
         with self.assertRaises(ValueError):

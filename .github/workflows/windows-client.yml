@@ -1,0 +1,37 @@
+name: Windows-Client bauen
+on:
+  push:
+    branches: [main]
+    paths: ['windows-client/**', '.github/workflows/windows-client.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: windows-client-release
+  cancel-in-progress: false
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install pyinstaller==6.11.1
+      - run: python -m PyInstaller --onefile --windowed --name ProjektZeit-Windows --icon static/projektzeit-logo.ico windows-client/client.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ProjektZeit-Windows
+          path: dist/ProjektZeit-Windows.exe
+      - name: Windows-Download veröffentlichen
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view windows-client --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create windows-client --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "ProjektZeit Windows-Client" --notes "Windows-Client für ProjektZeit und STARFACE-Anmeldung. Unsig nierte EXE; siehe windows-client/README.md." --latest=false
+            if ($LASTEXITCODE -ne 0) { throw "Release konnte nicht angelegt werden." }
+          }
+          gh release upload windows-client dist/ProjektZeit-Windows.exe --repo $env:GITHUB_REPOSITORY --clobber
+          if ($LASTEXITCODE -ne 0) { throw "Upload fehlgeschlagen." }

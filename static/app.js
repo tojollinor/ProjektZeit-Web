@@ -244,8 +244,8 @@ $('#integration-cards').addEventListener('click',async event=>{
   status.className='integration-status';status.textContent=action==='test'?'Verbindung wird geprüft …':'Wird gespeichert …';output.replaceChildren();output.classList.add('hidden');
   try{
     if(action==='oauth'){
-      const result=await post('/api/v1/integrations/starface/start',{domain:body.domain});
-      location.assign(result.url);return;
+      status.textContent='Bitte den Windows-Client über den Download oben herunterladen und dort STARFACE verknüpfen. STARFACE erlaubt nur lokale Rücksprungadressen. Danach hier den Verbindungstest starten.';
+      return;
     }
     const result=await post('/api/v1/integrations/'+action,action==='remove'?{provider}:body);
     if(action==='test'){

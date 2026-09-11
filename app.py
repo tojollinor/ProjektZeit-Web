@@ -290,6 +290,7 @@ class App(SimpleHTTPRequestHandler):
             return
         routes = {
             '/api/v1/integrations/starface/start': self.start_starface,
+            '/api/v1/integrations/starface/finish': self.finish_starface,
             '/api/v1/integrations/list': self.integration_list,
             '/api/v1/auth/revoke': self.logout,
             '/api/v1/integrations/save': self.save_integration,
@@ -364,12 +365,20 @@ class App(SimpleHTTPRequestHandler):
         return self.send_json(200,{'ok':True})
 
     def start_starface(self, session, body):
-        if session['bearer']:
-            return self.send_json(400, {'error': 'STARFACE bitte im Webportal verknüpfen.'})
         try:
             return self.send_json(200, starface_oauth.start(db, session, body, DATA_DIR))
         except (ValueError, OSError) as error:
             return self.send_json(400, {'error': str(error) if isinstance(error, ValueError) else 'STARFACE OAuth-Endpunkt ist nicht erreichbar.'})
+
+    def finish_starface(self, session, body):
+        if not session['bearer']:
+            return self.send_json(403, {'error': 'Nur für den angemeldeten Windows-Client.'})
+        try:
+            query = {key: [value] for key, value in body.items() if key in ('code', 'state', 'error') and isinstance(value, str)}
+            starface_oauth.finish(db, session, query, DATA_DIR)
+            return self.send_json(200, {'ok': True})
+        except (ValueError, OSError) as error:
+            return self.send_json(400, {'error': str(error) if isinstance(error, ValueError) else 'STARFACE nicht erreichbar.'})
 
     def login(self, body, native=False):
         client = self.client_address[0]

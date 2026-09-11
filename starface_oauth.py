@@ -77,7 +77,22 @@ def unpack(value, directory):
         raise ValueError('OAuth-Daten konnten nicht gelesen werden. Bitte neu verknüpfen.') from None
 
 
+def local_callback(value):
+    parsed = urlsplit(str(value))
+    try:
+        valid = (parsed.scheme == 'http' and parsed.hostname == '127.0.0.1'
+                 and parsed.port and 1024 <= parsed.port <= 65535
+                 and parsed.path == '/callback' and not parsed.query and not parsed.fragment
+                 and not parsed.username and not parsed.password)
+    except ValueError:
+        valid = False
+    if not valid:
+        raise ValueError('Lokale Rücksprungadresse muss http://127.0.0.1:PORT/callback sein.')
+    return str(value)
+
+
 def start(db, session, body, directory):
+    redirect = local_callback(body.get('redirect_uri')) if session.get('bearer') else callback_url()
     origin = integrations.domain(body.get('domain'), 'starface')
     metadata = request_url(origin + '/.well-known/openid-configuration', origin)
     authorization, token = metadata.get('authorization_endpoint', ''), metadata.get('token_endpoint', '')
@@ -87,7 +102,7 @@ def start(db, session, body, directory):
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip('=')
     state = secrets.token_urlsafe(32)
     config = dict(origin=origin, token_endpoint=token, verifier=verifier,
-                  client_id=os.environ.get('STARFACE_CLIENT_ID', 'rest-client'), redirect_uri=callback_url())
+                  client_id=os.environ.get('STARFACE_CLIENT_ID', 'rest-client'), redirect_uri=redirect)
     with db() as c:
         c.execute('DELETE FROM oauth_states WHERE expires_at<? OR owner_id=?', (int(time.time()), session['id']))
         c.execute('INSERT INTO oauth_states VALUES(?,?,?,?,?)',
