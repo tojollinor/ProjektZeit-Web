@@ -60,6 +60,16 @@ def _plain(value):
     return str(value)[:500]
 
 
+def _scrub(value, secret):
+    if isinstance(value, dict):
+        return {k: _scrub(v, secret) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_scrub(v, secret) for v in value]
+    if isinstance(value, str) and secret:
+        return value.replace(secret, '[ausgeblendet]')
+    return value
+
+
 def _external_key(item):
     for key in ('id','callId','uuid','callUuid'):
         value=item.get(key)
@@ -183,11 +193,12 @@ def load(config, rpc_factory=UciClient):
         result_text = str(item.get('result') or ''); status = {'ANSWERED': 'Beantwortet', 'MISSED': 'Verpasst' if direction == 'INBOUND' else 'Nicht erreicht'}.get(result_text, result_text or 'Unbekannt')
         caller = item.get('callerNumber'); caller = caller if isinstance(caller, str) and caller else 'Unbekannt'
         description = item.get('callDescription'); description = description if isinstance(description, str) else ''
-        raw=_plain(item); raw_names.update(raw.keys())
+        raw=_scrub(_plain(item), config['secret']); raw_names.update(raw.keys())
+        hint=_scrub(_customer_hint(description,item), config['secret'])
         cells = ['Eingehend' if direction == 'INBOUND' else 'Ausgehend', status[:100], caller[:500], number[:500], description[:500], start.isoformat() if start else None, end.isoformat() if end else None, seconds_text]
         cells = [v.replace(config['secret'], '[ausgeblendet]') if isinstance(v, str) and config['secret'] else v for v in cells]
         rows.append({'cells': cells, 'duration_seconds': seconds if valid_duration else None, 'end_calculated': bool(end), 'raw': raw,
-                     'external_key': _external_key(item), 'customer_hint': _customer_hint(description,item)})
+                     'external_key': _external_key(item), 'customer_hint': hint})
     total = payload.get('totalCount'); next_offset = offset + len(payload['entries']); has_more = len(payload['entries']) >= 100 and (type(total) is not int or next_offset < total)
     return {'columns': ['Richtung', 'Status', 'Anrufer', 'Angerufene Rufnummer', 'Name / Beschreibung', 'Anrufbeginn', 'Ende (berechnet)', 'Dauer'],
             'raw_columns': sorted(raw_names,key=str.lower), 'date_columns': [5, 6], 'rows': rows, 'next_offset': next_offset if has_more else None,
