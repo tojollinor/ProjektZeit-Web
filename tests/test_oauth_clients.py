@@ -82,20 +82,21 @@ class OAuthTests(unittest.TestCase):
 
     def test_discovery_requires_public_client_and_s256(self):
         session = self.session()
-        with patch.object(oauth, 'request_url', return_value={
-                'authorization_endpoint':'https://pbx.example.com/auth',
-                'token_endpoint':'https://pbx.example.com/token',
-                'token_endpoint_auth_methods_supported':['client_secret_basic'],
-                'code_challenge_methods_supported':['S256']}):
-            with self.assertRaisesRegex(ValueError, 'Public-Client-Modus'):
-                oauth.start(app.db, session, {'domain':'https://pbx.example.com'}, app.DATA_DIR)
-        with patch.object(oauth, 'request_url', return_value={
-                'authorization_endpoint':'https://pbx.example.com/auth',
-                'token_endpoint':'https://pbx.example.com/token',
-                'token_endpoint_auth_methods_supported':['none'],
-                'code_challenge_methods_supported':['plain']}):
-            with self.assertRaisesRegex(ValueError, 'PKCE S256'):
-                oauth.start(app.db, session, {'domain':'https://pbx.example.com'}, app.DATA_DIR)
+        with patch.dict('os.environ', {'APP_PUBLIC_URL':'https://time.example.com'}):
+            with patch.object(oauth, 'request_url', return_value={
+                    'authorization_endpoint':'https://pbx.example.com/auth',
+                    'token_endpoint':'https://pbx.example.com/token',
+                    'token_endpoint_auth_methods_supported':['client_secret_basic'],
+                    'code_challenge_methods_supported':['S256']}):
+                with self.assertRaisesRegex(ValueError, 'Public-Client-Modus'):
+                    oauth.start(app.db, session, {'domain':'https://pbx.example.com'}, app.DATA_DIR)
+            with patch.object(oauth, 'request_url', return_value={
+                    'authorization_endpoint':'https://pbx.example.com/auth',
+                    'token_endpoint':'https://pbx.example.com/token',
+                    'token_endpoint_auth_methods_supported':['none'],
+                    'code_challenge_methods_supported':['plain']}):
+                with self.assertRaisesRegex(ValueError, 'PKCE S256'):
+                    oauth.start(app.db, session, {'domain':'https://pbx.example.com'}, app.DATA_DIR)
 
     def test_state_session_expiry_and_host_binding(self):
         session=self.session(); query=parse_qs(urlsplit(self.begin(session)['url']).query)
