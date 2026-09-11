@@ -13,6 +13,7 @@ import workday
 import integrations
 import database
 import starface_oauth
+import provider_lists
 from datetime import datetime, timezone
 from contextlib import contextmanager
 from http import cookies
@@ -289,6 +290,7 @@ class App(SimpleHTTPRequestHandler):
             return
         routes = {
             '/api/v1/integrations/starface/start': self.start_starface,
+            '/api/v1/integrations/list': self.integration_list,
             '/api/v1/auth/revoke': self.logout,
             '/api/v1/integrations/save': self.save_integration,
             '/api/v1/integrations/test': self.test_integration,
@@ -318,6 +320,21 @@ class App(SimpleHTTPRequestHandler):
             return self.send_json(200,{'ok':True})
         except ValueError as error:
             return self.send_json(400,{'error':str(error)})
+
+    def integration_list(self, session, body):
+        if not integrations.TEST_LOCK.acquire(blocking=False):
+            return self.send_json(429, {'error': 'Es laufen bereits Abfragen. Bitte kurz warten.'})
+        try:
+            with db() as c:
+                row=c.execute('SELECT * FROM integrations WHERE owner_id=? AND provider=?', (session['id'],body.get('provider'))).fetchone()
+                if not row:
+                    raise ValueError('Bitte zuerst die Schnittstelle in den Einstellungen verknüpfen.')
+                config=integrations.config(c,session['id'],dict(provider=row['provider'],domain=row['domain'],username=row['username'],secret=''),DATA_DIR)
+            return self.send_json(200,provider_lists.load(config))
+        except (ValueError,OSError) as error:
+            return self.send_json(400,{'error':str(error) if isinstance(error,ValueError) else 'Schnittstelle nicht erreichbar. Bitte erneut versuchen.'})
+        finally:
+            integrations.TEST_LOCK.release()
 
     def test_integration(self, session, body):
         if not integrations.TEST_LOCK.acquire(blocking=False):

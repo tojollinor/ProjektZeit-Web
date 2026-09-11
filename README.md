@@ -16,7 +16,9 @@ MariaDB 11.4 speichert die Daten dauerhaft im Volume `mariadb-data`. Der Schlüs
 - TeamViewer: Script-Token mit Leserechten für Verbindungsberichte; kein Benutzername oder TOTP nötig.
 - Zammad: Benutzername/Passwort über Basic Authentication, sofern auf der Instanz freigegeben.
 
-Eigene Seiten für Zammad, STARFACE und TeamViewer enthalten durchsuchbare, klar gekennzeichnete Beispiellisten. „Echte Daten laden“ lädt für Administratoren eine bereinigte Live-Probe mit maximal fünf Datensätzen. STARFACE liefert hier Benutzer, noch keine echten Anruflisten. Beispiele erzeugen keine Stempelungen.
+Eigene Seiten für Zammad, STARFACE und TeamViewer enthalten durchsuchbare, klar gekennzeichnete Beispiellisten. „Echte Daten laden“ lädt für Administratoren TeamViewer-Verbindungen der letzten 30 Tage (maximal 100 angezeigt, mit Gerätenamen und Dauer) beziehungsweise bis zu 100 Zammad-Tickets mit Ticketnummer und Organisationsnamen. Ein Ticketklick öffnet das vollständige Ticket in Zammad; dort kann eine Anmeldung nötig sein. STARFACE liefert eine Live-Probe mit maximal fünf Benutzern, noch keine echten Anruflisten. Beispiele erzeugen keine Stempelungen.
+
+Compose verwendet die festen Containernamen `projektzeit-web` und `projektzeit-db`. Die Zeitzone wird für beide über `TZ=Europe/Berlin` in der separaten `.env` gesetzt. Bei mehreren Installationen auf demselben Docker-Host müssen die Containernamen angepasst werden.
 
 ## Windows-Client und App
 

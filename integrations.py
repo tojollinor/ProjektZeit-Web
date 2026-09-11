@@ -145,7 +145,7 @@ class Client:
         self.host,self.port=parsed.hostname,parsed.port or 443
         self.cookies={}
 
-    def request(self,path,headers=None,body=None):
+    def request(self,path,headers=None,body=None,allow_discovery_redirect=False):
         started=time.monotonic()
         conn=Connection(self.host,self.port,timeout=8,context=ssl.create_default_context())
         outgoing={'Accept':'application/json','Content-Type':'application/json','User-Agent':'ProjektZeit/0.7.0',**(headers or {})}
@@ -158,6 +158,8 @@ class Client:
             conn.request('POST' if body is not None else 'GET',path,body=encoded,headers=outgoing)
             response=conn.getresponse()
             if 300 <= response.status < 400:
+                if allow_discovery_redirect and body is None:
+                    return response.status, {'redirect': response.getheader('Location', '')}, 'Discovery-Weiterleitung'
                 raise ValueError('Weiterleitung abgewiesen. Bitte die endgültige API-Domain eintragen.')
             for key,value in response.getheaders():
                 if key.lower()=='set-cookie':

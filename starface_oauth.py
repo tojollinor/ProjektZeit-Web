@@ -5,7 +5,7 @@ import json
 import os
 import secrets
 import time
-from urllib.parse import urlsplit, urlencode
+from urllib.parse import urlsplit, urlencode, urljoin
 from cryptography.fernet import InvalidToken
 import integrations
 
@@ -46,12 +46,24 @@ def endpoint(value, origin):
 
 
 def request_url(url, origin, body=None):
-    target, path = endpoint(url, origin)
-    status, payload, _ = integrations.Client(target).request(path,
-        {'Content-Type': 'application/x-www-form-urlencoded'} if body is not None else {}, body)
-    if not 200 <= status < 300 or not isinstance(payload, dict):
-        raise ValueError('STARFACE OAuth-Anfrage fehlgeschlagen (HTTP %s). Erneut anmelden oder Client-Konfiguration prüfen.' % status)
-    return payload
+    for _ in range(4):
+        target, path = endpoint(url, origin)
+        client = integrations.Client(target)
+        if body is None:
+            status, payload, _ = client.request(path, allow_discovery_redirect=True)
+        else:
+            status, payload, _ = client.request(path, {'Content-Type': 'application/x-www-form-urlencoded'}, body)
+        if body is None and 300 <= status < 400:
+            location = payload.get('redirect') if isinstance(payload, dict) else None
+            if not location:
+                raise ValueError('STARFACE-Discovery lieferte eine Weiterleitung ohne Ziel.')
+            url = urljoin(url, location)
+            endpoint(url, origin)
+            continue
+        if not 200 <= status < 300 or not isinstance(payload, dict):
+            raise ValueError('STARFACE OAuth-Anfrage fehlgeschlagen (HTTP %s). Erneut anmelden oder Client-Konfiguration prüfen.' % status)
+        return payload
+    raise ValueError('Zu viele STARFACE-Discovery-Weiterleitungen.')
 
 
 def pack(data, directory):

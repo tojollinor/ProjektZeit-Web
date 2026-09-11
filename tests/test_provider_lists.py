@@ -1,0 +1,59 @@
+import unittest
+from unittest.mock import Mock, patch
+import provider_lists as lists
+import starface_oauth as oauth
+
+
+class ProviderListsTest(unittest.TestCase):
+    def test_connections_sorted_and_duration(self):
+        client = Mock()
+        client.request.side_effect = [
+            (200, {'records': [{'devicename': 'Alt', 'start_date': '2026-09-01T23:50:00Z', 'end_date': '2026-09-02T00:10:00Z'}], 'next_offset': 'next'}, ''),
+            (200, {'records': [{'devicename': 'Neu', 'start_date': '2026-09-03T10:00:00Z'}]}, '')]
+        result = lists.teamviewer({'secret': 'token'}, client)
+        self.assertEqual(result['columns'][0], 'Gerätename')
+        self.assertEqual([r['cells'][0] for r in result['rows']], ['Neu', 'Alt'])
+        self.assertEqual(result['rows'][1]['cells'][4], '00:20:00')
+        self.assertEqual(result['rows'][0]['cells'][4], '–')
+        self.assertIn('offset=next', client.request.call_args.args[0])
+
+    def test_ticket_names_links_and_cached_organization(self):
+        client = Mock()
+        client.request.side_effect = [(200, [
+            {'id': 7, 'number': '10007', 'title': 'Test', 'organization_id': 2, 'state': 'open'},
+            {'id': 8, 'organization_id': 2},
+            {'id': 'invalid', 'organization': {'name': 'Firma'}}], ''),
+            (200, {'name': 'Kunde'}, '')]
+        result = lists.zammad({'username': 'u', 'secret': 's', 'domain': 'https://support.example.com'}, client)
+        self.assertEqual(result['columns'][:3], ['ID', 'Ticketnummer', 'Titel'])
+        self.assertEqual(result['rows'][0]['cells'][:5], ['7', '10007', 'Test', 'Kunde', 'Offen'])
+        self.assertEqual(result['rows'][1]['cells'][3], 'Kunde')
+        self.assertEqual(client.request.call_count, 2)
+        self.assertEqual(result['rows'][0]['url'], 'https://support.example.com/#ticket/zoom/7')
+        self.assertIsNone(result['rows'][2]['url'])
+
+    @patch('starface_oauth.integrations.Client')
+    def test_relative_discovery_redirect(self, factory):
+        factory.return_value.request.side_effect = [(302, {'redirect': '/auth/discovery'}, ''), (200, {'issuer': 'ok'}, '')]
+        self.assertEqual(oauth.request_url('https://pbx.example.com/.well-known/openid-configuration', 'https://pbx.example.com'), {'issuer': 'ok'})
+        self.assertEqual(factory.return_value.request.call_args.args[0], '/auth/discovery')
+
+    @patch.dict('os.environ', {'STARFACE_OAUTH_ALLOWED_ORIGINS': ''})
+    @patch('starface_oauth.integrations.Client')
+    def test_unsafe_discovery_redirects(self, factory):
+        for target in ('https://evil.example.com/x', 'http://pbx.example.com/x'):
+            factory.return_value.request.return_value = (302, {'redirect': target}, '')
+            with self.assertRaises(ValueError):
+                oauth.request_url('https://pbx.example.com/discovery', 'https://pbx.example.com')
+
+    @patch('starface_oauth.integrations.Client')
+    def test_redirect_loop_and_token_redirect(self, factory):
+        factory.return_value.request.return_value = (302, {'redirect': '/discovery'}, '')
+        with self.assertRaises(ValueError):
+            oauth.request_url('https://pbx.example.com/discovery', 'https://pbx.example.com')
+        self.assertEqual(factory.return_value.request.call_count, 4)
+        factory.return_value.request.reset_mock()
+        with self.assertRaises(ValueError):
+            oauth.request_url('https://pbx.example.com/token', 'https://pbx.example.com', b'code=test')
+        self.assertEqual(factory.return_value.request.call_count, 1)
+        self.assertNotIn('allow_discovery_redirect', factory.return_value.request.call_args.kwargs)
