@@ -1,51 +1,39 @@
-// Preview rows are separate from recorded work and live API data.
-const providerExamples={
-  zammad:{title:'Tickets & Support',description:'Tickets mit Organisationsnamen. Live-Tickets lassen sich direkt in Zammad öffnen.',columns:['ID','Ticketnummer','Titel','Organisation','Status'],rows:[['42','1042','Drucker im Büro einrichten','Musterkunde Nord','Offen'],['43','1043','VPN-Zugang prüfen','Beispiel GmbH','In Bearbeitung'],['44','1044','E-Mail-Konto anlegen','Musterkunde Süd','Wartend']]},
-  starface:{title:'Telefonie & Gespräche',description:'Vorschau einer Gesprächsliste. Die Live-Probe liest aktuell Benutzer; echte Anruflisten benötigen eine zusätzliche UCI-Anbindung.',columns:['Zeit','Kontakt','Richtung','Dauer'],rows:[['09:10','Musterkunde Nord','Eingehend','00:08:12'],['10:35','Beispiel GmbH','Ausgehend','00:04:36'],['11:50','Musterkunde Süd','Verpasst','–']]},
-  teamviewer:{title:'Fernwartung & Verbindungen',description:'Die letzten Fernwartungen mit Gerätenamen, Beginn, Ende und Verbindungsdauer.',columns:['Gerätename','Benutzer','Beginn','Ende','Verbindungsdauer'],rows:[['LAPTOP-03','Beispielbenutzer','13:00','13:20','00:20:00'],['SERVER-02','Beispielbenutzer','10:15','10:45','00:30:00'],['BÜRO-PC-01','Beispielbenutzer','09:30','09:55','00:25:00']]}
-};
-for(const section of document.querySelectorAll('.provider-view')){
-  const provider=section.dataset.source,info=providerExamples[provider];
-  section.innerHTML=`<article class="panel"><p class="eyebrow">${esc(provider.toUpperCase())}</p><h3>${esc(info.title)}</h3><p class="provider-note">${esc(info.description)}</p><span class="provider-label">Beispieldaten · keine echten Aktivitäten</span><div class="provider-toolbar"><input type="search" placeholder="Liste durchsuchen …" aria-label="Liste durchsuchen"><button class="secondary" data-example>Beispiele anzeigen</button><button class="primary admin-only" data-live>Echte Daten laden</button></div><p class="provider-status" role="status"></p><div class="table-wrap"><table><thead></thead><tbody></tbody></table></div></article>`;
-  let columns=info.columns,rows=info.rows.map(cells=>({cells}));
-  function render(){
-    const q=section.querySelector('input').value.toLocaleLowerCase();
-    const filtered=rows.filter(row=>row.cells.join(' ').toLocaleLowerCase().includes(q));
-    section.querySelector('thead').innerHTML='<tr>'+columns.map(x=>`<th>${esc(x)}</th>`).join('')+'</tr>';
-    section.querySelector('tbody').innerHTML=filtered.length?filtered.map((row,index)=>`<tr ${row.url?'class="ticket-link-row" tabindex="0" role="link" aria-label="Ticket in Zammad öffnen"':''} data-index="${index}">`+row.cells.map((x,col)=>`<td>${row.url&&col===2?`<a href="${attr(row.url)}" target="_blank" rel="noopener noreferrer">${esc(x)}</a>`:esc(x)}</td>`).join('')+'</tr>').join(''):`<tr><td colspan="${Math.max(1,columns.length)}">Keine Einträge vorhanden.</td></tr>`;
-    for(const tr of section.querySelectorAll('.ticket-link-row')){
-      const open=()=>window.open(filtered[Number(tr.dataset.index)].url,'_blank','noopener,noreferrer');
-      tr.addEventListener('click',event=>{if(!event.target.closest('a'))open()});
-      tr.addEventListener('keydown',event=>{if(event.target===tr&&(event.key==='Enter'||event.key===' ')){event.preventDefault();open()}});
-    }
+const ticketDialog=document.createElement('dialog');ticketDialog.className='ticket-detail';
+ticketDialog.innerHTML='<button>Schließen</button><div></div>';document.body.append(ticketDialog);
+ticketDialog.querySelector('button').onclick=()=>ticketDialog.close();
+let ticketRequest=0;ticketDialog.addEventListener('close',()=>ticketRequest++);
+async function openTicket(id){
+ const n=++ticketRequest,box=ticketDialog.querySelector('div');box.textContent='Ticket wird geladen …';ticketDialog.showModal();
+ try{
+  const d=await post('/api/v1/integrations/ticket',{provider:'zammad',ticket_id:id});if(n!==ticketRequest)return;
+  box.innerHTML=`<h2>Ticket ${esc(d.ticket.number)} · ${esc(d.ticket.title)}</h2>`;
+  const labels={organization:'Organisation',customer:'Kunde',owner:'Bearbeiter',group:'Gruppe',state:'Status',priority:'Priorität',created_at:'Erstellt',updated_at:'Aktualisiert'};
+  for(const [key,label] of Object.entries(labels)){const p=document.createElement('p');p.textContent=label+': '+(d.ticket[key]??'–');box.append(p);}
+  for(const a of d.articles){
+   const h=document.createElement('h3'),p=document.createElement('pre');h.textContent=[a.subject||'Nachricht',a.from,a.created_at,a.internal?'Intern':''].filter(Boolean).join(' · ');
+   let body=a.body||'';
+   if(a.content_type==='text/html'){const doc=new DOMParser().parseFromString(body,'text/html');doc.querySelectorAll('script,style,iframe,object,img').forEach(x=>x.remove());doc.querySelectorAll('br,p,div').forEach(x=>x.append(doc.createTextNode('\n')));body=doc.body.textContent;}
+   p.textContent=body;box.append(h,p);
+   if(a.attachments?.length){const files=document.createElement('p');files.textContent='Anhänge: '+a.attachments.map(x=>x.filename||x.name||x.id).join(', ')+' (Download noch nicht verfügbar)';box.append(files);}
   }
-  section.querySelector('input').addEventListener('input',render);
-  section.querySelector('[data-example]').addEventListener('click',()=>{columns=info.columns;rows=info.rows.map(cells=>({cells}));section.querySelector('.provider-label').textContent='Beispieldaten · keine echten Aktivitäten';section.querySelector('.provider-status').textContent='';render()});
-  section.querySelector('[data-live]').addEventListener('click',async event=>{
-    event.target.disabled=true;const status=section.querySelector('.provider-status');status.textContent='Daten werden geladen …';
-    rows=[];render();section.querySelector('.provider-label').textContent='Live-Abfrage läuft';
-    try{
-      if(provider==='teamviewer'||provider==='zammad'){
-        const result=await post('/api/v1/integrations/list',{provider});
-        columns=result.columns;
-        rows=result.rows.map(row=>({url:row.url,cells:row.cells.map((value,index)=>result.date_columns.includes(index)?(value?new Date(value).toLocaleString('de-DE'):'–'):value)}));
-        section.querySelector('.provider-label').textContent=`Live-Daten · ${rows.length} Einträge`;
-        status.textContent=result.note;render();return;
-      }
-      const configs=await api('/api/v1/integrations');const config=configs.integrations.find(x=>x.provider===provider);
-      const result=await post('/api/v1/integrations/test',{provider,domain:config.domain,username:config.username,secret:''});
-      if(!result.ok)throw new Error(result.steps.filter(x=>!x.ok).map(x=>x.message).join(' · '));
-      const step=[...result.steps].reverse().find(x=>Array.isArray(x.preview));
-      const records=step?.preview||[],keys=[...new Set(records.flatMap(Object.keys))];
-      const labels={id:'ID',userId:'Benutzer-ID',userid:'Benutzer-ID',login:'Login-ID',loginId:'Login-ID',firstName:'Vorname',firstname:'Vorname',lastName:'Nachname',lastname:'Nachname',name:'Name',email:'E-Mail',number:'Nummer',username:'Benutzername'};
-      columns=keys.map(key=>labels[key]||'Weitere Angabe');rows=records.map(row=>({cells:keys.map(key=>row[key]??'–')}));
-      if(!columns.length)columns=['Daten'];
-      section.querySelector('.provider-label').textContent='Live-Datenprobe · maximal 5 Einträge';status.textContent=result.note;render();
-    }catch(error){section.querySelector('.provider-label').textContent='Keine Live-Daten geladen';status.textContent=error.message;}
-    finally{event.target.disabled=false;}
-  });render();
+  const details=document.createElement('details'),summary=document.createElement('summary'),raw=document.createElement('pre');summary.textContent='Alle gelieferten Ticketfelder';raw.textContent=JSON.stringify(d.ticket,null,2);details.append(summary,raw);box.append(details);
+ }catch(e){if(n===ticketRequest)box.textContent=e.message;}
 }
-if(new URLSearchParams(location.search).get('starface')==='connected'){
-  history.replaceState(null,'',location.pathname);
-  toast('STARFACE erfolgreich verknüpft. Einstellungen zum Verbindungstest öffnen.');
+for(const section of document.querySelectorAll('.provider-view')){
+ const provider=section.dataset.source;
+ section.innerHTML=`<article class="panel"><h3>${esc(provider.toUpperCase())}</h3><div class="provider-toolbar"><input type="search" placeholder="Liste durchsuchen …" aria-label="Liste durchsuchen">${provider==='teamviewer'?'<select aria-label="Zeitraum"><option value="0">API-Standardzeitraum</option><option value="7">7 Tage</option><option value="30">30 Tage</option><option value="90">90 Tage</option><option value="365">365 Tage</option></select>':''}<button class="primary admin-only">Daten laden</button></div><p role="status">Noch keine Daten geladen.</p><div class="table-wrap"><table><thead></thead><tbody></tbody></table></div></article>`;
+ let rows=[],columns=[];
+ function render(){
+  const q=section.querySelector('input').value.toLowerCase();section.querySelector('thead').innerHTML='<tr>'+columns.map(c=>`<th>${esc(c)}</th>`).join('')+'</tr>';
+  const body=section.querySelector('tbody');body.replaceChildren();
+  for(const row of rows.filter(r=>r.cells.join(' ').toLowerCase().includes(q))){const tr=document.createElement('tr');for(const v of row.cells){const td=document.createElement('td');td.textContent=v??'–';tr.append(td);}if(row.ticket_id){tr.className='ticket-link-row';tr.tabIndex=0;tr.setAttribute('role','button');tr.onclick=()=>openTicket(row.ticket_id);tr.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openTicket(row.ticket_id);}};}body.append(tr);}
+ }
+ section.querySelector('input').oninput=render;
+ section.querySelector('button').onclick=async e=>{
+  const status=section.querySelector('[role="status"]');e.target.disabled=true;status.textContent='Daten werden geladen …';rows=[];render();
+  try{
+   if(provider==='starface'){const configs=await api('/api/v1/integrations'),c=configs.integrations.find(x=>x.provider===provider);const r=await post('/api/v1/integrations/test',{provider,domain:c.domain,username:'',secret:''});status.textContent=r.steps.map(x=>x.message).join(' · ')+' · Anruflisten sind noch nicht angebunden.';return;}
+   const r=await post('/api/v1/integrations/list',{provider,days:Number(section.querySelector('select')?.value||0)});columns=r.columns;rows=r.rows.map(row=>({...row,cells:row.cells.map((v,i)=>r.date_columns.includes(i)?(v?new Date(v).toLocaleString('de-DE'):'–'):v)}));status.textContent=`${rows.length} Einträge · ${r.note}`;render();
+  }catch(error){status.textContent=error.message;}finally{e.target.disabled=false;}
+ };
 }

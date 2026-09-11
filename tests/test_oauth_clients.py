@@ -34,6 +34,7 @@ class OAuthTests(unittest.TestCase):
         result = self.begin(session)
         query = parse_qs(urlsplit(result['url']).query)
         self.assertEqual(query['code_challenge_method'], ['S256'])
+        self.assertEqual(query['scope'], ['pbx-login'])
         self.assertEqual(query['redirect_uri'], ['https://time.example.com' + oauth.CALLBACK])
         token = {'access_token':'private-access', 'refresh_token':'private-refresh', 'expires_in':3600, 'token_type':'Bearer'}
         with patch.object(oauth,'request_url',return_value=token) as request:

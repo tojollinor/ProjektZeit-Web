@@ -18,17 +18,40 @@ public partial class MainWindow : Window
     readonly string file = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ProjektZeit", "session.dat");
     string origin = "", token = "";
     CancellationTokenSource? pending;
+    Window? loginWindow;
+    readonly System.Windows.Threading.DispatcherTimer heartbeat = new() { Interval = TimeSpan.FromSeconds(30) };
+    bool busy, checking, initialized;
     public MainWindow()
     {
         InitializeComponent();
-        Loaded += async (_, _) => await Run(async () => {
-            if (!File.Exists(file)) return;
+        Loaded += (_, _) => {
+          if(initialized)return; initialized=true;
+          try { if (File.Exists(file)) {
             var data = JsonSerializer.Deserialize<Settings>(ProtectedData.Unprotect(File.ReadAllBytes(file), null, DataProtectionScope.CurrentUser))!;
             origin = Normalize(data.Server); token = data.Token;
             Server.Text = origin; User.Text = data.User; Pbx.Text = data.Pbx;
-            await Verify(); Status.Text = "Gespeicherte Sitzung geprüft.";
-        });
-        Closed += (_, _) => { pending?.Cancel(); http.Dispose(); };
+          }} catch { Status.Text="Gespeicherte Sitzung konnte nicht geladen werden."; }
+          Controls.Children.Remove(LoginPanel);
+          Hide(); ShowLogin();
+        };
+        heartbeat.Tick += async (_, _) => {
+            if (busy || checking || token=="") return;
+            checking=true;
+            try { await Api("/api/v1/me"); State(WebState,"Verbunden",true); }
+            catch { State(WebState,"Nicht verbunden",false); }
+            finally {checking=false;}
+        };
+        Closed += (_, _) => { heartbeat.Stop(); pending?.Cancel(); http.Dispose(); };
+    }
+    void ShowLogin()
+    {
+        heartbeat.Stop();
+        loginWindow=new Window {Title="Mit ProjektZeit verbinden",Width=460,Height=440,ResizeMode=ResizeMode.NoResize,Background=new SolidColorBrush(Color.FromRgb(16,23,34)),Content=LoginPanel,WindowStartupLocation=WindowStartupLocation.CenterScreen};
+        LoginPanel.Margin=new Thickness(24);
+        LoginStatus.Text="Bitte anmelden. Beispieladresse oben dient nur als Hinweis.";
+        bool? success=loginWindow.ShowDialog();
+        loginWindow.Content=null;loginWindow=null;
+        if(success==true){Show();Height=570;heartbeat.Start();}else Close();
     }
     static string Normalize(string input)
     {
@@ -63,22 +86,22 @@ public partial class MainWindow : Window
     }
     async Task Run(Func<Task> action)
     {
-        Controls.IsEnabled = false;
+        busy=true; Controls.IsEnabled = false; LoginPanel.IsEnabled=false;
         try { await action(); }
         catch (OperationCanceledException) { Status.Text = "Vorgang abgebrochen oder Zeitlimit erreicht."; }
         catch (HttpRequestException) { Status.Text = "Server nicht erreichbar oder TLS-Verbindung fehlgeschlagen."; State(WebState,"Nicht erreichbar",false); }
         catch (Exception e) { Status.Text = e.Message; }
-        finally { Controls.IsEnabled = true; }
+        finally { Controls.IsEnabled = true; LoginPanel.IsEnabled=true; LoginStatus.Text=Status.Text; busy=false; }
     }
     async void Login(object sender, RoutedEventArgs e) => await Run(async () => {
         var address = Normalize(Server.Text); var password = Password.Password; Password.Clear();
-        if (token != "") await Api("/api/v1/auth/revoke",new {});
+        if (token != "") { try { await Api("/api/v1/auth/revoke",new {}); } catch { } }
         origin = address; token = ""; State(WebState,"Nicht verbunden",false); State(PbxState,"Nicht geprüft",false);
         Status.Text = "Anmeldung am ProjektZeit-Webserver …";
         var result = await Api("/api/v1/auth/token",new {username=User.Text,password,client_name="ProjektZeit WPF"});
         token = result.GetProperty("access_token").GetString()!;
         Save(); State(WebState,"Verbunden",true); Status.Text = "ProjektZeit-Anmeldung erfolgreich. Sitzung sicher gespeichert.";
-        await Verify();
+        if(loginWindow!=null)loginWindow.DialogResult=true;
     });
     async Task Verify()
     {
@@ -99,6 +122,7 @@ public partial class MainWindow : Window
     async void Logout(object s,RoutedEventArgs e) => await Run(async ()=> {
         if(token!="") await Api("/api/v1/auth/revoke",new {});
         token=""; Save(); State(WebState,"Nicht verbunden",false); State(PbxState,"Nicht geprüft – serverseitige Verknüpfung bleibt erhalten",false); Status.Text="Abgemeldet.";
+        Dispatcher.BeginInvoke(new Action(()=>{Hide();ShowLogin();}));
     });
     static void Browser(string url)
     {

@@ -242,7 +242,7 @@ def diagnose(data, client_factory=Client):
         elif p == 'starface' and data.get('oauth'):
             headers = {'Authorization': 'Bearer ' + data['secret'], 'X-Version': '2'}
             secrets.append(headers['Authorization'])
-            call('STARFACE-Benutzer lesen (OAuth)', '/rest/users', headers)
+            call('Eigenes STARFACE-Konto lesen (OAuth)', '/rest/users/me', headers)
         else:
             headers={'X-Version':'2'}
             challenge=call('Anmeldung vorbereiten','/rest/login',headers,show=False)

@@ -1,6 +1,7 @@
 """Normalized read-only provider lists. Credentials stay on the server."""
 import base64
 import re
+from html.parser import HTMLParser
 from datetime import datetime, timezone, timedelta
 from urllib.parse import urlencode
 import integrations
@@ -43,8 +44,13 @@ def get(client, path, headers):
 def teamviewer(config, client):
     headers = {'Authorization': 'Bearer ' + config['secret']}
     now = datetime.now(timezone.utc)
-    params = dict(from_date=(now-timedelta(days=30)).strftime('%Y-%m-%dT%H:%M:%SZ'),
-                  to_date=now.strftime('%Y-%m-%dT%H:%M:%SZ'), limit=100)
+    days = config.get('days', 0)
+    if days not in (0, 7, 30, 90, 365):
+        raise ValueError('Ungültiger Zeitraum.')
+    params = dict(limit=100)
+    if days:
+        params.update(from_date=(now-timedelta(days=days)).strftime('%Y-%m-%dT%H:%M:%SZ'),
+                      to_date=now.strftime('%Y-%m-%dT%H:%M:%SZ'))
     records, offsets, limited = [], set(), False
     for page in range(5):
         payload = get(client, '/api/v1/reports/connections?' + urlencode(params), headers)
@@ -65,7 +71,8 @@ def teamviewer(config, client):
     rows = [dict(cells=[text(r.get('devicename'), 'Unbenanntes Gerät'), text(r.get('username')),
                        date(r.get('start_date')), date(r.get('end_date')), duration(r.get('start_date'),r.get('end_date'))]) for r in records[:100]]
     return dict(columns=['Gerätename','Benutzer','Beginn','Ende','Verbindungsdauer'], date_columns=[2,3], rows=rows,
-                note='Letzte 30 Tage · neueste Verbindungen zuerst · maximal 100 angezeigt.' +
+                note=(f'Letzte {days} Tage' if days else 'API-Standardzeitraum (ohne Datumsfilter)') + ' · neueste geladene Verbindungen zuerst · maximal 100 angezeigt.' +
+                     (' TeamViewer meldet keine Verbindungen. Bitte Zeitraum, Verbindungsprotokollierung und Zugriff des Script-Tokens auf die Berichte prüfen. Ein gültiger Token allein garantiert keine Berichtsdaten.' if not rows else '') +
                      (' Die API-Liste ist begrenzt; weitere Verbindungen können vorhanden sein.' if limited else ''))
 
 
@@ -95,9 +102,43 @@ def zammad(config, client):
         tid=str(ticket.get('id') or '')
         rows.append(dict(cells=[text(ticket.get('id')),text(ticket.get('number')),text(ticket.get('title')),
                                 organization or 'Keine Organisation',states.get(state.lower(),state),date(ticket.get('updated_at'))],
-                         url=config['domain']+'/#ticket/zoom/'+tid if re.fullmatch(r'[1-9][0-9]*',tid) else None))
+                         ticket_id=tid if re.fullmatch(r'[1-9][0-9]*',tid) else None))
     return dict(columns=['ID','Ticketnummer','Titel','Organisation','Status','Aktualisiert'],date_columns=[5],rows=rows,
-                note='Bis zu 100 Tickets · Klick öffnet das vollständige Ticket in Zammad mit Verlauf und Anhängen. Dort kann eine Anmeldung nötig sein.')
+                note='Bis zu 100 Tickets · Klick öffnet die Ticketdetails und Nachrichten in ProjektZeit.')
+
+
+def ticket_detail(config, ticket_id, client_factory=integrations.Client):
+    if not re.fullmatch(r'[1-9][0-9]*', str(ticket_id)):
+        raise ValueError('Ungültige Ticket-ID.')
+    client = client_factory(config['domain'])
+    auth = base64.b64encode((config['username']+':'+config['secret']).encode()).decode()
+    headers = {'Authorization': 'Basic '+auth}
+    ticket = get(client, '/api/v1/tickets/'+str(ticket_id)+'?expand=true', headers)
+    articles = get(client, '/api/v1/ticket_articles/by_ticket/'+str(ticket_id)+'?expand=true', headers)
+    if not isinstance(ticket, dict) or not isinstance(articles, list):
+        raise ValueError('Zammad lieferte keine gültigen Ticketdetails.')
+    class PlainText(HTMLParser):
+        def __init__(self):
+            super().__init__(); self.parts=[]; self.hidden=0
+        def handle_starttag(self, tag, attrs):
+            if tag in ('script','style'): self.hidden+=1
+            if tag in ('br','p','div'): self.parts.append('\n')
+        def handle_endtag(self, tag):
+            if tag in ('script','style'): self.hidden=max(0,self.hidden-1)
+        def handle_data(self, data):
+            if not self.hidden: self.parts.append(data)
+    for article in articles:
+        if isinstance(article,dict) and article.get('content_type') == 'text/html':
+            parser=PlainText(); parser.feed(str(article.get('body') or ''))
+            article['body']=''.join(parser.parts); article['content_type']='text/plain'
+    # HTML bodies are returned as data and displayed as inert text by the UI.
+    def scrub(value):
+        if isinstance(value, dict):
+            return {k: scrub(v) for k,v in value.items() if not any(s in k.lower() for s in ('password','token','secret'))}
+        if isinstance(value, list): return [scrub(v) for v in value]
+        if isinstance(value, str) and config['secret']: return value.replace(config['secret'], '[ausgeblendet]')
+        return value
+    return scrub(dict(ticket=ticket, articles=articles))
 
 
 def load(config, client_factory=integrations.Client):

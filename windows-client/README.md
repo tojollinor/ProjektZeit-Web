@@ -1,5 +1,12 @@
 # ProjektZeit Windows-Client (WPF)
 
+Zuerst erscheint das separate ProjektZeit-Anmeldefenster. Die URL-Beispiele sind
+Hinweise, keine vorbelegten Server. Nach erfolgreichem Login öffnet sich die
+Hauptoberfläche mit kleiner Statusanzeige. Diese prüft `/api/v1/me` alle 30 Sekunden
+(während laufender Benutzeraktionen pausiert). Netzwerkfehler werden als nicht
+verbunden angezeigt; eine abgelaufene Sitzung erfordert erneute Anmeldung.
+STARFACE verwendet ausschließlich `pbx-login` und prüft `/rest/users/me`.
+
 Die aktuelle EXE wird aus dem WPF-Projekt `ProjektZeit.Windows.csproj` gebaut.
 Lokaler Build mit .NET 8 SDK: `dotnet publish windows-client/ProjektZeit.Windows.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o dist`.
 Die STARFACE-Adresse ist zunächst leer. Getrennte Anzeigen melden ProjektZeit-

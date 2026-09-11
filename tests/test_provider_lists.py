@@ -29,8 +29,24 @@ class ProviderListsTest(unittest.TestCase):
         self.assertEqual(result['rows'][0]['cells'][:5], ['7', '10007', 'Test', 'Kunde', 'Offen'])
         self.assertEqual(result['rows'][1]['cells'][3], 'Kunde')
         self.assertEqual(client.request.call_count, 2)
-        self.assertEqual(result['rows'][0]['url'], 'https://support.example.com/#ticket/zoom/7')
-        self.assertIsNone(result['rows'][2]['url'])
+        self.assertEqual(result['rows'][0]['ticket_id'], '7')
+        self.assertIsNone(result['rows'][2]['ticket_id'])
+
+    def test_empty_reports_and_date_filter(self):
+        client=Mock();client.request.return_value=(200,{'records':[]},'')
+        result=lists.teamviewer({'secret':'x'},client)
+        self.assertNotIn('from_date',client.request.call_args.args[0])
+        self.assertIn('keine Verbindungen',result['note'])
+        lists.teamviewer({'secret':'x','days':90},client)
+        self.assertIn('from_date',client.request.call_args.args[0])
+
+    def test_ticket_detail_validation_and_redaction(self):
+        client=Mock();client.request.side_effect=[(200,{'id':7,'title':'Test'},''),(200,[{'body':'secret-value','token':'hidden'}],'')]
+        config={'domain':'https://support.example.com','username':'u','secret':'secret-value'}
+        result=lists.ticket_detail(config,7,lambda _:client)
+        self.assertEqual(result['articles'][0]['body'],'[ausgeblendet]')
+        self.assertNotIn('token',result['articles'][0])
+        with self.assertRaises(ValueError):lists.ticket_detail(config,'../users',lambda _:client)
 
     @patch('starface_oauth.integrations.Client')
     def test_relative_discovery_redirect(self, factory):

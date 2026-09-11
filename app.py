@@ -292,6 +292,7 @@ class App(SimpleHTTPRequestHandler):
             '/api/v1/integrations/starface/start': self.start_starface,
             '/api/v1/integrations/starface/finish': self.finish_starface,
             '/api/v1/integrations/list': self.integration_list,
+            '/api/v1/integrations/ticket': self.integration_list,
             '/api/v1/auth/revoke': self.logout,
             '/api/v1/integrations/save': self.save_integration,
             '/api/v1/integrations/test': self.test_integration,
@@ -331,6 +332,11 @@ class App(SimpleHTTPRequestHandler):
                 if not row:
                     raise ValueError('Bitte zuerst die Schnittstelle in den Einstellungen verknüpfen.')
                 config=integrations.config(c,session['id'],dict(provider=row['provider'],domain=row['domain'],username=row['username'],secret=''),DATA_DIR)
+            if urlparse(self.path).path.endswith('/ticket'):
+                if config['provider'] != 'zammad':
+                    raise ValueError('Ticketdetails sind nur für Zammad verfügbar.')
+                return self.send_json(200,provider_lists.ticket_detail(config,body.get('ticket_id')))
+            config['days'] = body.get('days', 0)
             return self.send_json(200,provider_lists.load(config))
         except (ValueError,OSError) as error:
             return self.send_json(400,{'error':str(error) if isinstance(error,ValueError) else 'Schnittstelle nicht erreichbar. Bitte erneut versuchen.'})

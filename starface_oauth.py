@@ -108,7 +108,7 @@ def start(db, session, body, directory):
         c.execute('INSERT INTO oauth_states VALUES(?,?,?,?,?)',
                   (hashlib.sha256(state.encode()).hexdigest(), session['id'], session['token_hash'], pack(config, directory), int(time.time()) + 600))
     query = urlencode(dict(response_type='code', client_id=config['client_id'], redirect_uri=config['redirect_uri'],
-                           scope='pbx-login pbx-admin', state=state, code_challenge=challenge, code_challenge_method='S256'))
+                           scope='pbx-login', state=state, code_challenge=challenge, code_challenge_method='S256'))
     return {'url': authorization + ('&' if '?' in authorization else '?') + query}
 
 
