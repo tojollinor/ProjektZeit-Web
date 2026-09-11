@@ -12,6 +12,7 @@ import time
 import workday
 import integrations
 import database
+import starface_calls
 import starface_oauth
 import provider_lists
 from datetime import datetime, timezone
@@ -328,14 +329,22 @@ class App(SimpleHTTPRequestHandler):
             return self.send_json(429, {'error': 'Es laufen bereits Abfragen. Bitte kurz warten.'})
         try:
             with db() as c:
-                row=c.execute('SELECT * FROM integrations WHERE owner_id=? AND provider=?', (session['id'],body.get('provider'))).fetchone()
-                if not row:
-                    raise ValueError('Bitte zuerst die Schnittstelle in den Einstellungen verknüpfen.')
-                config=integrations.config(c,session['id'],dict(provider=row['provider'],domain=row['domain'],username=row['username'],secret=''),DATA_DIR)
+                if body.get('provider') == 'starface':
+                    config = starface_oauth.access(c, session['id'], DATA_DIR)
+                else:
+                    row=c.execute('SELECT * FROM integrations WHERE owner_id=? AND provider=?', (session['id'],body.get('provider'))).fetchone()
+                    if not row:
+                        raise ValueError('Bitte zuerst die Schnittstelle in den Einstellungen verknüpfen.')
+                    config=integrations.config(c,session['id'],dict(provider=row['provider'],domain=row['domain'],username=row['username'],secret=''),DATA_DIR)
             if urlparse(self.path).path.endswith('/ticket'):
                 if config['provider'] != 'zammad':
                     raise ValueError('Ticketdetails sind nur für Zammad verfügbar.')
                 return self.send_json(200,provider_lists.ticket_detail(config,body.get('ticket_id')))
+            if config['provider'] == 'starface':
+                if body.get('info_only') is True:
+                    return self.send_json(200, starface_calls.server_info(config))
+                config.update(days=body.get('days', 30), offset=body.get('offset', 0), call_type=body.get('call_type', 'all'))
+                return self.send_json(200, starface_calls.load(config))
             config['days'] = body.get('days', 0)
             return self.send_json(200,provider_lists.load(config))
         except (ValueError,OSError) as error:
