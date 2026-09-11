@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from http.cookies import SimpleCookie
 from urllib.parse import urlencode, urlsplit
 from xml.parsers.expat import ExpatError
-from xmlrpc.client import dumps, loads, Fault
+from xmlrpc.client import dumps, loads, Fault, DateTime
 import integrations
 
 PREFIX = 'ucp.v30.requests.'
@@ -109,7 +109,11 @@ class UciClient:
             if b'<!DOCTYPE' in raw.upper() or b'<!ENTITY' in raw.upper():
                 raise ValueError('Ungültige XML-Antwort von STARFACE. STARFACE-Debug: ' + debug)
             try:
-                result, _ = loads(raw, use_builtin_types=True)
+                # STARFACE uses ISO-8601 values such as 1970-01-01T01:00:00.
+                # Python's use_builtin_types=True expects the older compact XML-RPC
+                # date form (19700101T01:00:00), so keep DateTime wrappers here and
+                # convert only the fields we need in start_time().
+                result, _ = loads(raw, use_builtin_types=False)
             except Fault as error:
                 # Fault strings can contain credentials/URLs. Only expose the numeric code.
                 code = error.faultCode if type(error.faultCode) is int else 'unbekannt'
@@ -141,11 +145,16 @@ def server_info(config, client_factory=integrations.Client):
 def start_time(value):
     if isinstance(value, datetime):
         return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+    if isinstance(value, DateTime):
+        value = value.value
     if isinstance(value, str):
         try:
             return start_time(datetime.fromisoformat(value.replace('Z', '+00:00')))
         except ValueError:
-            pass
+            try:
+                return start_time(datetime.strptime(value, '%Y%m%dT%H:%M:%S'))
+            except ValueError:
+                pass
     return None
 
 
