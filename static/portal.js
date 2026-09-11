@@ -45,39 +45,60 @@ function rawValue(value){if(value===null||value===undefined||value==='')return '
 const providerLoaders={};
 for(const section of document.querySelectorAll('.provider-view')){
  const provider=section.dataset.source;
- section.innerHTML=`<article class="panel"><div class="panel-head"><div><p class="eyebrow">ROHDATEN</p><h3>${esc(provider.toUpperCase())}</h3></div></div>${provider==='starface'?'<p class="starface-version" role="status">Version wird geprüft.</p>':''}<div class="provider-toolbar"><input type="search" placeholder="Liste durchsuchen …" aria-label="Liste durchsuchen">${provider==='starface'?'<select data-days aria-label="Zeitraum"><option value="7">7 Tage</option><option value="30" selected>30 Tage</option><option value="90">90 Tage</option><option value="365">365 Tage</option></select>':provider==='teamviewer'?'<select data-days aria-label="Zeitraum"><option value="0">API-Standardzeitraum</option><option value="7">7 Tage</option><option value="30">30 Tage</option><option value="90">90 Tage</option><option value="365">365 Tage</option></select>':''}${provider==='starface'?'<select data-call-type aria-label="Anrufart"><option value="all">Alle Anrufe</option><option value="inbound">Eingehend</option><option value="outbound">Ausgehend</option><option value="missed">Verpasst</option></select>':''}</div><p class="list-status" role="status">Wird beim Öffnen geladen.</p><div class="table-wrap raw-provider-table"><table><thead></thead><tbody></tbody></table></div></article>`;
- let rows=[],columns=[],nextOffset=null,loadedOnce=false,loading=false;
+ section.innerHTML=`<article class="panel"><div class="panel-head"><div><p class="eyebrow">ROHDATEN</p><h3>${esc(provider.toUpperCase())}</h3></div></div>${provider==='starface'?'<p class="starface-version" role="status">Version wird geprüft.</p>':''}<div class="provider-toolbar"><input type="search" placeholder="Liste durchsuchen …" aria-label="Liste durchsuchen">${provider==='starface'?'<select data-days aria-label="Zeitraum"><option value="7">7 Tage</option><option value="30" selected>30 Tage</option><option value="90">90 Tage</option><option value="365">365 Tage</option></select>':provider==='teamviewer'?'<select data-days aria-label="Zeitraum"><option value="0">API-Standardzeitraum</option><option value="7">7 Tage</option><option value="30">30 Tage</option><option value="90">90 Tage</option><option value="365">365 Tage</option></select>':''}${provider==='starface'?'<select data-call-type aria-label="Anrufart"><option value="all">Alle Anrufe</option><option value="inbound">Eingehend</option><option value="outbound">Ausgehend</option><option value="missed">Verpasst</option></select>':''}<button type="button" class="secondary" data-refresh>Aktualisieren</button><button type="button" class="secondary subtle" data-clear-filters>Filter zurücksetzen</button></div><p class="list-status" role="status">Wird beim Öffnen geladen.</p><div class="table-wrap raw-provider-table"><table><thead></thead><tbody></tbody></table></div></article>`;
+ let rows=[],columns=[],nextOffset=null,loading=false,columnFilters={};
  const more=document.createElement('button');more.className='secondary hidden';more.textContent='Weitere Anrufe laden';if(provider==='starface')section.querySelector('article').append(more);
  async function version(){if(provider!=='starface')return;const label=section.querySelector('.starface-version');try{const info=await post('/api/v1/integrations/list',{provider,info_only:true});label.textContent=info.version?'STARFACE '+info.version:info.version_note;}catch(e){label.textContent=e.message;}}
  function linkedName(row){return customerCache.links?.[provider]?.[row.external_key]?.name||'';}
- function render(){
-  const q=section.querySelector('input').value.toLowerCase();
-  section.querySelector('thead').innerHTML='<tr><th>Kunde</th><th>Aktion</th>'+columns.map(c=>`<th>${esc(c)}</th>`).join('')+'</tr>';
-  const tbody=section.querySelector('tbody');tbody.replaceChildren();
-  for(const row of rows.filter(r=>(JSON.stringify(r.raw||r.cells)||'').toLowerCase().includes(q)||linkedName(r).toLowerCase().includes(q))){
+ function filterText(value){return rawValue(value).toLocaleLowerCase('de-DE');}
+ function rowMatches(row){
+  const q=section.querySelector('input[type="search"]').value.trim().toLocaleLowerCase('de-DE');
+  if(q&&!((JSON.stringify(row.raw||row.cells)||'').toLocaleLowerCase('de-DE').includes(q)||linkedName(row).toLocaleLowerCase('de-DE').includes(q)))return false;
+  const customerFilter=(columnFilters.__customer||'').trim().toLocaleLowerCase('de-DE');
+  if(customerFilter&&!filterText(linkedName(row)||'Nicht zugeordnet').includes(customerFilter))return false;
+  for(const name of columns){const needle=(columnFilters[name]||'').trim().toLocaleLowerCase('de-DE');if(needle&&!filterText(row.raw?.[name]).includes(needle))return false;}
+  return true;
+ }
+ function buildHeader(){
+  const thead=section.querySelector('thead');thead.replaceChildren();
+  const titles=document.createElement('tr'),filters=document.createElement('tr');filters.className='column-filter-row';
+  for(const title of ['Kunde','Aktion',...columns]){const th=document.createElement('th');th.textContent=title;titles.append(th);}
+  const customerTh=document.createElement('th'),customerInput=document.createElement('input');customerInput.type='search';customerInput.placeholder='Filtern …';customerInput.value=columnFilters.__customer||'';customerInput.setAttribute('aria-label','Kunde filtern');customerInput.oninput=()=>{columnFilters.__customer=customerInput.value;renderRows();};customerTh.append(customerInput);filters.append(customerTh);
+  const actionTh=document.createElement('th');actionTh.className='filter-empty';filters.append(actionTh);
+  for(const name of columns){const th=document.createElement('th'),input=document.createElement('input');input.type='search';input.placeholder='Filtern …';input.value=columnFilters[name]||'';input.setAttribute('aria-label',`${name} filtern`);input.oninput=()=>{columnFilters[name]=input.value;renderRows();};th.append(input);filters.append(th);}
+  thead.append(titles,filters);
+ }
+ function renderRows(){
+  const tbody=section.querySelector('tbody');tbody.replaceChildren();const filtered=rows.filter(rowMatches);
+  for(const row of filtered){
    const tr=document.createElement('tr');
    const customer=document.createElement('td');customer.textContent=linkedName(row)||'Nicht zugeordnet';tr.append(customer);
    const actions=document.createElement('td');actions.className='provider-actions';
-   const assign=document.createElement('button');assign.type='button';assign.className='secondary subtle';assign.textContent=linkedName(row)?'Kunde ändern':'Kunde zuordnen';assign.onclick=()=>assignCustomer(provider,row,render);actions.append(assign);
+   const assign=document.createElement('button');assign.type='button';assign.className='secondary subtle';assign.textContent=linkedName(row)?'Kunde ändern':'Kunde zuordnen';assign.onclick=()=>assignCustomer(provider,row,renderRows);actions.append(assign);
    if(provider==='zammad'&&row.ticket_id){const ticket=document.createElement('button');ticket.type='button';ticket.className='secondary subtle';ticket.textContent='Ticket';ticket.onclick=()=>openTicket(row.ticket_id);actions.append(ticket);}
    tr.append(actions);
    for(const name of columns){const td=document.createElement('td');td.textContent=rawValue(row.raw?.[name]);tr.append(td);}tbody.append(tr);
   }
+  const status=section.querySelector('.list-status');if(rows.length&&filtered.length!==rows.length)status.dataset.filterCount=`${filtered.length} von ${rows.length} sichtbar`;
+  else delete status.dataset.filterCount;
  }
- section.querySelector('input').oninput=render;
+ function render(){buildHeader();renderRows();}
+ section.querySelector('input[type="search"]').oninput=renderRows;
+ section.querySelector('[data-clear-filters]').onclick=()=>{columnFilters={};section.querySelector('input[type="search"]').value='';buildHeader();renderRows();};
  async function loadRows(append=false){
-  if(loading)return;loading=true;const status=section.querySelector('.list-status');more.disabled=true;section.querySelectorAll('select').forEach(x=>x.disabled=true);status.textContent='Daten werden geladen …';
+  if(loading)return;loading=true;const status=section.querySelector('.list-status'),refresh=section.querySelector('[data-refresh]');more.disabled=true;refresh.disabled=true;section.querySelectorAll('select').forEach(x=>x.disabled=true);status.textContent='Daten werden geladen …';delete status.dataset.filterCount;
   if(!append){rows=[];nextOffset=null;more.classList.add('hidden');render();}
   try{
    await loadCustomerCache();
    const r=await post('/api/v1/integrations/list',{provider,days:Number(section.querySelector('[data-days]')?.value||0),offset:append?nextOffset:0,call_type:section.querySelector('[data-call-type]')?.value||'all'});
-   columns=r.raw_columns?.length?r.raw_columns:r.columns;const incoming=r.rows||[];rows=append?[...rows,...incoming]:incoming;nextOffset=r.next_offset??null;more.classList.toggle('hidden',nextOffset===null);loadedOnce=true;status.textContent=`${rows.length} Einträge · ${r.note||''}`;render();
-  }catch(error){status.textContent=error.message;}finally{loading=false;more.disabled=false;section.querySelectorAll('select').forEach(x=>x.disabled=false);}
+   const newColumns=r.raw_columns?.length?r.raw_columns:r.columns;if(JSON.stringify(newColumns)!==JSON.stringify(columns))columns=newColumns;
+   const incoming=r.rows||[];rows=append?[...rows,...incoming]:incoming;nextOffset=r.next_offset??null;more.classList.toggle('hidden',nextOffset===null);status.textContent=`${rows.length} Einträge · ${r.note||''}`;render();
+  }catch(error){status.textContent=error.message;}finally{loading=false;more.disabled=false;refresh.disabled=false;section.querySelectorAll('select').forEach(x=>x.disabled=false);}
  }
- providerLoaders[provider]=loadRows;more.onclick=()=>loadRows(true);
+ providerLoaders[provider]=loadRows;more.onclick=()=>loadRows(true);section.querySelector('[data-refresh]').onclick=()=>loadRows(false);
  section.querySelectorAll('select').forEach(select=>select.addEventListener('change',()=>loadRows(false)));
  document.querySelector(`[data-view="${provider}"]`)?.addEventListener('click',()=>{if(provider==='starface')version();loadRows(false);});
- window.addEventListener('starface-connected',()=>{if(provider==='starface'){version();loadedOnce=false;}});
+ window.addEventListener('starface-connected',()=>{if(provider==='starface')version();});
 }
 
 // Kundenbereich dynamisch ergänzen, damit bestehende Layout-Dateien kompatibel bleiben.
