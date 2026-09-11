@@ -11,6 +11,7 @@ from cryptography.fernet import InvalidToken
 import integrations
 
 CALLBACK = '/api/v1/integrations/starface/callback'
+CLIENT_ID = 'rest-client'
 
 
 def migrate(c):
@@ -62,12 +63,32 @@ def _oauth_error(payload, body):
     return ' – '.join(values)
 
 
-def _token_body(body):
-    result = dict(body)
-    client_secret = os.environ.get('STARFACE_CLIENT_SECRET', '').strip()
-    if client_secret:
-        result['client_secret'] = client_secret
-    return result
+def _safe_methods(value):
+    if not isinstance(value, list):
+        return []
+    return [x for x in value if isinstance(x, str) and 0 < len(x) <= 80 and all(32 < ord(c) < 127 for c in x)][:12]
+
+
+def _validate_discovery(metadata):
+    methods = _safe_methods(metadata.get('token_endpoint_auth_methods_supported'))
+    if methods and 'none' not in methods:
+        raise ValueError('STARFACE Discovery meldet keinen Public-Client-Modus für den Token-Endpunkt. '
+                         'token_endpoint_auth_methods_supported=' + ', '.join(methods))
+    challenges = _safe_methods(metadata.get('code_challenge_methods_supported'))
+    if challenges and 'S256' not in challenges:
+        raise ValueError('STARFACE Discovery meldet keine Unterstützung für PKCE S256. '
+                         'code_challenge_methods_supported=' + ', '.join(challenges))
+    return methods
+
+
+def _invalid_client_hint(error, config):
+    text = str(error)
+    if 'invalid_client' not in text.lower():
+        return error
+    methods = config.get('token_auth_methods') or []
+    discovery = ','.join(methods) if methods else 'nicht gemeldet'
+    return ValueError(text + ' Verwendet wurden client_id=rest-client, Client-Authentifizierung=none, '
+                      'redirect_uri=' + config['redirect_uri'] + '; Discovery auth methods=' + discovery + '.')
 
 
 def _post_token(url, origin, body):
@@ -137,13 +158,13 @@ def local_callback(value):
     try:
         valid = (parsed.scheme == 'http' and parsed.hostname == '127.0.0.1'
                  and parsed.port and 1024 <= parsed.port <= 65535
-                 and parsed.path == '/callback' and not parsed.query and not parsed.fragment
+                 and parsed.path in ('', '/') and not parsed.query and not parsed.fragment
                  and not parsed.username and not parsed.password)
     except ValueError:
         valid = False
     if not valid:
-        raise ValueError('Lokale Rücksprungadresse muss http://127.0.0.1:PORT/callback sein.')
-    return str(value)
+        raise ValueError('Lokale Rücksprungadresse muss http://127.0.0.1:PORT ohne Unterpfad sein.')
+    return 'http://127.0.0.1:%s' % parsed.port
 
 
 def start(db, session, body, directory):
@@ -153,16 +174,17 @@ def start(db, session, body, directory):
     authorization, token = metadata.get('authorization_endpoint', ''), metadata.get('token_endpoint', '')
     endpoint(authorization, origin)
     endpoint(token, origin)
+    token_auth_methods = _validate_discovery(metadata)
     verifier = secrets.token_urlsafe(48)
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip('=')
     state = secrets.token_urlsafe(32)
-    config = dict(origin=origin, token_endpoint=token, verifier=verifier,
-                  client_id=os.environ.get('STARFACE_CLIENT_ID', 'rest-client'), redirect_uri=redirect)
+    config = dict(origin=origin, token_endpoint=token, verifier=verifier, client_id=CLIENT_ID,
+                  redirect_uri=redirect, token_auth_methods=token_auth_methods)
     with db() as c:
         c.execute('DELETE FROM oauth_states WHERE expires_at<? OR owner_id=?', (int(time.time()), session['id']))
         c.execute('INSERT INTO oauth_states VALUES(?,?,?,?,?)',
                   (hashlib.sha256(state.encode()).hexdigest(), session['id'], session['token_hash'], pack(config, directory), int(time.time()) + 600))
-    query = urlencode(dict(response_type='code', client_id=config['client_id'], redirect_uri=config['redirect_uri'],
+    query = urlencode(dict(response_type='code', client_id=CLIENT_ID, redirect_uri=redirect,
                            scope='pbx-login', state=state, code_challenge=challenge, code_challenge_method='S256'))
     return {'url': authorization + ('&' if '?' in authorization else '?') + query}
 
@@ -179,8 +201,10 @@ def token_data(payload, config, previous=None):
         raise ValueError('STARFACE lieferte keine gültige Token-Laufzeit.') from None
     if lifetime <= 0:
         raise ValueError('Der STARFACE-Token ist bereits abgelaufen.')
-    return {k: config[k] for k in ('origin', 'token_endpoint', 'client_id', 'redirect_uri')} | dict(
-        access_token=access, refresh_token=payload.get('refresh_token') or (previous or {}).get('refresh_token'),
+    saved = {k: config[k] for k in ('origin', 'token_endpoint', 'client_id', 'redirect_uri')}
+    saved['token_auth_methods'] = config.get('token_auth_methods', [])
+    return saved | dict(access_token=access,
+        refresh_token=payload.get('refresh_token') or (previous or {}).get('refresh_token'),
         expires_at=time.time() + lifetime)
 
 
@@ -199,11 +223,14 @@ def finish(db, session, query, directory):
     code = query.get('code', [''])[0]
     if not code or len(code) > 8192:
         raise ValueError('STARFACE lieferte keinen gültigen Anmeldecode.')
-    body = _token_body(dict(grant_type='authorization_code', code=code, code_verifier=config['verifier'],
-                            client_id=config['client_id'], redirect_uri=config['redirect_uri']))
-    data = token_data(request_url(config['token_endpoint'], config['origin'], body), config)
+    body = dict(grant_type='authorization_code', code=code, code_verifier=config['verifier'],
+                client_id=CLIENT_ID, redirect_uri=config['redirect_uri'])
+    try:
+        payload = request_url(config['token_endpoint'], config['origin'], body)
+    except ValueError as error:
+        raise _invalid_client_hint(error, config) from None
+    data = token_data(payload, config)
     with db() as c:
-        # Session must still exist after the external request (logout race).
         if not c.execute('SELECT 1 FROM sessions WHERE token_hash=? AND expires_at>?', (session['token_hash'], int(time.time()))).fetchone():
             raise ValueError('ProjektZeit-Sitzung abgelaufen. Bitte erneut anmelden.')
         c.execute('DELETE FROM oauth_tokens WHERE owner_id=?', (session['id'],))
@@ -219,8 +246,11 @@ def access(c, uid, directory):
     if data['expires_at'] <= time.time() + 30:
         if not data.get('refresh_token'):
             raise ValueError('STARFACE-Anmeldung abgelaufen. Bitte neu anmelden.')
-        payload = request_url(data['token_endpoint'], data['origin'], _token_body(dict(grant_type='refresh_token',
-                              refresh_token=data['refresh_token'], client_id=data['client_id'])))
+        body = dict(grant_type='refresh_token', refresh_token=data['refresh_token'], client_id=CLIENT_ID)
+        try:
+            payload = request_url(data['token_endpoint'], data['origin'], body)
+        except ValueError as error:
+            raise _invalid_client_hint(error, data) from None
         data = token_data(payload, data, data)
         c.execute('UPDATE oauth_tokens SET secret=? WHERE owner_id=?', (pack(data, directory), uid))
     return dict(provider='starface', domain=data['origin'], username='', secret=data['access_token'], oauth=True)
