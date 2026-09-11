@@ -23,11 +23,7 @@ public partial class App : Application
             var current = Environment.ProcessPath;
             if (string.IsNullOrWhiteSpace(current) || !File.Exists(current)) return;
             const string root = @"Software\Classes\projektzeit";
-            using var existing = Registry.CurrentUser.OpenSubKey(root + @"\shell\open\command");
-            var command = existing?.GetValue(null) as string;
-            var target = CommandTarget(command);
-            if (!string.IsNullOrWhiteSpace(target) && File.Exists(target)) return;
-
+            // Starting an updated EXE must replace a registration pointing to an older copy.
             using var key = Registry.CurrentUser.CreateSubKey(root);
             key?.SetValue(null, "URL:ProjektZeit Protocol");
             key?.SetValue("URL Protocol", "");
@@ -42,16 +38,4 @@ public partial class App : Application
         }
     }
 
-    static string? CommandTarget(string? command)
-    {
-        if (string.IsNullOrWhiteSpace(command)) return null;
-        command = command.Trim();
-        if (command.StartsWith('"'))
-        {
-            var end = command.IndexOf('"', 1);
-            return end > 1 ? command[1..end] : null;
-        }
-        var space = command.IndexOf(' ');
-        return space > 0 ? command[..space] : command;
-    }
 }
