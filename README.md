@@ -16,13 +16,15 @@ MariaDB 11.4 speichert die Daten dauerhaft im Volume `mariadb-data`. Der Schlüs
 - TeamViewer: Script-Token mit Leserechten für Verbindungsberichte; kein Benutzername oder TOTP nötig.
 - Zammad: Benutzername/Passwort über Basic Authentication, sofern auf der Instanz freigegeben.
 
-Eigene Seiten für Zammad, STARFACE und TeamViewer enthalten durchsuchbare, klar gekennzeichnete Beispiellisten. „Echte Daten laden“ lädt für Administratoren TeamViewer-Verbindungen der letzten 30 Tage (maximal 100 angezeigt, mit Gerätenamen und Dauer) beziehungsweise bis zu 100 Zammad-Tickets mit Ticketnummer und Organisationsnamen. Ein Ticketklick öffnet das vollständige Ticket in Zammad; dort kann eine Anmeldung nötig sein. STARFACE liefert eine Live-Probe mit maximal fünf Benutzern, noch keine echten Anruflisten. Beispiele erzeugen keine Stempelungen.
+Eigene Seiten für Zammad, STARFACE und TeamViewer enthalten durchsuchbare, klar gekennzeichnete Beispiellisten. „Echte Daten laden“ lädt für Administratoren TeamViewer-Verbindungen der letzten 30 Tage (maximal 100 angezeigt, mit Gerätenamen und Dauer) beziehungsweise bis zu 100 Zammad-Tickets mit Ticketnummer und Organisationsnamen. Ein Ticketklick öffnet die Ticketdetails und Nachrichten direkt in ProjektZeit. STARFACE prüft das aktuell angemeldete Konto über `/rest/users/me`; echte Anruflisten sind noch nicht umgesetzt. Beispiele erzeugen keine Stempelungen.
 
 Compose verwendet die festen Containernamen `projektzeit-web` und `projektzeit-db`. Die Zeitzone wird für beide über `TZ=Europe/Berlin` in der separaten `.env` gesetzt. Bei mehreren Installationen auf demselben Docker-Host müssen die Containernamen angepasst werden.
 
 ## Windows-Client und App
 
-Die bestehende API unter `/api/v1` unterstützt jetzt zusätzlich Bearer-Anmeldung, Ablauf und Widerruf. [API-Vertrag mit Beispielen](API-CLIENTS.md). Ein neuer Windows-Client und eine Smartphone-App sind noch nicht Teil dieser Version.
+Die API unter `/api/v1` unterstützt Bearer-Anmeldung, Ablauf und Widerruf. [API-Vertrag mit Beispielen](API-CLIENTS.md).
+
+Ein nativer Windows-Client ist als WPF-Anwendung unter `windows-client/` enthalten. GitHub Actions baut daraus eine selbstständige Windows-EXE und veröffentlicht sie im Release `windows-client`. Der Client speichert den ProjektZeit-Sitzungstoken benutzergebunden mit Windows DPAPI, kann Arbeitsbeginn/-ende schreiben und die STARFACE-Verknüpfung per Browser-OAuth starten. Ein vollständiger nativer Projekt-Timer und Offlinebetrieb sind noch nicht umgesetzt. Eine Smartphone-App ist noch nicht enthalten.
 
 ## GitHub / Komodo
 

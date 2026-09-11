@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import secrets
+import ssl
 import time
 from urllib.parse import urlsplit, urlencode, urljoin
 from cryptography.fernet import InvalidToken
@@ -45,15 +46,61 @@ def endpoint(value, origin):
     return target_origin, parsed.path + ('?' + parsed.query if parsed.query else '')
 
 
+def _oauth_error(payload, body):
+    if not isinstance(payload, dict):
+        return ''
+    values = []
+    for key in ('error', 'error_description'):
+        value = payload.get(key)
+        if not isinstance(value, str) or not value.strip():
+            continue
+        text = ' '.join(value.split())
+        for secret in body.values():
+            if isinstance(secret, str) and len(secret) >= 8:
+                text = text.replace(secret, '[ausgeblendet]')
+        values.append(text[:300])
+    return ' – '.join(values)
+
+
+def _post_token(url, origin, body):
+    target, path = endpoint(url, origin)
+    parsed = urlsplit(target)
+    conn = integrations.Connection(parsed.hostname, parsed.port or 443, timeout=8, context=ssl.create_default_context())
+    encoded = urlencode(body).encode()
+    headers = {
+        'Accept': 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'ProjektZeit/0.7.0',
+    }
+    try:
+        conn.request('POST', path, body=encoded, headers=headers)
+        response = conn.getresponse()
+        raw = response.read(262145)
+        if len(raw) > 262144:
+            raise ValueError('STARFACE OAuth-Antwort ist größer als 256 KB.')
+        try:
+            payload = json.loads(raw)
+        except (ValueError, UnicodeError):
+            payload = None
+        if not 200 <= response.status < 300:
+            detail = _oauth_error(payload, body)
+            suffix = ': ' + detail if detail else ''
+            raise ValueError('STARFACE OAuth-Anfrage fehlgeschlagen (HTTP %s%s). Erneut anmelden oder Client-Konfiguration prüfen.' % (response.status, suffix))
+        if not isinstance(payload, dict):
+            raise ValueError('STARFACE OAuth-Antwort ist kein gültiges JSON-Objekt.')
+        return payload
+    finally:
+        conn.close()
+
+
 def request_url(url, origin, body=None):
+    if body is not None:
+        return _post_token(url, origin, body)
     for _ in range(4):
         target, path = endpoint(url, origin)
         client = integrations.Client(target)
-        if body is None:
-            status, payload, _ = client.request(path, allow_discovery_redirect=True)
-        else:
-            status, payload, _ = client.request(path, {'Content-Type': 'application/x-www-form-urlencoded'}, body)
-        if body is None and 300 <= status < 400:
+        status, payload, _ = client.request(path, allow_discovery_redirect=True)
+        if 300 <= status < 400:
             location = payload.get('redirect') if isinstance(payload, dict) else None
             if not location:
                 raise ValueError('STARFACE-Discovery lieferte eine Weiterleitung ohne Ziel.')
