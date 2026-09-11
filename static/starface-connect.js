@@ -1,23 +1,16 @@
 (() => {
   const container=document.querySelector('#integration-cards');
   if(!container)return;
-  let rendering=false,pollTimer=null;
+  let pollTimer=null;
 
   async function starfaceData(){
     const data=await api('/api/v1/integrations');
     return data.integrations.find(row=>row.provider==='starface');
   }
 
-  async function enhance(){
-    const card=container.querySelector('[data-provider="starface"]');
-    if(!card || card.dataset.desktopUi==='1' || rendering)return;
-    rendering=true;
-    try{
-      const row=await starfaceData();
-      if(!row)return;
-      const configured=!!row.username;
-      card.dataset.desktopUi='1';
-      card.innerHTML=`<div class="panel-head"><h3>STARFACE</h3><span class="badge">${row.has_secret?'Verbunden':configured?'Konfiguriert':'Nicht eingerichtet'}</span></div>
+  window.renderStarfaceCard = row => {
+    const configured=!!row.username;
+    return '<article class="panel integration-card" data-provider="starface">' + `<div class="panel-head"><h3>STARFACE</h3><span class="badge">${row.has_secret?'Verbunden':configured?'Konfiguriert':'Nicht eingerichtet'}</span></div>
         <p class="integration-note">Adresse und OAuth-Client werden zentral auf dem ProjektZeit-Server gespeichert. Der Windows-Client wird nur für Browser-Anmeldung und lokalen STARFACE-Rücksprung benötigt. Danach kann er beendet werden.</p>
         <div class="integration-fields">
           <label>STARFACE-Adresse<input data-field="domain" value="${attr(row.domain)}" placeholder="https://telefon.firma.de" autocomplete="off" spellcheck="false"></label>
@@ -30,15 +23,8 @@
           <button type="button" class="secondary" data-starface-action="test">Verbindung testen</button>
           <button type="button" class="secondary subtle" data-starface-action="remove">Verknüpfung entfernen</button>
         </div>
-        <div class="integration-status" role="status"></div><div class="debug-output hidden"></div>`;
-    }catch(error){
-      const cardNow=container.querySelector('[data-provider="starface"]');
-      if(cardNow)cardNow.querySelector('[role="status"]')?.append(error.message);
-    }finally{rendering=false;}
-  }
-
-  new MutationObserver(()=>enhance()).observe(container,{childList:true,subtree:true});
-  enhance();
+        <p class="integration-note">Die aktuelle Windows-EXE zuerst einmal manuell starten. Weboberfläche und Client müssen mit demselben ProjektZeit-Benutzer angemeldet sein.</p><div class="desktop-launch hidden"></div><div class="integration-status" role="status"></div><div class="debug-output hidden"></div>` + '</article>';
+  };
 
   async function saveConfig(card){
     const domain=normalizeStarfaceAddress(card.querySelector('[data-field="domain"]').value);
@@ -59,11 +45,13 @@
     clearInterval(pollTimer);
     let remaining=200;
     pollTimer=setInterval(async()=>{
+      if(!card.isConnected){clearInterval(pollTimer);return;}
       if(--remaining<=0){clearInterval(pollTimer);card.querySelector('.integration-status').textContent='Zeitlimit erreicht. Falls die Anmeldung noch offen ist, erneut „STARFACE verbinden“ wählen.';return;}
       try{
         const row=await starfaceData();
         if(row?.has_secret){
           clearInterval(pollTimer);
+          card.querySelector('.desktop-launch').classList.add('hidden');
           card.querySelector('.badge').textContent='Verbunden';
           const status=card.querySelector('.integration-status');status.className='integration-status success';status.textContent='STARFACE ist verbunden. Die Verbindung liegt jetzt auf dem ProjektZeit-Server und funktioniert auch ohne laufenden Windows-Client.';
         }
@@ -81,6 +69,9 @@
     const controls=[...card.querySelectorAll('button,input')];
     if(action==='remove'&&!confirm('Gespeicherte STARFACE-Konfiguration und OAuth-Verknüpfung entfernen?'))return;
     controls.forEach(x=>x.disabled=true);status.className='integration-status';output.replaceChildren();output.classList.add('hidden');
+    clearInterval(pollTimer);
+    card.querySelector('.desktop-launch').replaceChildren();
+    card.querySelector('.desktop-launch').classList.add('hidden');
     try{
       if(action==='save'){
         status.textContent='Konfiguration wird gespeichert …';await saveConfig(card);status.classList.add('success');status.textContent='STARFACE-Konfiguration verschlüsselt gespeichert.';
@@ -88,6 +79,12 @@
         status.textContent='Konfiguration wird geprüft …';await saveConfig(card);
         const start=await post('/api/v1/integrations/starface/start',{desktop_prepare:true});
         status.textContent='ProjektZeit-Client wird geöffnet … Im Client bzw. Browser die STARFACE-Anmeldung abschließen.';
+        const launch=card.querySelector('.desktop-launch');
+        const link=document.createElement('a');
+        link.href=start.uri;link.className='secondary';link.textContent='Windows-Client öffnen';
+        const hint=document.createElement('p');
+        hint.textContent='Falls kein Fenster erscheint: aktuelle EXE herunterladen, einmal starten und diesen Link anklicken. Die Browser-Abfrage zum Öffnen bestätigen.';
+        launch.replaceChildren(link,hint);launch.classList.remove('hidden');
         window.location.href=start.uri;
         pollConnected(card);
       }else if(action==='test'){
