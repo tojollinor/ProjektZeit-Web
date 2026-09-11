@@ -16,7 +16,7 @@ const card={isConnected:true,querySelector(s){return s.startsWith('[data-field='
 const container={addEventListener(name,fn){click=fn;}};
 const posts=[];
 const uri='projektzeit://starface/connect?server=https%3A%2F%2Ftime.example.com&request='+'a'.repeat(40);
-const context={console,document:{querySelector:()=>container,createElement:element},window:{location:{}},
+const context={console,Event:class Event{},document:{querySelector:()=>container,createElement:element},window:{location:{},dispatchEvent(){}},
   attr:v=>String(v??'').replaceAll('&','&amp;').replaceAll('"','&quot;').replaceAll('<','&lt;'),esc:String,
   normalizeStarfaceAddress:v=>v,clearInterval(){},setInterval(fn){poll=fn;return 1;},
   api:async()=>({integrations:[{provider:'starface',has_secret:connected}]}),
