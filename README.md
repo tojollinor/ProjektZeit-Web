@@ -12,7 +12,7 @@ MariaDB 11.4 speichert die Daten dauerhaft im Volume `mariadb-data`. Der Schlüs
 
 ## Schnittstellen
 
-- STARFACE 10: Browser-Anmeldung mit OAuth 2.0 Authorization Code + PKCE, verschlüsselte Tokens und automatische Erneuerung bei einem API-Aufruf. Die angezeigte Rücksprungadresse muss beim STARFACE OAuth-Client freigegeben sein. Siehe [Upgrade und OAuth-Konfiguration](UPGRADE-0.7.md).
+- STARFACE 10: OAuth 2.0 Authorization Code + PKCE. STARFACE-Adresse, Client-ID und Client-Secret werden in der ProjektZeit-Weboberfläche konfiguriert und serverseitig verschlüsselt gespeichert. Der Windows-Client übernimmt nur den lokalen Loopback-Callback. Access- und Refresh-Token liegen anschließend ebenfalls verschlüsselt auf dem Server und können ohne laufenden Windows-Client weiterverwendet werden. Siehe [Upgrade und OAuth-Konfiguration](UPGRADE-0.7.md).
 - TeamViewer: Script-Token mit Leserechten für Verbindungsberichte; kein Benutzername oder TOTP nötig.
 - Zammad: Benutzername/Passwort über Basic Authentication, sofern auf der Instanz freigegeben.
 
@@ -24,7 +24,11 @@ Compose verwendet die festen Containernamen `projektzeit-web` und `projektzeit-d
 
 Die API unter `/api/v1` unterstützt Bearer-Anmeldung, Ablauf und Widerruf. [API-Vertrag mit Beispielen](API-CLIENTS.md).
 
-Ein nativer Windows-Client ist als WPF-Anwendung unter `windows-client/` enthalten. GitHub Actions baut daraus eine selbstständige Windows-EXE und veröffentlicht sie im Release `windows-client`. Der Client speichert den ProjektZeit-Sitzungstoken benutzergebunden mit Windows DPAPI, kann Arbeitsbeginn/-ende schreiben und die STARFACE-Verknüpfung per Browser-OAuth starten. Ein vollständiger nativer Projekt-Timer und Offlinebetrieb sind noch nicht umgesetzt. Eine Smartphone-App ist noch nicht enthalten.
+Ein nativer Windows-Client ist als WPF-Anwendung unter `windows-client/` enthalten. GitHub Actions baut daraus eine selbstständige Windows-EXE und veröffentlicht sie im Release `windows-client`. Der Client speichert den ProjektZeit-Sitzungstoken benutzergebunden mit Windows DPAPI, kann Arbeitsbeginn/-ende schreiben und dient bei STARFACE als lokaler OAuth-Helfer.
+
+Beim manuellen Start registriert die portable EXE den URI-Handler `projektzeit://`, sofern noch kein gültiger Handler vorhanden ist. Dadurch kann die Weboberfläche mit **STARFACE verbinden** den Client direkt öffnen. Der Handler verweist immer nur auf die lokale EXE; Client-Secret, STARFACE-Passwort und OAuth-Tokens werden niemals in den URI geschrieben. Ein späterer Installer kann denselben Handler auf den Installationspfad registrieren; eine portable EXE überschreibt einen weiterhin gültigen Handler nicht.
+
+Ein vollständiger nativer Projekt-Timer und Offlinebetrieb sind noch nicht umgesetzt. Eine Smartphone-App ist noch nicht enthalten.
 
 ## GitHub / Komodo
 
@@ -34,7 +38,7 @@ Image: `ghcr.io/tojollinor/projektzeit-web:latest`
 
 Der Workflow testet SQLite, MariaDB und den Zeitstrahl, bevor er AMD64-/ARM64-Images baut und zu GHCR veröffentlicht. Für anonymen Pull das **Package** auf Public stellen.
 
-In Komodo den Inhalt von `compose.yaml` als Stack verwenden und die ENV-Werte separat eintragen. Der Stack benötigt keine Änderungen an den Platzhaltern. `APP_PUBLIC_URL` konfiguriert die Rücksprungadresse; DNS und HTTPS-Reverse-Proxy werden separat eingerichtet.
+In Komodo den Inhalt von `compose.yaml` als Stack verwenden und die ENV-Werte separat eintragen. Der Stack benötigt keine Änderungen an den Platzhaltern. `APP_PUBLIC_URL` wird unter anderem für den sicheren `projektzeit://`-Startlink benötigt; DNS und HTTPS-Reverse-Proxy werden separat eingerichtet.
 
 Updates: `docker compose pull`, danach `docker compose up -d`. Stacknamen beibehalten, damit dieselben Volumes verwendet werden.
 

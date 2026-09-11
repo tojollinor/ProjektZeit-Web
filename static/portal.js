@@ -37,3 +37,4 @@ for(const section of document.querySelectorAll('.provider-view')){
   }catch(error){status.textContent=error.message;}finally{e.target.disabled=false;}
  };
 }
+const starfaceScript=document.createElement('script');starfaceScript.src='/starface-connect.js?v=0.7.0-1';starfaceScript.defer=true;document.body.append(starfaceScript);

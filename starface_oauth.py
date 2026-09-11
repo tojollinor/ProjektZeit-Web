@@ -1,4 +1,8 @@
-"""Server-side Authorization Code + PKCE. No provider tokens reach JavaScript."""
+"""Server-side STARFACE OAuth 2.0 Authorization Code + PKCE.
+
+STARFACE client credentials and provider tokens stay on the ProjektZeit server.
+The Windows client is only used for the loopback callback required by STARFACE.
+"""
 import base64
 import hashlib
 import json
@@ -19,7 +23,10 @@ def migrate(c):
         state_hash VARCHAR(64) PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES users(id),
         session_hash VARCHAR(64) NOT NULL, secret TEXT NOT NULL, expires_at INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS oauth_tokens (
-        owner_id INTEGER PRIMARY KEY REFERENCES users(id), secret TEXT NOT NULL);'''.replace('owner_id INTEGER PRIMARY KEY REFERENCES', 'owner_id INT PRIMARY KEY REFERENCES'))
+        owner_id INTEGER PRIMARY KEY REFERENCES users(id), secret TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS oauth_launch_requests (
+        token_hash VARCHAR(64) PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES users(id),
+        expires_at INTEGER NOT NULL);'''.replace('owner_id INTEGER PRIMARY KEY REFERENCES', 'owner_id INT PRIMARY KEY REFERENCES'))
 
 
 def public_url():
@@ -69,16 +76,23 @@ def _safe_methods(value):
     return [x for x in value if isinstance(x, str) and 0 < len(x) <= 80 and all(32 < ord(c) < 127 for c in x)][:12]
 
 
-def _validate_discovery(metadata):
+def _validate_discovery(metadata, has_client_secret=False):
     methods = _safe_methods(metadata.get('token_endpoint_auth_methods_supported'))
-    if methods and 'none' not in methods:
-        raise ValueError('STARFACE Discovery meldet keinen Public-Client-Modus für den Token-Endpunkt. '
-                         'token_endpoint_auth_methods_supported=' + ', '.join(methods))
     challenges = _safe_methods(metadata.get('code_challenge_methods_supported'))
     if challenges and 'S256' not in challenges:
         raise ValueError('STARFACE Discovery meldet keine Unterstützung für PKCE S256. '
                          'code_challenge_methods_supported=' + ', '.join(challenges))
-    return methods
+    if has_client_secret:
+        if 'client_secret_basic' in methods or not methods:
+            return methods, 'client_secret_basic'
+        if 'client_secret_post' in methods:
+            return methods, 'client_secret_post'
+        raise ValueError('STARFACE Discovery meldet kein unterstütztes Client-Secret-Verfahren. '
+                         'token_endpoint_auth_methods_supported=' + ', '.join(methods))
+    if methods and 'none' not in methods:
+        raise ValueError('STARFACE Discovery meldet keinen Public-Client-Modus für den Token-Endpunkt. '
+                         'token_endpoint_auth_methods_supported=' + ', '.join(methods))
+    return methods, 'none'
 
 
 def _invalid_client_hint(error, config):
@@ -87,20 +101,34 @@ def _invalid_client_hint(error, config):
         return error
     methods = config.get('token_auth_methods') or []
     discovery = ','.join(methods) if methods else 'nicht gemeldet'
-    return ValueError(text + ' Verwendet wurden client_id=rest-client, Client-Authentifizierung=none, '
-                      'redirect_uri=' + config['redirect_uri'] + '; Discovery auth methods=' + discovery + '.')
+    return ValueError(text + ' Verwendet wurden client_id=' + config['client_id'] +
+                      ', Client-Authentifizierung=' + config.get('token_auth_method', 'none') +
+                      ', redirect_uri=' + config['redirect_uri'] +
+                      '; Discovery auth methods=' + discovery + '.')
 
 
-def _post_token(url, origin, body):
+def _post_token(url, origin, body, auth=None):
     target, path = endpoint(url, origin)
     parsed = urlsplit(target)
     conn = integrations.Connection(parsed.hostname, parsed.port or 443, timeout=8, context=ssl.create_default_context())
-    encoded = urlencode(body).encode()
+    wire = dict(body)
     headers = {
         'Accept': 'application/json',
         'Content-Type': 'application/x-www-form-urlencoded',
         'User-Agent': 'ProjektZeit/0.7.0',
     }
+    client_secret = ''
+    if auth:
+        method = auth.get('method')
+        client_id = auth.get('client_id', '')
+        client_secret = auth.get('client_secret', '')
+        if method == 'client_secret_basic':
+            raw = (client_id + ':' + client_secret).encode()
+            headers['Authorization'] = 'Basic ' + base64.b64encode(raw).decode()
+        elif method == 'client_secret_post':
+            wire['client_id'] = client_id
+            wire['client_secret'] = client_secret
+    encoded = urlencode(wire).encode()
     try:
         conn.request('POST', path, body=encoded, headers=headers)
         response = conn.getresponse()
@@ -112,7 +140,10 @@ def _post_token(url, origin, body):
         except (ValueError, UnicodeError):
             payload = None
         if not 200 <= response.status < 300:
-            detail = _oauth_error(payload, body)
+            redactions = dict(wire)
+            if client_secret:
+                redactions['_client_secret'] = client_secret
+            detail = _oauth_error(payload, redactions)
             suffix = ': ' + detail if detail else ''
             raise ValueError('STARFACE OAuth-Anfrage fehlgeschlagen (HTTP %s%s). Erneut anmelden oder Client-Konfiguration prüfen.' % (response.status, suffix))
         if not isinstance(payload, dict):
@@ -122,9 +153,9 @@ def _post_token(url, origin, body):
         conn.close()
 
 
-def request_url(url, origin, body=None):
+def request_url(url, origin, body=None, auth=None):
     if body is not None:
-        return _post_token(url, origin, body)
+        return _post_token(url, origin, body, auth)
     for _ in range(4):
         target, path = endpoint(url, origin)
         client = integrations.Client(target)
@@ -167,26 +198,103 @@ def local_callback(value):
     return 'http://127.0.0.1:%s' % parsed.port
 
 
-def start(db, session, body, directory):
-    redirect = local_callback(body.get('redirect_uri')) if session.get('bearer') else callback_url()
+def _stored_client(db, uid, directory):
+    with db() as c:
+        row = c.execute('SELECT * FROM integrations WHERE owner_id=? AND provider=?', (uid, 'starface')).fetchone()
+        if not row or not row['username']:
+            return None
+        data = integrations.config(c, uid, dict(provider='starface', domain=row['domain'],
+                            username=row['username'], secret=''), directory)
+    return dict(origin=data['domain'], client_id=data['username'], client_secret=data['secret'])
+
+
+def _save_client(db, session, body, directory):
     origin = integrations.domain(body.get('domain'), 'starface')
+    client_id = str(body.get('client_id') or CLIENT_ID).strip()
+    if not client_id or len(client_id) > 250 or ':' in client_id or any(ord(ch) < 33 for ch in client_id):
+        raise ValueError('STARFACE Client-ID ist ungültig.')
+    secret = body.get('client_secret', '')
+    if not isinstance(secret, str) or len(secret) > 4096:
+        raise ValueError('STARFACE Client-Secret ist ungültig.')
+    with db() as c:
+        old = c.execute('SELECT * FROM integrations WHERE owner_id=? AND provider=?', (session['id'], 'starface')).fetchone()
+        data = integrations.config(c, session['id'], dict(provider='starface', domain=origin,
+                    username=client_id, secret=secret), directory)
+        encrypted = integrations.cipher(directory).encrypt(data['secret'].encode()).decode()
+        changed = (not old or old['domain'] != origin or old['username'] != client_id or bool(secret))
+        integrations.store(c, session['id'], 'starface', origin, client_id, encrypted)
+        if changed:
+            c.execute('DELETE FROM oauth_tokens WHERE owner_id=?', (session['id'],))
+            c.execute('DELETE FROM oauth_states WHERE owner_id=?', (session['id'],))
+            c.execute('DELETE FROM oauth_launch_requests WHERE owner_id=?', (session['id'],))
+    return dict(origin=origin, client_id=client_id)
+
+
+def _consume_launch(db, session, token):
+    if not isinstance(token, str) or len(token) < 32 or len(token) > 300:
+        raise ValueError('Ungültige oder abgelaufene Desktop-Anfrage.')
+    digest = hashlib.sha256(token.encode()).hexdigest()
+    with db() as c:
+        row = c.execute('SELECT * FROM oauth_launch_requests WHERE token_hash=?', (digest,)).fetchone()
+        if not row or row['owner_id'] != session['id'] or row['expires_at'] < time.time():
+            raise ValueError('Ungültige oder abgelaufene Desktop-Anfrage.')
+        c.execute('DELETE FROM oauth_launch_requests WHERE token_hash=?', (digest,))
+
+
+def start(db, session, body, directory):
+    if body.get('configure_only'):
+        saved = _save_client(db, session, body, directory)
+        return {'ok': True, 'domain': saved['origin'], 'client_id': saved['client_id']}
+
+    if body.get('desktop_prepare'):
+        if session.get('bearer'):
+            raise ValueError('Desktop-Anfrage muss in der Weboberfläche gestartet werden.')
+        client = _stored_client(db, session['id'], directory)
+        if not client:
+            raise ValueError('Bitte zuerst STARFACE-Adresse, Client-ID und Client-Secret speichern.')
+        launch = secrets.token_urlsafe(32)
+        with db() as c:
+            c.execute('DELETE FROM oauth_launch_requests WHERE expires_at<? OR owner_id=?', (int(time.time()), session['id']))
+            c.execute('DELETE FROM oauth_tokens WHERE owner_id=?', (session['id'],))
+            c.execute('INSERT INTO oauth_launch_requests VALUES(?,?,?)',
+                      (hashlib.sha256(launch.encode()).hexdigest(), session['id'], int(time.time()) + 300))
+        uri = 'projektzeit://starface/connect?' + urlencode({'server': public_url(), 'request': launch})
+        return {'ok': True, 'uri': uri, 'expires_in': 300}
+
+    if body.get('launch_request'):
+        if not session.get('bearer'):
+            raise ValueError('Desktop-Anfrage kann nur vom Windows-Client übernommen werden.')
+        _consume_launch(db, session, body.get('launch_request'))
+
+    redirect = local_callback(body.get('redirect_uri')) if session.get('bearer') else callback_url()
+    client = _stored_client(db, session['id'], directory)
+    if client:
+        origin = client['origin']
+        client_id = client['client_id']
+        client_secret = client['client_secret']
+    else:
+        origin = integrations.domain(body.get('domain'), 'starface')
+        client_id = CLIENT_ID
+        client_secret = ''
+
     metadata = request_url(origin + '/.well-known/openid-configuration', origin)
     authorization, token = metadata.get('authorization_endpoint', ''), metadata.get('token_endpoint', '')
     endpoint(authorization, origin)
     endpoint(token, origin)
-    token_auth_methods = _validate_discovery(metadata)
+    token_auth_methods, token_auth_method = _validate_discovery(metadata, bool(client_secret))
     verifier = secrets.token_urlsafe(48)
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip('=')
     state = secrets.token_urlsafe(32)
-    config = dict(origin=origin, token_endpoint=token, verifier=verifier, client_id=CLIENT_ID,
-                  redirect_uri=redirect, token_auth_methods=token_auth_methods)
+    config = dict(origin=origin, token_endpoint=token, verifier=verifier, client_id=client_id,
+                  redirect_uri=redirect, token_auth_methods=token_auth_methods,
+                  token_auth_method=token_auth_method, uses_client_secret=bool(client_secret))
     with db() as c:
         c.execute('DELETE FROM oauth_states WHERE expires_at<? OR owner_id=?', (int(time.time()), session['id']))
         c.execute('INSERT INTO oauth_states VALUES(?,?,?,?,?)',
                   (hashlib.sha256(state.encode()).hexdigest(), session['id'], session['token_hash'], pack(config, directory), int(time.time()) + 600))
-    query = urlencode(dict(response_type='code', client_id=CLIENT_ID, redirect_uri=redirect,
+    query = urlencode(dict(response_type='code', client_id=client_id, redirect_uri=redirect,
                            scope='pbx-login', state=state, code_challenge=challenge, code_challenge_method='S256'))
-    return {'url': authorization + ('&' if '?' in authorization else '?') + query}
+    return {'url': authorization + ('&' if '?' in authorization else '?') + query, 'domain': origin}
 
 
 def token_data(payload, config, previous=None):
@@ -203,9 +311,20 @@ def token_data(payload, config, previous=None):
         raise ValueError('Der STARFACE-Token ist bereits abgelaufen.')
     saved = {k: config[k] for k in ('origin', 'token_endpoint', 'client_id', 'redirect_uri')}
     saved['token_auth_methods'] = config.get('token_auth_methods', [])
+    saved['token_auth_method'] = config.get('token_auth_method', 'none')
     return saved | dict(access_token=access,
         refresh_token=payload.get('refresh_token') or (previous or {}).get('refresh_token'),
         expires_at=time.time() + lifetime)
+
+
+def _token_auth(db, uid, config, directory):
+    method = config.get('token_auth_method', 'none')
+    if method == 'none':
+        return None
+    client = _stored_client(db, uid, directory)
+    if not client or client['origin'] != config['origin'] or client['client_id'] != config['client_id']:
+        raise ValueError('STARFACE Client-Konfiguration wurde geändert. Bitte neu anmelden.')
+    return dict(method=method, client_id=client['client_id'], client_secret=client['client_secret'])
 
 
 def finish(db, session, query, directory):
@@ -224,9 +343,12 @@ def finish(db, session, query, directory):
     if not code or len(code) > 8192:
         raise ValueError('STARFACE lieferte keinen gültigen Anmeldecode.')
     body = dict(grant_type='authorization_code', code=code, code_verifier=config['verifier'],
-                client_id=CLIENT_ID, redirect_uri=config['redirect_uri'])
+                redirect_uri=config['redirect_uri'])
+    auth = _token_auth(db, session['id'], config, directory)
+    if not auth:
+        body['client_id'] = config['client_id']
     try:
-        payload = request_url(config['token_endpoint'], config['origin'], body)
+        payload = request_url(config['token_endpoint'], config['origin'], body, auth=auth)
     except ValueError as error:
         raise _invalid_client_hint(error, config) from None
     data = token_data(payload, config)
@@ -235,22 +357,36 @@ def finish(db, session, query, directory):
             raise ValueError('ProjektZeit-Sitzung abgelaufen. Bitte erneut anmelden.')
         c.execute('DELETE FROM oauth_tokens WHERE owner_id=?', (session['id'],))
         c.execute('INSERT INTO oauth_tokens VALUES(?,?)', (session['id'], pack(data, directory)))
-        integrations.store(c, session['id'], 'starface', config['origin'], '', '')
+        if not c.execute('SELECT 1 FROM integrations WHERE owner_id=? AND provider=?', (session['id'], 'starface')).fetchone():
+            integrations.store(c, session['id'], 'starface', config['origin'], config['client_id'], '')
 
 
 def access(c, uid, directory):
     row = c.execute('SELECT * FROM oauth_tokens WHERE owner_id=?', (uid,)).fetchone()
     if not row:
-        raise ValueError('Bitte zuerst „Mit STARFACE anmelden“ verwenden.')
+        raise ValueError('Bitte zuerst „STARFACE verbinden“ verwenden.')
     data = unpack(row['secret'], directory)
     if data['expires_at'] <= time.time() + 30:
         if not data.get('refresh_token'):
             raise ValueError('STARFACE-Anmeldung abgelaufen. Bitte neu anmelden.')
-        body = dict(grant_type='refresh_token', refresh_token=data['refresh_token'], client_id=CLIENT_ID)
+        body = dict(grant_type='refresh_token', refresh_token=data['refresh_token'])
+        auth = _token_auth(lambda: _ExistingConnection(c), uid, data, directory)
+        if not auth:
+            body['client_id'] = data['client_id']
         try:
-            payload = request_url(data['token_endpoint'], data['origin'], body)
+            payload = request_url(data['token_endpoint'], data['origin'], body, auth=auth)
         except ValueError as error:
             raise _invalid_client_hint(error, data) from None
         data = token_data(payload, data, data)
         c.execute('UPDATE oauth_tokens SET secret=? WHERE owner_id=?', (pack(data, directory), uid))
     return dict(provider='starface', domain=data['origin'], username='', secret=data['access_token'], oauth=True)
+
+
+class _ExistingConnection:
+    """Small context adapter so access() can reuse the caller's transaction."""
+    def __init__(self, connection):
+        self.connection = connection
+    def __enter__(self):
+        return self.connection
+    def __exit__(self, exc_type, exc, tb):
+        return False

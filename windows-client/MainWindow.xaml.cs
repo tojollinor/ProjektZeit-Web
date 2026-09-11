@@ -16,15 +16,19 @@ public partial class MainWindow : Window
     record Settings(string Server, string User, string Pbx, string Token);
     readonly HttpClient http = new(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(30) };
     readonly string file = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ProjektZeit", "session.dat");
+    readonly string? launchUri;
     string origin = "", token = "";
     CancellationTokenSource? pending;
     Window? loginWindow;
     readonly System.Windows.Threading.DispatcherTimer heartbeat = new() { Interval = TimeSpan.FromSeconds(30) };
     bool busy, checking, initialized;
-    public MainWindow()
+
+    public MainWindow() : this(null) { }
+    public MainWindow(string? launchUri)
     {
+        this.launchUri = launchUri;
         InitializeComponent();
-        Loaded += (_, _) => {
+        Loaded += async (_, _) => {
           if(initialized)return; initialized=true;
           try { if (File.Exists(file)) {
             var data = JsonSerializer.Deserialize<Settings>(ProtectedData.Unprotect(File.ReadAllBytes(file), null, DataProtectionScope.CurrentUser))!;
@@ -32,6 +36,20 @@ public partial class MainWindow : Window
             Server.Text = origin; User.Text = data.User; Pbx.Text = data.Pbx;
           }} catch { Status.Text="Gespeicherte Sitzung konnte nicht geladen werden."; }
           Controls.Children.Remove(LoginPanel);
+
+          if(launchUri!=null){
+            try {
+              var link=ParseLaunchUri(launchUri);
+              if(token!="" && string.Equals(origin,link.Server,StringComparison.OrdinalIgnoreCase)){
+                try { await Api("/api/v1/me"); State(WebState,"Verbunden",true); Height=570;heartbeat.Start();await Run(()=>ConnectCore(link.Request,link.Server));return; }
+                catch { token=""; }
+              }
+              token="";origin="";Server.Text=link.Server;
+              Hide();ShowLogin();
+              if(token!="" && !IsClosing()){await Run(()=>ConnectCore(link.Request,link.Server));}
+              return;
+            } catch(Exception ex){ Status.Text=ex.Message; }
+          }
           Hide(); ShowLogin();
         };
         heartbeat.Tick += async (_, _) => {
@@ -43,6 +61,9 @@ public partial class MainWindow : Window
         };
         Closed += (_, _) => { heartbeat.Stop(); pending?.Cancel(); http.Dispose(); };
     }
+
+    bool IsClosing() => !IsLoaded || !IsVisible;
+
     void ShowLogin()
     {
         heartbeat.Stop();
@@ -60,6 +81,17 @@ public partial class MainWindow : Window
         if (!Uri.TryCreate(input, UriKind.Absolute, out var u) || u.Scheme != "https" || string.IsNullOrEmpty(u.Host) || u.UserInfo != "" || u.Query != "" || u.Fragment != "" || (u.AbsolutePath != "/" && u.AbsolutePath != "/rest") || input.Any(char.IsWhiteSpace) || input.Contains('\\'))
             throw new Exception("Bitte eine gültige HTTPS-Domain ohne Anmeldepfad eingeben.");
         return u.GetLeftPart(UriPartial.Authority);
+    }
+    static (string Server,string Request) ParseLaunchUri(string value)
+    {
+        if(!Uri.TryCreate(value,UriKind.Absolute,out var uri) || !uri.Scheme.Equals("projektzeit",StringComparison.OrdinalIgnoreCase)
+            || !uri.Host.Equals("starface",StringComparison.OrdinalIgnoreCase) || uri.AbsolutePath!="/connect")
+            throw new Exception("Ungültiger ProjektZeit-Link.");
+        var query=Query(uri.Query);
+        var server=Normalize(query.GetValueOrDefault("server")??"");
+        var request=query.GetValueOrDefault("request")??"";
+        if(request.Length<32 || request.Length>300)throw new Exception("STARFACE-Verbindungsanfrage ist ungültig oder unvollständig.");
+        return (server,request);
     }
     void State(System.Windows.Controls.TextBlock label, string message, bool ok)
     { label.Text = "● " + message; label.Foreground = new SolidColorBrush(ok ? Color.FromRgb(52,211,153) : Color.FromRgb(253,186,116)); }
@@ -133,15 +165,25 @@ public partial class MainWindow : Window
     async void Begin(object s,RoutedEventArgs e) => await Run(async ()=> {await Api("/api/v1/work/begin",new {}); Status.Text="Arbeitsbeginn gespeichert.";});
     async void End(object s,RoutedEventArgs e) => await Run(async ()=> {await Api("/api/v1/work/end",new {}); Status.Text="Arbeitsende gespeichert.";});
     void CancelLogin(object s,RoutedEventArgs e) => pending?.Cancel();
-    async void Connect(object s,RoutedEventArgs e) => await Run(async ()=> {
+    async void Connect(object s,RoutedEventArgs e) => await Run(()=>ConnectCore());
+
+    async Task ConnectCore(string? launchRequest=null,string? linkServer=null)
+    {
         if(token=="") throw new Exception("Bitte zuerst am ProjektZeit-Webserver anmelden.");
-        var domain=Normalize(Pbx.Text); Pbx.Text=domain; State(PbxState,"Anmeldung läuft …",false);
+        if(linkServer!=null && !string.Equals(origin,linkServer,StringComparison.OrdinalIgnoreCase))
+            throw new Exception("Der Verbindungslink gehört zu einem anderen ProjektZeit-Server. Bitte dort im Windows-Client anmelden.");
+        if(launchRequest==null){var domain=Normalize(Pbx.Text);Pbx.Text=domain;}
+        State(PbxState,"Anmeldung läuft …",false);
         pending=new CancellationTokenSource(TimeSpan.FromMinutes(5)); Cancel.Visibility=Visibility.Visible;
         var listener=new TcpListener(IPAddress.Loopback,0);
         try {
             listener.Start(); var port=((IPEndPoint)listener.LocalEndpoint).Port;
             Status.Text="Anmeldeadresse wird vom Webserver angefordert …";
-            var start=await Api("/api/v1/integrations/starface/start",new {domain,redirect_uri=$"http://127.0.0.1:{port}"});
+            object payload=launchRequest==null
+                ? new {domain=Normalize(Pbx.Text),redirect_uri=$"http://127.0.0.1:{port}"}
+                : new {launch_request=launchRequest,redirect_uri=$"http://127.0.0.1:{port}"};
+            var start=await Api("/api/v1/integrations/starface/start",payload);
+            if(start.TryGetProperty("domain",out var pbxDomain))Pbx.Text=pbxDomain.GetString()??Pbx.Text;
             var url=start.GetProperty("url").GetString()!;
             var auth=new Uri(url); if(auth.Scheme!="https" || auth.UserInfo!="") throw new Exception("Ungültige Browseradresse vom Server.");
             var expected=Query(auth.Query)["state"];
@@ -162,10 +204,10 @@ public partial class MainWindow : Window
                 if(data==null) continue;
                 Status.Text="Anmeldung wird auf dem Webserver abgeschlossen …";
                 await Api("/api/v1/integrations/starface/finish",data);
-                State(PbxState,"Verbunden",true); Save(); Status.Text="STARFACE-Anmeldung erfolgreich vom Webserver bestätigt und gespeichert.";
+                State(PbxState,"Verbunden",true); Save(); Status.Text="STARFACE-Anmeldung erfolgreich. Tokens und Client-Konfiguration liegen zentral auf dem ProjektZeit-Server; der Windows-Client kann jetzt beendet werden.";
                 break;
             }
         } finally {listener.Stop(); pending.Dispose(); pending=null; Cancel.Visibility=Visibility.Collapsed;}
-    });
+    }
     static Dictionary<string,string> Query(string query) => query.TrimStart('?').Split('&',StringSplitOptions.RemoveEmptyEntries).Select(x=>x.Split('=',2)).ToDictionary(x=>Uri.UnescapeDataString(x[0]),x=>x.Length==2?Uri.UnescapeDataString(x[1].Replace("+"," ")):"");
 }

@@ -11,13 +11,11 @@ Die separate ENV-Konfiguration bleibt erhalten. Neu sind:
 | DB_ROOT_PASSWORD | Anderes starkes Passwort für den Datenbankadministrator |
 | STARFACE_OAUTH_ALLOWED_ORIGINS | Nur bei abweichenden Discovery-Endpunkten: explizit vertrauenswürdige HTTPS-Ursprünge, kommagetrennt |
 
-ProjektZeit verwendet für STARFACE fest den öffentlichen OAuth-Client `rest-client` mit Authorization Code + PKCE/S256. Dafür wird kein Client-Secret verwendet.
+STARFACE-Adresse, Client-ID und Client-Secret werden nicht als Docker-ENV gepflegt. Sie werden in der ProjektZeit-Weboberfläche pro Benutzer konfiguriert und mit dem Integrationsschlüssel verschlüsselt gespeichert.
 
-APP_PUBLIC_URL richtet weder DNS noch einen Reverse-Proxy ein. Der Browser muss diese Adresse erreichen. Bei HTTPS APP_SECURE_COOKIE=1 setzen; für einen HTTP-LAN-Test 0. Der Webportal-Callback lautet genau:
+APP_PUBLIC_URL richtet weder DNS noch einen Reverse-Proxy ein. Der Browser muss diese Adresse erreichen. Bei HTTPS APP_SECURE_COOKIE=1 setzen; für einen HTTP-LAN-Test 0. APP_PUBLIC_URL wird außerdem in den kurzlebigen `projektzeit://`-Startlink für den Windows-Client aufgenommen. Geheimnisse werden dort nie übertragen.
 
-`https://DEINE-PROJEKTZEIT-DOMAIN/api/v1/integrations/starface/callback`
-
-Der native Windows-Client verwendet dagegen eine lokale Loopback-Rücksprungadresse `http://127.0.0.1:PORT`, wobei der Port dynamisch gewählt wird.
+Der native Windows-Client verwendet für STARFACE eine lokale Loopback-Rücksprungadresse `http://127.0.0.1:PORT`, wobei der Port dynamisch gewählt wird.
 
 ## Bestehende SQLite-Daten übernehmen
 
@@ -48,17 +46,20 @@ Rückweg: vorheriges Image und alte Compose-Konfiguration mit SQLite wieder verw
 ## STARFACE 10 einrichten
 
 1. APP_PUBLIC_URL korrekt setzen und Webcontainer neu bereitstellen.
-2. ProjektZeit verwendet `rest-client` als **Public Client**, ohne Client-Secret. Der Flow ist Authorization Code + PKCE/S256.
-3. Der Windows-Client verwendet `http://127.0.0.1:PORT` als Loopback-Redirect. Der Port wird zur Laufzeit gewählt. ProjektZeit verwendet für Authorization- und Token-Anfrage exakt dieselbe Redirect-URI.
-4. Die Integration fordert ausschließlich `pbx-login` an. Die Live-Probe prüft das eigene Konto über `/rest/users/me`; `pbx-admin` wird dafür nicht angefordert.
-5. Einstellungen → STARFACE → Domain eingeben → **Mit STARFACE anmelden**. Die Anmeldung erfolgt auf der STARFACE bzw. ihrem Identitätsanbieter. Nach erfolgreicher Rückleitung in ProjektZeit den Verbindungstest starten.
-6. Wenn Discovery-Endpunkte auf einen anderen Anbieter zeigen, dessen HTTPS-Ursprung gezielt in STARFACE_OAUTH_ALLOWED_ORIGINS ergänzen. Keine Wildcards. Ungültige Zertifikate werden nicht umgangen.
+2. Unter **Einstellungen → STARFACE** die STARFACE-Adresse eintragen. Die Client-ID ist mit `rest-client` vorbelegt und kann geändert werden. Das zugehörige Client-Secret aus der STARFACE-Administration eintragen und die Konfiguration speichern.
+3. ProjektZeit verwendet Authorization Code + PKCE/S256. Meldet die STARFACE Discovery `client_secret_basic`, wird dieses Verfahren bevorzugt. `client_secret_post` wird als Fallback unterstützt. Das Client-Secret wird nur serverseitig entschlüsselt und weder an JavaScript noch an den Windows-Client ausgegeben.
+4. **STARFACE verbinden** erzeugt eine zufällige, nur einmal verwendbare Desktop-Anfrage mit fünf Minuten Gültigkeit und öffnet `projektzeit://starface/connect?...`. Der URI enthält nur APP_PUBLIC_URL und den Einmal-Token, keine Zugangsdaten.
+5. Die portable Windows-EXE registriert `projektzeit://` beim manuellen Start, sofern kein gültiger Handler existiert. Sie überschreibt einen funktionierenden Handler nicht. Ein späterer Installer kann denselben Handler auf seinen Installationspfad setzen.
+6. Der Windows-Client öffnet für den OAuth-Vorgang einen Listener auf `http://127.0.0.1:PORT`, übernimmt die Einmal-Anfrage und öffnet die STARFACE-Anmeldung im Standardbrowser. Authorization- und Token-Anfrage verwenden exakt dieselbe Redirect-URI.
+7. Die Integration fordert ausschließlich `pbx-login` an. Die Live-Probe prüft das eigene Konto über `/rest/users/me`; `pbx-admin` wird dafür nicht angefordert.
+8. Nach erfolgreicher Anmeldung speichert ProjektZeit Access- und Refresh-Token verschlüsselt auf dem Server. Danach kann der Windows-Client beendet werden; spätere REST-Aufrufe und Token-Erneuerungen laufen direkt zwischen ProjektZeit und STARFACE.
+9. Wenn Discovery-Endpunkte auf einen anderen Anbieter zeigen, dessen HTTPS-Ursprung gezielt in STARFACE_OAUTH_ALLOWED_ORIGINS ergänzen. Keine Wildcards. Ungültige Zertifikate werden nicht umgangen.
 
-ProjektZeit wertet zusätzlich die OAuth-Discovery aus. Wenn STARFACE keinen Public-Client-Modus (`none`) oder kein PKCE/S256 meldet, wird dies vor dem Login als konkrete Konfigurationsmeldung angezeigt. Bei `invalid_client` zeigt die Diagnose außerdem den verwendeten Client-Modus und die Redirect-URI, jedoch keine Codes, Verifier oder Tokens.
+Bei `invalid_client` zeigt die Diagnose Client-ID, verwendetes Authentifizierungsverfahren und Redirect-URI, jedoch niemals Client-Secret, Authorization Code, PKCE-Verifier oder Tokens. Wenn Client-ID oder Client-Secret geändert werden, werden bestehende STARFACE-OAuth-Tokens verworfen und die Verknüpfung muss erneut durchgeführt werden.
 
-Die Rückleitung ist an Benutzer, Sitzung und einen zehn Minuten gültigen Einmal-State gebunden. Tokens und PKCE-Verifier werden verschlüsselt gespeichert. Refresh-Tokens werden beim nächsten Zugriff erneuert. Fehlt ein Refresh-Token oder wird er abgewiesen, erneut anmelden. Nach „Verknüpfung entfernen“ werden lokal Tokens und ausstehende Anmeldevorgänge gelöscht; eine Anbieter-seitige Sitzung kann separat bei STARFACE beendet werden.
+Die Rückleitung ist an Benutzer, ProjektZeit-Sitzung und einen zehn Minuten gültigen OAuth-State gebunden. Zusätzlich ist der Start aus der Weboberfläche an eine fünf Minuten gültige Einmal-Anfrage gebunden. Refresh-Tokens werden beim nächsten Zugriff erneuert. Fehlt ein Refresh-Token oder wird er abgewiesen, erneut verbinden.
 
-Die Implementierung ist gegen simulierte OAuth-Antworten getestet. Redirect-Freigabe und echter Login müssen an deiner STARFACE geprüft werden. Echte Anruflisten sind weiterhin noch nicht umgesetzt.
+Die Implementierung ist gegen simulierte OAuth-Antworten getestet. Echter Login und REST-Zugriff müssen an der jeweiligen STARFACE geprüft werden. Echte Anruflisten sind weiterhin noch nicht umgesetzt.
 
 [STARFACE: Authentifizierung für Integrationen ab Version 10](https://knowledge.starface.de/spaces/flyingpdf/pdfpageexport.action?pageId=325419009)
 
