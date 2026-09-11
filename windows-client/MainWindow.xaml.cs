@@ -141,7 +141,7 @@ public partial class MainWindow : Window
         try {
             listener.Start(); var port=((IPEndPoint)listener.LocalEndpoint).Port;
             Status.Text="Anmeldeadresse wird vom Webserver angefordert …";
-            var start=await Api("/api/v1/integrations/starface/start",new {domain,redirect_uri=$"http://127.0.0.1:{port}/callback"});
+            var start=await Api("/api/v1/integrations/starface/start",new {domain,redirect_uri=$"http://127.0.0.1:{port}"});
             var url=start.GetProperty("url").GetString()!;
             var auth=new Uri(url); if(auth.Scheme!="https" || auth.UserInfo!="") throw new Exception("Ungültige Browseradresse vom Server.");
             var expected=Query(auth.Query)["state"];
@@ -155,7 +155,7 @@ public partial class MainWindow : Window
                 catch(OperationCanceledException) { pending.Token.ThrowIfCancellationRequested(); continue; }
                 var line=Encoding.ASCII.GetString(bytes.ToArray()).Split('\n')[0].Trim().Split(' ');
                 Dictionary<string,string>? data=null;
-                try { if(line.Length==3 && line[0]=="GET" && line[1].StartsWith("/callback?")) { var q=Query(new Uri("http://127.0.0.1"+line[1]).Query); if(q.GetValueOrDefault("state")==expected && (q.ContainsKey("code") || q.ContainsKey("error"))) data=q; } } catch { }
+                try { if(line.Length==3 && line[0]=="GET" && line[1].StartsWith("/?")) { var q=Query(new Uri("http://127.0.0.1"+line[1]).Query); if(q.GetValueOrDefault("state")==expected && (q.ContainsKey("code") || q.ContainsKey("error"))) data=q; } } catch { }
                 var reply=Encoding.UTF8.GetBytes(data==null?"Ungültige Rückleitung.":"Anmeldung empfangen. Bitte Erfolg im ProjektZeit-Client abwarten.");
                 var header=Encoding.ASCII.GetBytes($"HTTP/1.1 {(data==null?"400 Bad Request":"200 OK")}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {reply.Length}\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\n\r\n");
                 await stream.WriteAsync(header,pending.Token); await stream.WriteAsync(reply,pending.Token);
