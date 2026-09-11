@@ -186,7 +186,9 @@ def ticket_detail(config, ticket_id, client_factory=integrations.Client):
         if isinstance(article,dict) and article.get('content_type') == 'text/html':
             parser=PlainText(); parser.feed(str(article.get('body') or ''))
             article['body']=''.join(parser.parts); article['content_type']='text/plain'
-    return safe_raw(dict(ticket=ticket, articles=articles), config['secret'])
+    result=safe_raw(dict(ticket=ticket, articles=articles), config['secret'])
+    result['ticket_url']=config['domain'].rstrip('/')+'/#ticket/zoom/'+str(ticket_id)
+    return result
 
 
 def load(config, client_factory=integrations.Client):
