@@ -1,8 +1,9 @@
-"""Runtime extension for customer CRM data, provider history and workshop suggestions."""
+"""Runtime extension for customer CRM data, provider history, admin controls and workshop suggestions."""
 import json
 import threading
 from urllib.parse import urlparse
 
+import admin_controls
 import customer_data
 import provider_archive
 import starface_directory
@@ -16,12 +17,14 @@ def install(app):
             customer_data.migrate(c)
             starface_directory.migrate(c)
             provider_archive.migrate(c)
+            admin_controls.migrate(c)
     app.init_db = init_db
 
     context = threading.local()
     original_integration_list = app.App.integration_list
     original_sf_load = app.starface_calls.load
     original_provider_load = app.provider_lists.load
+    original_login = app.App.login
 
     def cache(provider, result):
         uid=getattr(context,'uid',None)
@@ -44,6 +47,41 @@ def install(app):
     app.starface_calls.load=sf_load
     app.provider_lists.load=provider_load
     app.App.integration_list=integration_list
+
+    def login(self, body, native=False):
+        username=str(body.get('username','')).strip()
+        with app.db() as c:
+            row=c.execute('SELECT id FROM users WHERE username=?',(username,)).fetchone()
+            uid=row['id'] if row else None
+            before=c.execute('SELECT COUNT(*) n FROM sessions WHERE user_id=?',(uid,)).fetchone()['n'] if uid else 0
+        result=original_login(self,body,native=native)
+        if uid:
+            try:
+                with app.db() as c:
+                    after=c.execute('SELECT COUNT(*) n FROM sessions WHERE user_id=?',(uid,)).fetchone()['n']
+                    if after>before:admin_controls.mark_login(c,uid)
+            except Exception:pass
+        return result
+    app.App.login=login
+
+    def dashboard(self,session):
+        uid=session['id']
+        with app.db() as c:
+            customers=[dict(x) for x in c.execute('SELECT id,name FROM customers WHERE owner_id=? ORDER BY name',(uid,))]
+            projects=[dict(x) for x in c.execute('SELECT id,name,customer_id,active FROM projects WHERE owner_id=? AND is_system=0 ORDER BY name',(uid,))]
+            categories=[dict(x) for x in c.execute('SELECT id,name FROM categories WHERE owner_id=? ORDER BY name',(uid,))]
+            entries=[dict(x) for x in c.execute('''SELECT e.id,e.project_id,e.category_id,e.is_idle,e.work_session_id,e.started_at,e.ended_at,e.note,CASE WHEN e.is_idle=1 THEN 'unproduktiv' ELSE p.name END project,c.name customer,k.name category
+                FROM entries e JOIN projects p ON p.id=e.project_id LEFT JOIN customers c ON c.id=p.customer_id
+                JOIN categories k ON k.id=e.category_id WHERE e.owner_id=? ORDER BY e.started_at DESC''',(uid,))]
+            work=c.execute('SELECT * FROM work_sessions WHERE owner_id=? AND ended_at IS NULL',(uid,)).fetchone()
+            users=[]
+            if session['role']=='admin':
+                superuser=admin_controls.is_superadmin(c,uid)
+                for x in c.execute('SELECT id,username,role,active,created_at FROM users ORDER BY username'):
+                    if not superuser and admin_controls.is_superadmin(c,x['id']):continue
+                    users.append(dict(x))
+        return self.send_json(200,{'customers':customers,'projects':projects,'categories':categories,'entries':entries,'users':users,'work':dict(work) if work else None})
+    app.App.dashboard=dashboard
 
     def integration_config(uid,provider):
         with app.db() as c:
@@ -77,7 +115,7 @@ def install(app):
             if value is None: continue
             key=str(value)
             if key not in found: found[key]={'id':key,'name':str(raw.get('devicename') or raw.get('device_name') or key),'last_seen':str(raw.get('start_date') or r['captured_at'] or '')}
-        return sorted(found.values(),key=lambda x:x['name'].casefold())
+        return sorted(found.values(),key=lambda x:(x['id'],x['name'].casefold()))
 
     def current_devices(c,uid,customer_id):
         devices=[dict(r) for r in c.execute('SELECT id,provider,external_id,name FROM customer_devices WHERE owner_id=? AND customer_id=? ORDER BY id',(uid,customer_id))]
@@ -124,8 +162,11 @@ def install(app):
       '/api/v1/customers/data','/api/v1/customers/assign','/api/v1/customers/profile','/api/v1/customers/detail','/api/v1/customers/activity',
       '/api/v1/customers/phone','/api/v1/customers/phone/update','/api/v1/customers/phone/delete','/api/v1/customers/contact',
       '/api/v1/customers/contact-phone','/api/v1/customers/device','/api/v1/customers/workshop','/api/v1/customers/zammad-organization',
-      '/api/v1/customers/timeline','/api/v1/starface/users','/api/v1/starface/users/save','/api/v1/archive/sync','/api/v1/archive/status',
-      '/api/v1/logs/list','/api/v1/debug/raw','/api/v1/zammad/organizations/refresh'
+      '/api/v1/customers/timeline','/api/v1/customers/master','/api/v1/starface/users','/api/v1/starface/users/save','/api/v1/archive/sync','/api/v1/archive/status',
+      '/api/v1/logs/list','/api/v1/debug/raw','/api/v1/zammad/organizations/refresh',
+      '/api/v1/admin/context','/api/v1/admin/role/save','/api/v1/admin/role/clone','/api/v1/admin/role/delete','/api/v1/admin/role/reset-user',
+      '/api/v1/admin/user/profile','/api/v1/admin/user/roles','/api/v1/admin/policies/save','/api/v1/admin/super/settings',
+      '/api/v1/admin/smtp/save','/api/v1/admin/smtp/test'
     }
 
     def do_POST(self):
@@ -139,6 +180,42 @@ def install(app):
         if not session:return
         uid=session['id']
         try:
+            if path=='/api/v1/admin/context':
+                with app.db() as c:return self.send_json(200,admin_controls.admin_context(c,uid))
+            if path=='/api/v1/admin/role/save':
+                with app.db() as c:rid=admin_controls.save_role(c,uid,body);return self.send_json(200,{'ok':True,'role_id':rid})
+            if path=='/api/v1/admin/role/clone':
+                with app.db() as c:rid=admin_controls.clone_role(c,uid,body.get('id'));return self.send_json(200,{'ok':True,'role_id':rid})
+            if path=='/api/v1/admin/role/delete':
+                with app.db() as c:admin_controls.delete_role(c,uid,body.get('id'));return self.send_json(200,{'ok':True})
+            if path=='/api/v1/admin/role/reset-user':
+                with app.db() as c:admin_controls.reset_user_role(c,uid);return self.send_json(200,{'ok':True})
+            if path=='/api/v1/admin/user/profile':
+                with app.db() as c:admin_controls.update_user_profile(c,uid,body);return self.send_json(200,{'ok':True})
+            if path=='/api/v1/admin/user/roles':
+                with app.db() as c:admin_controls.assign_roles(c,uid,body.get('user_id'),body.get('role_ids'));return self.send_json(200,{'ok':True})
+            if path=='/api/v1/admin/policies/save':
+                with app.db() as c:
+                    admin_controls.require_permission(c,uid,'security.policies.edit')
+                    values=body.get('policies') if isinstance(body.get('policies'),dict) else {}
+                    for key,default in admin_controls.POLICY_DEFAULTS.items():
+                        if key in values:admin_controls.set_setting(c,'policy.'+key,values[key])
+                    return self.send_json(200,{'ok':True,'policies':admin_controls.policy_values(c)})
+            if path=='/api/v1/admin/super/settings':
+                with app.db() as c:
+                    if not admin_controls.is_superadmin(c,uid):return self.send_json(404,{'error':'Nicht gefunden'})
+                    admin_controls.set_setting(c,'superadmin.admin_may_reset_2fa',bool(body.get('admin_may_reset_2fa')))
+                    return self.send_json(200,{'ok':True})
+            if path=='/api/v1/admin/smtp/save':
+                with app.db() as c:admin_controls.save_smtp(c,uid,body,app.DATA_DIR);return self.send_json(200,{'ok':True,'smtp':admin_controls.smtp_public(c)})
+            if path=='/api/v1/admin/smtp/test':
+                with app.db() as c:admin_controls.test_smtp(c,uid,body.get('recipient'),app.DATA_DIR);return self.send_json(200,{'ok':True})
+            if path=='/api/v1/customers/master':
+                cid=int(body.get('customer_id'))
+                with app.db() as c:
+                    if body.get('save'):
+                        admin_controls.save_customer_master(c,uid,cid,body)
+                    return self.send_json(200,{'master':admin_controls.customer_master(c,uid,cid)})
             if path=='/api/v1/archive/sync':
                 provider=str(body.get('provider') or '').lower()
                 if provider not in ('starface','teamviewer'):raise ValueError('History-Sync ist nur für STARFACE und TeamViewer verfügbar.')
@@ -169,7 +246,7 @@ def install(app):
                     starface_directory.save_manual(c,uid,body.get('extension'),body.get('name'))
                     return self.send_json(200,{'ok':True,'users':starface_directory.list_all(c,uid)})
             if path=='/api/v1/starface/users':
-                auto={'imported':0,'errors':[]}
+                auto={'imported':0,'errors':[],'sources':[]}
                 try:
                     config=integration_config(uid,'starface')
                     with app.db() as c:auto=starface_directory.refresh(c,uid,config);users=starface_directory.list_all(c,uid)
@@ -185,7 +262,7 @@ def install(app):
                 if path in ('/api/v1/customers/detail','/api/v1/customers/activity'):
                     cid=int(body.get('id'));customers=[x for x in customer_data.list_all(c,uid) if x['id']==cid]
                     if not customers:raise ValueError('Unbekannter Kunde.')
-                    customer=customers[0];customer['devices']=current_devices(c,uid,cid)
+                    customer=customers[0];customer['devices']=current_devices(c,uid,cid);customer['master']=admin_controls.customer_master(c,uid,cid)
                     return self.send_json(200,{'customer':customer,'activity':customer_data.activity(c,uid,cid),'teamviewer_devices':available_teamviewer_devices(c,uid),'zammad_organizations':available_zammad_orgs(c,uid),'zammad_assigned':assigned_zammad_orgs(c,uid,cid),'zammad_tickets':zammad_tickets(c,uid,cid)})
                 if path=='/api/v1/customers/timeline':
                     cid=int(body.get('id'));return self.send_json(200,{'events':provider_archive.customer_timeline(c,uid,cid,body.get('day'))})
@@ -210,6 +287,8 @@ def install(app):
                 if cid:customer_data.update(c,uid,int(cid),body);cid=int(cid)
                 else:cid=customer_data.create(c,uid,body)
                 return self.send_json(200,{'ok':True,'customer_id':cid})
+        except PermissionError as error:
+            return self.send_json(403,{'error':str(error)})
         except (ValueError,TypeError,OSError) as error:
             try:
                 if path.startswith('/api/v1/archive/') or path=='/api/v1/debug/raw':
