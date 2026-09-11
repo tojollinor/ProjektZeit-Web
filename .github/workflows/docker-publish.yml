@@ -17,6 +17,17 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_ROOT_PASSWORD: ci-only-password
+          MARIADB_ROOT_HOST: '%'
+        ports:
+          - 33306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s --health-timeout=5s --health-retries=10
     steps:
       - name: Repository laden
         uses: actions/checkout@v4
@@ -36,6 +47,16 @@ jobs:
           python -m pip install -r requirements.txt
           python -m unittest discover -s tests -p 'test_*.py'
           node tests/timeline.cjs
+          node --check static/portal.js
+
+      - name: Tests gegen MariaDB
+        env:
+          PZ_TEST_MARIADB: '1'
+          DB_HOST: 127.0.0.1
+          DB_PORT: '33306'
+          DB_USER: root
+          DB_PASSWORD: ci-only-password
+        run: python -m unittest discover -s tests -p 'test_*.py'
 
       - name: QEMU einrichten
         uses: docker/setup-qemu-action@v3

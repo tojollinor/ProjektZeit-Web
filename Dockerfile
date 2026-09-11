@@ -5,7 +5,7 @@ RUN addgroup -S projektzeit && adduser -S projektzeit -G projektzeit
 WORKDIR /app
 COPY requirements.txt /app/
 RUN pip install --no-cache-dir -r requirements.txt
-COPY app.py workday.py integrations.py /app/
+COPY app.py workday.py integrations.py database.py starface_oauth.py migrate_sqlite.py /app/
 COPY static /app/static
 RUN mkdir -p /app/data && chown -R projektzeit:projektzeit /app
 USER projektzeit

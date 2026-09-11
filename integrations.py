@@ -11,7 +11,7 @@ import ssl
 import threading
 import time
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlencode
 from http.cookies import SimpleCookie
 from cryptography.fernet import Fernet, InvalidToken
 
@@ -21,7 +21,7 @@ TEST_LOCK = threading.BoundedSemaphore(3)
 
 
 def migrate(c):
-    c.execute('''CREATE TABLE IF NOT EXISTS integrations (
+    c.executescript('''CREATE TABLE IF NOT EXISTS integrations (
         owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         provider TEXT NOT NULL, domain TEXT NOT NULL, username TEXT NOT NULL,
         secret TEXT NOT NULL, updated_at TEXT NOT NULL,
@@ -109,9 +109,13 @@ def config(c, uid, body, data_dir):
 def save(c, uid, body, data_dir):
     data = config(c,uid,body,data_dir)
     encrypted = cipher(data_dir).encrypt(data['secret'].encode()).decode()
-    c.execute('''INSERT INTO integrations VALUES(?,?,?,?,?,datetime('now'))
-        ON CONFLICT(owner_id,provider) DO UPDATE SET domain=excluded.domain,username=excluded.username,secret=excluded.secret,updated_at=excluded.updated_at''',
-        (uid,data['provider'],data['domain'],data['username'],encrypted))
+    store(c, uid, data['provider'], data['domain'], data['username'], encrypted)
+
+
+def store(c, uid, provider, origin, username, encrypted):
+    c.execute('DELETE FROM integrations WHERE owner_id=? AND provider=?', (uid, provider))
+    c.execute("INSERT INTO integrations VALUES(?,?,?,?,?,?)",
+              (uid, provider, origin, username, encrypted, time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())))
 
 
 def allowed_address(address):
@@ -144,11 +148,14 @@ class Client:
     def request(self,path,headers=None,body=None):
         started=time.monotonic()
         conn=Connection(self.host,self.port,timeout=8,context=ssl.create_default_context())
-        outgoing={'Accept':'application/json','Content-Type':'application/json','User-Agent':'ProjektZeit/0.6.0',**(headers or {})}
+        outgoing={'Accept':'application/json','Content-Type':'application/json','User-Agent':'ProjektZeit/0.7.0',**(headers or {})}
         if self.cookies:
             outgoing['Cookie']='; '.join(k+'='+v for k,v in self.cookies.items())
         try:
-            conn.request('POST' if body is not None else 'GET',path,body=json.dumps(body).encode() if body is not None else None,headers=outgoing)
+            encoded = None
+            if body is not None:
+                encoded = (urlencode(body) if outgoing['Content-Type'] == 'application/x-www-form-urlencoded' else json.dumps(body)).encode()
+            conn.request('POST' if body is not None else 'GET',path,body=encoded,headers=outgoing)
             response=conn.getresponse()
             if 300 <= response.status < 400:
                 raise ValueError('Weiterleitung abgewiesen. Bitte die endgültige API-Domain eintragen.')
@@ -230,6 +237,10 @@ def diagnose(data, client_factory=Client):
             if isinstance(me,dict) and me.get('id'):
                 call('Tickets lesen','/api/v1/tickets?page=1&per_page=5',headers)
             elif me is not None: steps[-1].update(ok=False,message='Benutzerantwort enthält keine ID.')
+        elif p == 'starface' and data.get('oauth'):
+            headers = {'Authorization': 'Bearer ' + data['secret'], 'X-Version': '2'}
+            secrets.append(headers['Authorization'])
+            call('STARFACE-Benutzer lesen (OAuth)', '/rest/users', headers)
         else:
             headers={'X-Version':'2'}
             challenge=call('Anmeldung vorbereiten','/rest/login',headers,show=False)

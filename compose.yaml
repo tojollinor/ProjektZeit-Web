@@ -1,29 +1,45 @@
 services:
   projektzeit-web:
     image: ${PROJEKTZEIT_IMAGE}
-    pull_policy: always
-    container_name: projektzeit-web
     restart: unless-stopped
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${HTTP_PORT:-8080}:8080"
     environment:
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL}
       ADMIN_USER: ${ADMIN_USER:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
-      DEMO_MODE: ${DEMO_MODE:-0}
-      APP_SECURE_COOKIE: ${APP_SECURE_COOKIE:-0}
-      SEED_DEMO: ${SEED_DEMO:-0}
+      DEMO_MODE: "0"
+      APP_SECURE_COOKIE: ${APP_SECURE_COOKIE:-1}
+      SEED_DEMO: "0"
+      DB_BACKEND: mariadb
+      DB_HOST: db
+      DB_NAME: projektzeit
+      DB_USER: projektzeit
+      DB_PASSWORD: ${DB_PASSWORD}
       INTEGRATION_KEY: ${INTEGRATION_KEY:-}
-      TZ: ${TZ:-Europe/Berlin}
+      STARFACE_CLIENT_ID: ${STARFACE_CLIENT_ID:-rest-client}
+      STARFACE_OAUTH_ALLOWED_ORIGINS: ${STARFACE_OAUTH_ALLOWED_ORIGINS:-}
+    depends_on:
+      db:
+        condition: service_healthy
     volumes:
       - projektzeit-data:/app/data
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    init: true
-    read_only: true
-    tmpfs:
-      - /tmp
+  db:
+    image: mariadb:11.4
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: projektzeit
+      MARIADB_USER: projektzeit
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+    volumes:
+      - mariadb-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
 volumes:
   projektzeit-data:
+  mariadb-data:

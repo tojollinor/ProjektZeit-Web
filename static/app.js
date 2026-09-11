@@ -115,7 +115,7 @@ function zoomTimeline(factor,anchor){
 }
 function fillSelect(selector,items,placeholder,allowEmpty=false){const el=$(selector),old=el.value;el.innerHTML=`<option value="">${placeholder}</option>`+items.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join("");if([...el.options].some(o=>o.value===old))el.value=old;if(!allowEmpty&&!el.value&&items[0])el.value=items[0].id}
 function setTimer(active){clearInterval(state.tick);const pill=$("#live-pill"),button=$("#timer-button"),timer=$("#timer");pill.classList.toggle("running",!!active&&!active.is_idle);pill.querySelector("span").textContent=active?(active.is_idle?"unproduktiv":"Projekt läuft"):"Feierabend";button.textContent="Ausgewähltes Projekt starten / wechseln";button.classList.remove("stop");button.disabled=!state.data.work;const update=()=>{timer.textContent=active?duration(active.started_at,new Date().toISOString()):"00:00:00";if(state.data.work)$("#work-detail").textContent=`Seit ${new Date(state.data.work.started_at).toLocaleTimeString('de-DE')} · ${duration(state.data.work.started_at,new Date())}`};update();if(active)state.tick=setInterval(update,1000)}
-function showView(name){$$('.view').forEach(v=>v.classList.remove('active-view'));$("#view-"+name).classList.add('active-view');$$('.nav').forEach(n=>n.classList.toggle('active',n.dataset.view===name));$("#page-title").textContent={dashboard:"Übersicht",tracking:"Zeiterfassung",users:"Benutzerverwaltung",settings:"Einstellungen"}[name];$(".sidebar").classList.remove("open");if(name==='settings'&&!state.integrationsLoaded)loadIntegrations()}
+function showView(name){$$('.view').forEach(v=>v.classList.remove('active-view'));$("#view-"+name).classList.add('active-view');$$('.nav').forEach(n=>n.classList.toggle('active',n.dataset.view===name));$("#page-title").textContent={dashboard:"Übersicht",tracking:"Zeiterfassung",users:"Benutzerverwaltung",settings:"Einstellungen",zammad:"Zammad",starface:"STARFACE",teamviewer:"TeamViewer"}[name];$(".sidebar").classList.remove("open");if(name==='settings')loadIntegrations()}
 $("#login-form").addEventListener("submit",async e=>{e.preventDefault();$("#login-error").textContent="";try{await post("/api/v1/login",{username:$("#login-user").value,password:$("#login-password").value});await boot()}catch(err){$("#login-error").textContent=err.message}});
 $("#logout").addEventListener("click",async()=>{await post("/api/v1/logout");location.reload()});
 $("#timeline-date").value=dateValue(new Date());$("#timeline-date").addEventListener("change",()=>state.data&&renderTimeline(state.data.entries));
@@ -193,7 +193,7 @@ $('#entry-edit-form').addEventListener('submit',async event=>{event.preventDefau
   $('#entry-dialog').close();await refresh();toast('Stempelung gespeichert');
 }catch(error){$('#edit-error').textContent=error.message}});
 const integrationInfo={
-  teamviewer:{name:'TeamViewer',label:'API-Token',placeholder:'https://webapi.teamviewer.com',note:'TeamViewer unterstützt hier keinen Passwort-Login. Bitte einen Script-Token mit Leserechten für Verbindungsberichte verwenden. Das Benutzerfeld ist optional und dient nur als Kontobezeichnung.',docs:'https://www.teamviewer.com/en-us/global/support/knowledge-base/teamviewer-remote/for-developers/use-the-teamviewer-api/'},
+  teamviewer:{name:'TeamViewer',label:'API-Token',placeholder:'https://webapi.teamviewer.com',note:'Bitte einen Script-Token mit Leserechten für Verbindungsberichte verwenden.',docs:'https://www.teamviewer.com/en-us/global/support/knowledge-base/teamviewer-remote/for-developers/use-the-teamviewer-api/'},
   starface:{name:'STARFACE',label:'Passwort',placeholder:'https://telefon.firma.de',note:'Benutzername = STARFACE-Login-ID (z. B. 0001). Der Test verwendet REST mit X-Version 2 und prüft Anmeldung sowie Benutzerdaten. Gesprächszeiten sind damit noch nicht nachgewiesen.',docs:'https://knowledge.starface.de/x/cpLGAg'},
   zammad:{name:'Zammad',label:'Passwort',placeholder:'https://support.firma.de',note:'HTTP Basic Authentication muss in Zammad aktiviert sein. Der Test liest dein Benutzerprofil und bis zu fünf erreichbare Tickets. Zugriffsrechte gelten weiterhin.',docs:'https://docs.zammad.org/en/latest/api/intro.html'}
 };
@@ -203,8 +203,12 @@ async function loadIntegrations(){
     const data=await api('/api/v1/integrations');
     container.innerHTML=data.integrations.map(row=>{
       const p=row.provider,info=integrationInfo[p];
+      if(p==='starface')return `<article class="panel integration-card" data-provider="starface"><div class="panel-head"><h3>STARFACE</h3><span class="badge">${row.has_secret?'OAuth verknüpft':'Nicht verknüpft'}</span></div><p class="integration-note">Mit deinem STARFACE-Konto im Browser anmelden. Das Passwort wird auf der STARFACE eingegeben.</p><label>STARFACE-Domain<input data-field="domain" value="${attr(row.domain)}" placeholder="https://telefon.firma.de"></label><p class="oauth-callback">Rücksprungadresse: ${esc(data.starface_callback||'APP_PUBLIC_URL ist noch nicht konfiguriert.')}</p><input type="hidden" data-field="username" value=""><input type="hidden" data-field="secret" value=""><div class="panel-actions"><button class="primary" data-integration-action="oauth">Mit STARFACE anmelden</button><button class="secondary" data-integration-action="test">Debug · Verbindung testen</button><button class="secondary subtle" data-integration-action="remove">Verknüpfung entfernen</button></div><div class="integration-status" role="status"></div><div class="debug-output hidden"></div></article>`;
       return `<article class="panel integration-card" data-provider="${p}"><div class="panel-head"><h3>${info.name}</h3><span class="badge">${row.has_secret?'Gespeichert':'Noch nicht eingerichtet'}</span></div><p class="integration-note">${info.note} <a href="${info.docs}" target="_blank" rel="noopener noreferrer">API-Dokumentation</a></p><div class="integration-fields"><label>Domain<input data-field="domain" value="${attr(row.domain)}" placeholder="${info.placeholder}" autocomplete="off" spellcheck="false"></label><label>${p==='starface'?'Login-ID':'Benutzername'+(p==='teamviewer'?' (optional)':'')}<input data-field="username" value="${attr(row.username)}" maxlength="250" autocomplete="off" spellcheck="false"></label><label>${info.label}<input data-field="secret" type="password" maxlength="4096" autocomplete="new-password" placeholder="${row.has_secret?'Gespeichert – leer lassen zum Beibehalten':info.label+' eingeben'}"></label></div><div class="panel-actions"><button type="button" class="primary" data-integration-action="save">Speichern</button><button type="button" class="secondary" data-integration-action="test">Debug · Verbindung testen</button><button type="button" class="secondary subtle" data-integration-action="remove">Verknüpfung entfernen</button></div><div class="integration-status" role="status"></div><div class="debug-output hidden"></div></article>`;
-    }).join('');state.integrationsLoaded=true;
+    }).join('');
+    const tvUser=container.querySelector('[data-provider="teamviewer"] [data-field="username"]');
+    if(tvUser){const label=tvUser.closest('label');tvUser.type='hidden';label.replaceWith(tvUser);}
+    state.integrationsLoaded=true;
   }catch(error){container.textContent=error.message;}
 }
 $('#integration-cards').addEventListener('input',event=>{
@@ -220,6 +224,10 @@ $('#integration-cards').addEventListener('click',async event=>{
   const controls=[...card.querySelectorAll('button,input')];controls.forEach(x=>x.disabled=true);
   status.className='integration-status';status.textContent=action==='test'?'Verbindung wird geprüft …':'Wird gespeichert …';output.replaceChildren();output.classList.add('hidden');
   try{
+    if(action==='oauth'){
+      const result=await post('/api/v1/integrations/starface/start',{domain:body.domain});
+      location.assign(result.url);return;
+    }
     const result=await post('/api/v1/integrations/'+action,action==='remove'?{provider}:body);
     if(action==='test'){
       status.textContent=result.ok?'Verbindungstest erfolgreich. Bitte Datenprobe und Hinweise prüfen.':'Verbindungstest unvollständig oder fehlgeschlagen. Details siehe unten.';

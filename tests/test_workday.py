@@ -7,6 +7,7 @@ import threading
 import urllib.request
 import urllib.error
 import http.cookiejar
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -17,6 +18,15 @@ import workday
 
 class WorkdayTest(unittest.TestCase):
     def setUp(self):
+        self.maria_name = None
+        if os.environ.get('PZ_TEST_MARIADB') == '1':
+            import pymysql
+            self.maria_name = 'pz_test_' + uuid.uuid4().hex
+            self.maria_admin = pymysql.connect(host=os.environ.get('DB_HOST','127.0.0.1'), port=int(os.environ.get('DB_PORT','3306')),
+                user=os.environ['DB_USER'], password=os.environ['DB_PASSWORD'], autocommit=True)
+            with self.maria_admin.cursor() as cursor:
+                cursor.execute('CREATE DATABASE `' + self.maria_name + '` CHARACTER SET utf8mb4 COLLATE utf8mb4_bin')
+            os.environ.update(DB_BACKEND='mariadb', DB_NAME=self.maria_name)
         self.tmp = tempfile.TemporaryDirectory()
         app.DATA_DIR = Path(self.tmp.name)
         app.DB_PATH = app.DATA_DIR / 'test.db'
@@ -29,6 +39,10 @@ class WorkdayTest(unittest.TestCase):
 
     def tearDown(self):
         self.tmp.cleanup()
+        if self.maria_name:
+            with self.maria_admin.cursor() as cursor:
+                cursor.execute('DROP DATABASE `' + self.maria_name + '`')
+            self.maria_admin.close()
 
     def at(self, value):
         return datetime.fromisoformat('2026-09-08T' + value).replace(tzinfo=timezone.utc)

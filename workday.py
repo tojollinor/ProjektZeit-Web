@@ -11,6 +11,18 @@ def iso(value):
 
 
 def migrate(c):
+    if getattr(c, 'dialect', '') == 'mariadb':
+        c.executescript('''CREATE TABLE IF NOT EXISTS work_sessions (
+            id INTEGER PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES users(id),
+            started_at TEXT NOT NULL, ended_at TEXT);
+            ALTER TABLE entries ADD COLUMN IF NOT EXISTS is_idle INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE entries ADD COLUMN IF NOT EXISTS work_session_id INTEGER REFERENCES work_sessions(id);
+            ALTER TABLE projects ADD COLUMN IF NOT EXISTS active INTEGER NOT NULL DEFAULT 1;
+            ALTER TABLE projects ADD COLUMN IF NOT EXISTS is_system INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE work_sessions ADD COLUMN IF NOT EXISTS open_owner INTEGER
+              GENERATED ALWAYS AS (CASE WHEN ended_at IS NULL THEN owner_id ELSE NULL END) PERSISTENT;
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_work_open ON work_sessions(open_owner);''')
+        return
     c.execute("""CREATE TABLE IF NOT EXISTS work_sessions (
         id INTEGER PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES users(id),
         started_at TEXT NOT NULL, ended_at TEXT)""")

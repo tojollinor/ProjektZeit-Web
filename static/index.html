@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="description" content="ProjektZeit – sichere, webbasierte Zeiterfassung">
   <title>ProjektZeit Web</title>
+  <link rel="icon" href="/projektzeit.ico">
+  <link rel="stylesheet" href="/portal.css?v=0.7.0">
   <link rel="stylesheet" href="/styles.css?v=0.6.0">
   <link rel="stylesheet" href="/workday.css?v=0.6.0">
   <link rel="stylesheet" href="/integrations.css?v=0.6.0">
@@ -12,7 +14,7 @@
 <body>
   <section id="login" class="login-shell">
     <div class="login-card">
-      <div class="brand-mark">PZ</div>
+      <img class="product-logo" src="/projektzeit-logo.png" alt="ProjektZeit Logo" width="72" height="72">
       <p class="eyebrow">PROJEKTZEIT WEB</p>
       <h1>Willkommen zurück</h1>
       <p class="muted">Melde dich an, um Zeiten und Projekte zu verwalten.</p>
@@ -21,17 +23,19 @@
         <label>Passwort<input id="login-password" type="password" autocomplete="current-password" required></label>
         <button class="primary wide" type="submit">Anmelden</button>
       </form>
-      <p class="demo-login"><strong>Testzugang</strong><span>admin / admin</span></p>
       <p id="login-error" class="error" role="alert"></p>
     </div>
   </section>
 
   <div id="app" class="app hidden">
     <aside class="sidebar">
-      <div class="brand"><div class="brand-mark small">PZ</div><div><strong>ProjektZeit</strong><span>Web Portal</span></div></div>
+      <div class="brand"><img class="product-logo small" src="/projektzeit-logo.png" alt="" width="42" height="42"><div><strong>ProjektZeit</strong><span>Web Portal</span></div></div>
       <nav aria-label="Hauptnavigation">
         <button class="nav active" data-view="dashboard"><span>◫</span>Übersicht</button>
         <button class="nav" data-view="tracking"><span>◷</span>Zeiterfassung</button>
+        <button class="nav" data-view="zammad"><span>▤</span>Zammad</button>
+        <button class="nav" data-view="starface"><span>☎</span>STARFACE</button>
+        <button class="nav" data-view="teamviewer"><span>↔</span>TeamViewer</button>
         <button class="nav admin-only" data-view="users"><span>♙</span>Benutzer</button>
         <button class="nav admin-only" data-view="settings"><span>⚙</span>Einstellungen</button>
       </nav>
@@ -104,6 +108,9 @@
         <div class="settings-intro"><p class="eyebrow">SCHNITTSTELLEN</p><h3>Verbindungen &amp; Diagnose</h3><p class="muted">Zugangsdaten für deinen Benutzer konfigurieren. Der Debug-Test prüft die eingegebenen Daten, ohne Stempelungen zu erzeugen. Speichern ist ein eigener Schritt.</p></div>
         <div id="integration-cards" class="integration-grid"></div>
       </section>
+      <section id="view-zammad" class="view provider-view" data-source="zammad"></section>
+      <section id="view-starface" class="view provider-view" data-source="starface"></section>
+      <section id="view-teamviewer" class="view provider-view" data-source="teamviewer"></section>
       <div id="toast" role="status"></div>
     </main>
   </div>
@@ -122,6 +129,7 @@
     <p id="detail-conflict" class="timeline-conflict"></p>
     <div class="panel-actions"><button id="detail-close" type="button" class="secondary">Schließen</button></div>
   </dialog>
-  <script src="/app.js?v=0.6.0" defer></script>
+  <script src="/app.js?v=0.7.0" defer></script>
+  <script src="/portal.js?v=0.7.0" defer></script>
 </body>
 </html>

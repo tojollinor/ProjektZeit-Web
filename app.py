@@ -11,12 +11,14 @@ import threading
 import time
 import workday
 import integrations
+import database
+import starface_oauth
 from datetime import datetime, timezone
 from contextlib import contextmanager
 from http import cookies
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
-from urllib.parse import urlparse, unquote
+from urllib.parse import urlparse, unquote, parse_qs
 
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
@@ -36,14 +38,8 @@ def now_iso():
 
 @contextmanager
 def db():
-    connection = sqlite3.connect(DB_PATH, timeout=10)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys=ON")
-    try:
-        with connection:
-            yield connection
-    finally:
-        connection.close()
+    with database.connect(DB_PATH) as connection:
+        yield connection
 
 
 def hash_password(password, salt=None):
@@ -57,7 +53,7 @@ def verify_password(password, salt, expected):
     return hmac.compare_digest(actual, expected)
 
 
-def init_db():
+def init_db(create_admin=True):
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     with db() as c:
         c.executescript("""
@@ -93,7 +89,15 @@ def init_db():
         """)
         workday.migrate(c)
         integrations.migrate(c)
+        starface_oauth.migrate(c)
+        c.executescript('''CREATE TABLE IF NOT EXISTS native_sessions (
+            token_hash VARCHAR(64) PRIMARY KEY, client_name VARCHAR(120) NOT NULL);''')
         c.execute("DELETE FROM sessions WHERE expires_at < ?", (int(time.time()),))
+        c.execute('DELETE FROM native_sessions WHERE token_hash NOT IN (SELECT token_hash FROM sessions)')
+        if not create_admin:
+            return
+        if database.is_maria() and DB_PATH.exists() and not c.execute('SELECT 1 FROM users LIMIT 1').fetchone():
+            raise RuntimeError('Vorhandene SQLite-Daten erkannt. Bitte zuerst migrate_sqlite.py ausführen (siehe UPGRADE-0.7.md).')
         demo_mode = os.environ.get("DEMO_MODE", "1") == "1"
         admin_user = os.environ.get("ADMIN_USER", "admin").strip()
         admin_password = os.environ.get("ADMIN_PASSWORD", "admin" if demo_mode else "")
@@ -136,9 +140,11 @@ def seed_demo(c, user_id):
 
 
 class App(SimpleHTTPRequestHandler):
-    server_version = "ProjektZeit/0.6.0"
+    server_version = "ProjektZeit/0.7.0"
 
     def log_message(self, fmt, *args):
+        if urlparse(self.path).path in ('/health', starface_oauth.CALLBACK):
+            return
         print("%s - %s" % (self.address_string(), fmt % args))
 
     def end_headers(self):
@@ -186,16 +192,21 @@ class App(SimpleHTTPRequestHandler):
         self.end_headers(); self.wfile.write(body)
 
     def current_session(self):
+        authorization = self.headers.get('Authorization', '')
+        bearer = authorization.startswith('Bearer ')
         jar = cookies.SimpleCookie(self.headers.get("Cookie", ""))
         morsel = jar.get("pz_session")
-        if not morsel:
+        if not bearer and not morsel:
             return None
-        token_hash = hashlib.sha256(morsel.value.encode()).hexdigest()
+        token_hash = hashlib.sha256((authorization[7:] if bearer else morsel.value).encode()).hexdigest()
         with db() as c:
+            native = c.execute('SELECT 1 FROM native_sessions WHERE token_hash=?', (token_hash,)).fetchone()
+            if bearer != bool(native):
+                return None
             row = c.execute("""SELECT s.token_hash,s.csrf,u.id,u.username,u.role,u.active
                                FROM sessions s JOIN users u ON u.id=s.user_id
                                WHERE s.token_hash=? AND s.expires_at>?""", (token_hash, int(time.time()))).fetchone()
-        return dict(row) if row and row["active"] else None
+        return dict(row, bearer=bearer) if row and row["active"] else None
 
     def require(self, csrf=False, admin=False):
         session = self.current_session()
@@ -205,7 +216,7 @@ class App(SimpleHTTPRequestHandler):
         if admin and session["role"] != "admin":
             self.send_json(403, {"error": "Administratorrechte erforderlich"})
             return None
-        if csrf and not hmac.compare_digest(self.headers.get("X-CSRF-Token", ""), session["csrf"]):
+        if csrf and not session['bearer'] and not hmac.compare_digest(self.headers.get("X-CSRF-Token", ""), session["csrf"]):
             self.send_json(403, {"error": "Ungültiger Sicherheitstoken"})
             return None
         return session
@@ -213,13 +224,43 @@ class App(SimpleHTTPRequestHandler):
     def do_GET(self):
         path = urlparse(self.path).path
         if path == "/health":
-            return self.send_json(200, {"status": "ok", "version": "0.6.0", "demo_mode": os.environ.get("DEMO_MODE", "1") == "1"})
+            try:
+                with db() as c:
+                    c.execute('SELECT 1')
+                return self.send_json(200, {"status": "ok", "version": "0.7.0"})
+            except Exception:
+                return self.send_json(503, {'status': 'database_unavailable'})
+        if path == '/api/v1/capabilities':
+            return self.send_json(200, {'api_version': 'v1', 'server_version': '0.7.0',
+                'authentication': ['session_cookie', 'bearer'], 'token_endpoint': '/api/v1/auth/token',
+                'token_lifetime_seconds': SESSION_TTL, 'refresh_tokens': False,
+                'features': ['workday', 'project_switch', 'entries_edit', 'csv', 'integration_previews']})
+        if path == starface_oauth.CALLBACK:
+            session = self.require(admin=True)
+            if not session: return
+            try:
+                starface_oauth.finish(db, session, parse_qs(urlparse(self.path).query), DATA_DIR)
+            except (ValueError, OSError) as error:
+                return self.send_json(400, {'error': str(error) if isinstance(error, ValueError) else 'STARFACE ist nicht erreichbar. Bitte erneut anmelden.'})
+            self.send_response(303)
+            self.send_header('Location', '/?starface=connected')
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
         if path == '/api/v1/integrations':
             session = self.require(admin=True)
             if not session: return
             with db() as c:
                 data=integrations.list_configs(c,session['id'])
-            return self.send_json(200,{'integrations':data})
+                for item in data:
+                    if item['provider'] == 'starface':
+                        item['has_secret'] = bool(c.execute('SELECT 1 FROM oauth_tokens WHERE owner_id=?', (session['id'],)).fetchone())
+                        item['auth_mode'] = 'oauth'
+                try:
+                    callback = starface_oauth.callback_url()
+                except ValueError:
+                    callback = ''
+            return self.send_json(200,{'integrations':data, 'starface_callback': callback})
         if path == "/api/v1/me":
             session = self.require()
             return self.send_json(200, {"user": {"id": session["id"], "username": session["username"], "role": session["role"]}, "csrf": session["csrf"]}) if session else None
@@ -241,12 +282,14 @@ class App(SimpleHTTPRequestHandler):
                 raise ValueError('Eine JSON-Struktur mit benannten Feldern ist erforderlich.')
         except (ValueError, json.JSONDecodeError) as error:
             return self.send_json(400, {"error": str(error)})
-        if path == "/api/v1/login":
-            return self.login(body)
+        if path in ("/api/v1/login", '/api/v1/auth/token'):
+            return self.login(body, native=path.endswith('/auth/token'))
         session = self.require(csrf=True, admin=path == "/api/v1/users" or path.startswith('/api/v1/integrations'))
         if not session:
             return
         routes = {
+            '/api/v1/integrations/starface/start': self.start_starface,
+            '/api/v1/auth/revoke': self.logout,
             '/api/v1/integrations/save': self.save_integration,
             '/api/v1/integrations/test': self.test_integration,
             '/api/v1/integrations/remove': self.remove_integration,
@@ -267,6 +310,8 @@ class App(SimpleHTTPRequestHandler):
         return handler(session, body) if handler else self.send_json(404, {"error": "Nicht gefunden"})
 
     def save_integration(self, session, body):
+        if body.get('provider') == 'starface':
+            return self.send_json(400, {'error': 'Bitte „Mit STARFACE anmelden“ verwenden.'})
         try:
             with db() as c:
                 integrations.save(c,session['id'],body,DATA_DIR)
@@ -279,7 +324,12 @@ class App(SimpleHTTPRequestHandler):
             return self.send_json(429,{'error':'Es laufen bereits Verbindungstests. Bitte kurz warten.'})
         try:
             with db() as c:
-                data=integrations.config(c,session['id'],body,DATA_DIR)
+                if body.get('provider') == 'starface':
+                    data=starface_oauth.access(c,session['id'],DATA_DIR)
+                    if body.get('domain') and integrations.domain(body['domain'], 'starface') != data['domain']:
+                        raise ValueError('Domain geändert. Bitte neu mit STARFACE anmelden.')
+                else:
+                    data=integrations.config(c,session['id'],body,DATA_DIR)
             return self.send_json(200,integrations.diagnose(data))
         except ValueError as error:
             return self.send_json(400,{'error':str(error)})
@@ -290,10 +340,21 @@ class App(SimpleHTTPRequestHandler):
         if body.get('provider') not in integrations.PROVIDERS:
             return self.send_json(400,{'error':'Unbekannte Schnittstelle.'})
         with db() as c:
+            if body['provider'] == 'starface':
+                c.execute('DELETE FROM oauth_tokens WHERE owner_id=?', (session['id'],))
+                c.execute('DELETE FROM oauth_states WHERE owner_id=?', (session['id'],))
             c.execute('DELETE FROM integrations WHERE owner_id=? AND provider=?',(session['id'],body['provider']))
         return self.send_json(200,{'ok':True})
 
-    def login(self, body):
+    def start_starface(self, session, body):
+        if session['bearer']:
+            return self.send_json(400, {'error': 'STARFACE bitte im Webportal verknüpfen.'})
+        try:
+            return self.send_json(200, starface_oauth.start(db, session, body, DATA_DIR))
+        except (ValueError, OSError) as error:
+            return self.send_json(400, {'error': str(error) if isinstance(error, ValueError) else 'STARFACE OAuth-Endpunkt ist nicht erreichbar.'})
+
+    def login(self, body, native=False):
         client = self.client_address[0]
         with LOGIN_LOCK:
             recent = [stamp for stamp in LOGIN_ATTEMPTS.get(client, []) if time.time() - stamp < 600]
@@ -312,13 +373,19 @@ class App(SimpleHTTPRequestHandler):
             token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(24)
             c.execute("INSERT INTO sessions(token_hash,user_id,csrf,expires_at) VALUES(?,?,?,?)",
                       (hashlib.sha256(token.encode()).hexdigest(), row["id"], csrf, int(time.time()) + SESSION_TTL))
+            if native:
+                c.execute('INSERT INTO native_sessions VALUES(?,?)', (hashlib.sha256(token.encode()).hexdigest(), str(body.get('client_name', 'Client'))[:120]))
         with LOGIN_LOCK:
             LOGIN_ATTEMPTS.pop(client, None)
-        cookie = "pz_session=%s; Path=/; HttpOnly; SameSite=Strict; Max-Age=%d%s" % (token, SESSION_TTL, "; Secure" if COOKIE_SECURE else "")
+        if native:
+            return self.send_json(200, {'access_token': token, 'token_type': 'Bearer', 'expires_in': SESSION_TTL})
+        cookie = "pz_session=%s; Path=/; HttpOnly; SameSite=Lax; Max-Age=%d%s" % (token, SESSION_TTL, "; Secure" if COOKIE_SECURE else "")
         return self.send_json(200, {"ok": True}, {"Set-Cookie": cookie})
 
     def logout(self, session, body):
         with db() as c:
+            c.execute('DELETE FROM native_sessions WHERE token_hash=?', (session['token_hash'],))
+            c.execute('DELETE FROM oauth_states WHERE session_hash=?', (session['token_hash'],))
             c.execute("DELETE FROM sessions WHERE token_hash=?", (session["token_hash"],))
         return self.send_json(200, {"ok": True}, {"Set-Cookie": "pz_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0"})
 
