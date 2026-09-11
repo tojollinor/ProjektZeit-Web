@@ -62,6 +62,14 @@ def _oauth_error(payload, body):
     return ' – '.join(values)
 
 
+def _token_body(body):
+    result = dict(body)
+    client_secret = os.environ.get('STARFACE_CLIENT_SECRET', '').strip()
+    if client_secret:
+        result['client_secret'] = client_secret
+    return result
+
+
 def _post_token(url, origin, body):
     target, path = endpoint(url, origin)
     parsed = urlsplit(target)
@@ -191,8 +199,8 @@ def finish(db, session, query, directory):
     code = query.get('code', [''])[0]
     if not code or len(code) > 8192:
         raise ValueError('STARFACE lieferte keinen gültigen Anmeldecode.')
-    body = dict(grant_type='authorization_code', code=code, code_verifier=config['verifier'],
-                client_id=config['client_id'], redirect_uri=config['redirect_uri'])
+    body = _token_body(dict(grant_type='authorization_code', code=code, code_verifier=config['verifier'],
+                            client_id=config['client_id'], redirect_uri=config['redirect_uri']))
     data = token_data(request_url(config['token_endpoint'], config['origin'], body), config)
     with db() as c:
         # Session must still exist after the external request (logout race).
@@ -211,8 +219,8 @@ def access(c, uid, directory):
     if data['expires_at'] <= time.time() + 30:
         if not data.get('refresh_token'):
             raise ValueError('STARFACE-Anmeldung abgelaufen. Bitte neu anmelden.')
-        payload = request_url(data['token_endpoint'], data['origin'], dict(grant_type='refresh_token',
-                              refresh_token=data['refresh_token'], client_id=data['client_id']))
+        payload = request_url(data['token_endpoint'], data['origin'], _token_body(dict(grant_type='refresh_token',
+                              refresh_token=data['refresh_token'], client_id=data['client_id'])))
         data = token_data(payload, data, data)
         c.execute('UPDATE oauth_tokens SET secret=? WHERE owner_id=?', (pack(data, directory), uid))
     return dict(provider='starface', domain=data['origin'], username='', secret=data['access_token'], oauth=True)
