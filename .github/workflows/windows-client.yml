@@ -2,7 +2,7 @@ name: Windows-Client bauen
 on:
   push:
     branches: [main]
-    paths: ['windows-client/**', '.github/workflows/windows-client.yml']
+    paths: ['windows-client/**', 'static/projektzeit-logo.png', '.github/workflows/windows-client.yml']
   workflow_dispatch:
 permissions:
   contents: write
@@ -17,8 +17,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m pip install pyinstaller==6.11.1
-      - run: python -m PyInstaller --onefile --windowed --name ProjektZeit-Windows --icon static/projektzeit-logo.ico windows-client/client.py
+      - run: python -m pip install pyinstaller==6.11.1 Pillow==11.3.0
+      - name: Logo prüfen
+        run: python -c "from PIL import Image; im = Image.open('static/projektzeit-logo.png'); im.verify()"
+      - run: python -m PyInstaller --onefile --windowed --name ProjektZeit-Windows --icon static/projektzeit-logo.png windows-client/client.py
       - uses: actions/upload-artifact@v4
         with:
           name: ProjektZeit-Windows
@@ -30,7 +32,7 @@ jobs:
         run: |
           gh release view windows-client --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create windows-client --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "ProjektZeit Windows-Client" --notes "Windows-Client für ProjektZeit und STARFACE-Anmeldung. Unsig nierte EXE; siehe windows-client/README.md." --latest=false
+            gh release create windows-client --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "ProjektZeit Windows-Client" --notes "Windows-Client für ProjektZeit und STARFACE-Anmeldung. Unsignierte EXE; siehe windows-client/README.md." --latest=false
             if ($LASTEXITCODE -ne 0) { throw "Release konnte nicht angelegt werden." }
           }
           gh release upload windows-client dist/ProjektZeit-Windows.exe --repo $env:GITHUB_REPOSITORY --clobber
