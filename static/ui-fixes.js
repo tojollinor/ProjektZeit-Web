@@ -16,8 +16,9 @@
  stylesheet('/ux-batch.css?v=0.7.0-2','uxBatch');script('/ux-batch.js?v=0.7.0-2','uxBatch');
  stylesheet('/provider-api-ui.css?v=0.7.0-1','providerApiUi');script('/provider-api-ui.js?v=0.7.0-1','providerApiUi');script('/network-guard.js?v=0.7.0-1','networkGuard');
  stylesheet('/work-panel-ui.css?v=0.7.0-2','workPanelUi');script('/work-panel-ui.js?v=0.7.0-2','workPanelUi');
- stylesheet('/zammad-ticket-ui.css?v=0.7.0-2','zammadTicketUi');script('/zammad-ticket-ui.js?v=0.7.0-1','zammadTicketUi');script('/zammad-cache-ui.js?v=0.7.0-3','zammadCacheUi');
+ stylesheet('/zammad-ticket-ui.css?v=0.7.0-2','zammadTicketUi');script('/zammad-ticket-ui.js?v=0.7.0-1','zammadTicketUi');script('/zammad-cache-ui.js?v=0.7.0-4','zammadCacheUi');
  stylesheet('/provider-nav-status.css?v=0.7.0-1','providerNavStatus');script('/provider-nav-status.js?v=0.7.0-1','providerNavStatus');
  stylesheet('/customer-extra-ui.css?v=0.7.0-1','customerExtraUi');script('/customer-extra-ui.js?v=0.7.0-1','customerExtraUi');
  stylesheet('/ux-round2.css?v=0.7.0-1','uxRound2');script('/ux-round2.js?v=0.7.0-1','uxRound2');
+ stylesheet('/next-batch-ui.css?v=0.7.0-1','nextBatchUi');script('/next-batch-ui.js?v=0.7.0-1','nextBatchUi');
 })();
