@@ -8,9 +8,14 @@
   }
  }
  function syncWorkPanel(name){const panel=q('.work-panel');if(!panel)return;panel.hidden=name==='statistics'||name.startsWith('settings-')||name.startsWith('workshop-')||['admin-options','logs','bookkeeping','account'].includes(name);}
- const original=window.pzOpenNavTarget;
- if(original)window.pzOpenNavTarget=(name,label)=>{original(name,label);syncWorkPanel(name);requestAnimationFrame(applyChartSizes);};
- const stats=q('#view-statistics');if(stats){let pending=false;new MutationObserver(()=>{if(pending)return;pending=true;requestAnimationFrame(()=>{pending=false;applyChartSizes();});}).observe(stats,{childList:true,subtree:true});}
+ function install(){
+  if(!window.pzOpenNavTarget||window.pzNavigationPolishInstalled)return false;
+  window.pzNavigationPolishInstalled=true;
+  const original=window.pzOpenNavTarget;
+  window.pzOpenNavTarget=(name,label)=>{original(name,label);syncWorkPanel(name);requestAnimationFrame(applyChartSizes);};
+  const stats=q('#view-statistics');if(stats){let pending=false;new MutationObserver(()=>{if(pending)return;pending=true;requestAnimationFrame(()=>{pending=false;applyChartSizes();});}).observe(stats,{childList:true,subtree:true});}
+  applyChartSizes();return true;
+ }
  document.addEventListener('click',event=>{const nav=event.target.closest('.sidebar [data-view], [data-go]');if(!nav)return;const name=nav.dataset.view||nav.dataset.go||'';setTimeout(()=>syncWorkPanel(name),0);});
- applyChartSizes();
+ if(!install()){let tries=0;const timer=setInterval(()=>{tries++;if(install()||tries>=20)clearInterval(timer);},50);}
 })();
