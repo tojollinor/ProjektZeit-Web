@@ -3,6 +3,11 @@
  const loadedVersion=q('meta[name="pz-frontend-version"]')?.content||'';
  let serverVersion='',checking=false,timer=null;
 
+ function cleanReloadMarker(){
+  const url=new URL(location.href);if(!url.searchParams.has('_pz_reload'))return;
+  url.searchParams.delete('_pz_reload');history.replaceState(history.state,'',url.pathname+(url.searchParams.size?'?'+url.searchParams.toString():'')+url.hash);
+ }
+
  function banner(){
   let el=q('[data-pz-update-banner]');
   if(el)return el;
@@ -43,7 +48,7 @@
   section.append(panel);q('[data-pz-hard-reload]',panel).onclick=()=>hardReload();
  }
 
- banner();ensureWorkshopButton();
+ cleanReloadMarker();banner();ensureWorkshopButton();
  new MutationObserver(ensureWorkshopButton).observe(document.body,{childList:true,subtree:true});
  document.addEventListener('visibilitychange',()=>{if(!document.hidden)check();});
  window.addEventListener('focus',check);window.addEventListener('online',check);
