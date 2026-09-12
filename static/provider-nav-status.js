@@ -26,7 +26,8 @@
  }
  function goSettings(provider){
   dialog.close();pendingProvider='';
-  if(typeof showView==='function')showView('settings');
+  if(window.pzOpenNavTarget)window.pzOpenNavTarget('settings-connections','Verbindungen');
+  else if(typeof showView==='function')showView('settings-connections');
   setTimeout(()=>focusSettings(provider),180);
  }
  q('[data-provider-connect-yes]',dialog).onclick=()=>{if(pendingProvider)goSettings(pendingProvider);};
