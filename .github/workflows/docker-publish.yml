@@ -56,6 +56,9 @@ jobs:
           node --check static/ui-fixes.js
           node --check static/ux-batch.js
           node --check static/provider-api-ui.js
+          node --check static/network-guard.js
+          node --check static/work-panel-ui.js
+          node --check static/zammad-ticket-ui.js
 
       - name: Runtime-Stack initialisieren
         env:
