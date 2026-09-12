@@ -3,134 +3,97 @@
  const h=v=>typeof esc==='function'?esc(v):String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const a=v=>h(v).replaceAll('"','&quot;');
  const notify=(message,level='info',timeout=4500)=>window.pzToast?window.pzToast(message,level,timeout):typeof toast==='function'?toast(message):null;
- let profileRequest=null,sessionsRequest=null,connectionRequest=0,connectionLoading=false,lastConnectionStates=new Map();
- let navObserver=null,cardsObserver=null,arranging=false;
+ const CONNECTION_INFO={
+  teamviewer:{name:'TeamViewer',label:'API-Token',placeholder:'https://webapi.teamviewer.com',note:'Persönlichen TeamViewer API-Token hinterlegen.'},
+  zammad:{name:'Zammad',label:'Passwort',placeholder:'https://support.firma.de',note:'Persönliche Zammad-Zugangsdaten hinterlegen.'}
+ };
+ let profileRequest=null,sessionsRequest=null,connectionsRequest=null,connectionRequest=0,connectionLoading=false,lastConnectionStates=new Map();
+ let navObserver=null,cardsObserver=null,viewObserver=null,arranging=false,lastView='';
 
  function fmtDate(value){if(!value)return '–';const d=new Date(value);return Number.isNaN(+d)?String(value):d.toLocaleString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'});}
  function activeName(){return q('.view.active-view')?.id?.replace(/^view-/,'')||'';}
- function systemView(name=activeName()){
-  return name==='settings'||name==='account'||name==='admin-options'||name==='logs'||name==='workshop'||name.startsWith('settings-')||name.startsWith('workshop-');
+ function systemView(name=activeName()){return name==='settings'||name==='account'||name==='admin-options'||name==='logs'||name==='workshop'||name.startsWith('settings-')||name.startsWith('workshop-');}
+ function syncSystemState(name=activeName(),resetScroll=false){
+  const system=systemView(name),panel=q('.work-panel');
+  document.documentElement.classList.toggle('pz-system-view',system);
+  if(panel){panel.hidden=system;panel.setAttribute('aria-hidden',system?'true':'false');}
+  if(resetScroll&&name&&name!==lastView){requestAnimationFrame(()=>{try{window.scrollTo({top:0,left:0,behavior:'instant'});}catch(_){window.scrollTo(0,0);}const main=q('main');if(main)main.scrollTop=0;});}
+  lastView=name||lastView;
  }
- function syncWorkPanel(name=activeName()){const panel=q('.work-panel');if(panel)panel.hidden=systemView(name);}
+
+ function decorateNavIcons(){
+  qa('.sidebar nav .nav>span:first-child').forEach(icon=>icon.classList.add('pz-uniform-nav-icon'));
+  const dash=q('.sidebar [data-view="dashboard"]>span:first-child');
+  if(dash&&!dash.classList.contains('pz-dashboard-glyph')){dash.className='pz-uniform-nav-icon pz-dashboard-glyph';dash.innerHTML='<i></i><i></i><i></i>';dash.setAttribute('aria-hidden','true');}
+  const settings=q('[data-pz-nav-group="settings"] .pz-nav-toggle>span:first-child')||q('.sidebar [data-view="settings"]>span:first-child');
+  if(settings&&!settings.classList.contains('pz-settings-gear')){settings.className='pz-uniform-nav-icon pz-settings-gear';settings.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.43 12.98c.04-.32.07-.65.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46a.5.5 0 0 0-.6-.22l-2.49 1a7.1 7.1 0 0 0-1.69-.98L14.5 2.42A.5.5 0 0 0 14 2h-4a.5.5 0 0 0-.5.42l-.38 2.65c-.61.25-1.17.58-1.69.98l-2.49-1a.5.5 0 0 0-.6.22l-2 3.46a.5.5 0 0 0 .12.64l2.11 1.65c-.05.32-.08.65-.08.98s.03.66.08.98l-2.11 1.65a.5.5 0 0 0-.12.64l2 3.46a.5.5 0 0 0 .6.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65a.5.5 0 0 0 .5.42h4a.5.5 0 0 0 .5-.42l.38-2.65c.61-.25 1.17-.58 1.69-.98l2.49 1a.5.5 0 0 0 .6-.22l2-3.46a.5.5 0 0 0-.12-.64l-2.11-1.65zM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5z"/></svg>';settings.setAttribute('aria-hidden','true');}
+ }
 
  function arrangeNav(){
   const nav=q('.sidebar nav');if(!nav||arranging)return;
-  const settings=q('[data-pz-nav-group="settings"]',nav)||q('[data-view="settings"]',nav);
-  const admin=q('.admin-nav-group',nav)||q('[data-view="admin-options"]',nav);
-  const workshop=q('[data-pz-nav-group="workshop"]',nav)||q('[data-view="workshop"]',nav);
-  const desired=[
-   q('[data-view="dashboard"]',nav),q('[data-pz-nav-target="statistics"]',nav),q('[data-view="tracking"]',nav),q('[data-pz-nav-target="projects"]',nav),
-   q('[data-view="bookkeeping"]',nav),q('[data-view="customers"]',nav),q('[data-view="zammad"]',nav),q('[data-view="starface"]',nav),q('[data-view="teamviewer"]',nav),
-   q('[data-view="logs"]',nav),settings,admin,workshop
-  ].filter(Boolean);
+  const settings=q('[data-pz-nav-group="settings"]',nav)||q('[data-view="settings"]',nav),admin=q('.admin-nav-group',nav)||q('[data-view="admin-options"]',nav),workshop=q('[data-pz-nav-group="workshop"]',nav)||q('[data-view="workshop"]',nav);
+  const desired=[q('[data-view="dashboard"]',nav),q('[data-pz-nav-target="statistics"]',nav),q('[data-view="tracking"]',nav),q('[data-pz-nav-target="projects"]',nav),q('[data-view="bookkeeping"]',nav),q('[data-view="customers"]',nav),q('[data-view="zammad"]',nav),q('[data-view="starface"]',nav),q('[data-view="teamviewer"]',nav),q('[data-view="logs"]',nav),settings,admin,workshop].filter(Boolean);
   const current=[...nav.children].filter(x=>desired.includes(x));
-  if(current.length===desired.length&&current.every((x,i)=>x===desired[i]))return;
-  arranging=true;for(const item of desired)nav.append(item);queueMicrotask(()=>{arranging=false;});
+  if(!(current.length===desired.length&&current.every((x,i)=>x===desired[i]))){arranging=true;for(const item of desired)nav.append(item);queueMicrotask(()=>{arranging=false;});}
+  decorateNavIcons();
  }
 
  function ensureWorkshopLog(){
-  const group=q('[data-pz-nav-group="workshop"]');if(!group)return false;
-  const submenu=q('.pz-nav-submenu,.admin-nav-submenu',group);if(!submenu)return false;
+  const group=q('[data-pz-nav-group="workshop"]'),submenu=group&&q('.pz-nav-submenu,.admin-nav-submenu',group);if(!submenu)return false;
   let button=q('[data-pz-copy-diagnostic]',submenu);if(button)return true;
-  button=document.createElement('button');button.type='button';button.className='admin-subnav pz-subnav pz-diagnostic-copy';button.dataset.pzCopyDiagnostic='';button.textContent='Log kopieren';
-  const reload=q('[data-pz-hard-reload]',submenu);submenu.insertBefore(button,reload||null);button.onclick=copyDiagnostics;return true;
+  button=document.createElement('button');button.type='button';button.className='admin-subnav pz-subnav pz-diagnostic-copy';button.dataset.pzCopyDiagnostic='';button.textContent='Log kopieren';const reload=q('[data-pz-hard-reload]',submenu);submenu.insertBefore(button,reload||null);button.onclick=copyDiagnostics;return true;
  }
-
- async function copyText(text){
-  try{await navigator.clipboard.writeText(text);return true;}catch(_){}
-  try{const area=document.createElement('textarea');area.value=text;area.style.position='fixed';area.style.opacity='0';document.body.append(area);area.select();const ok=document.execCommand('copy');area.remove();return ok;}catch(_){return false;}
- }
+ async function copyText(text){try{await navigator.clipboard.writeText(text);return true;}catch(_){}try{const area=document.createElement('textarea');area.value=text;area.style.position='fixed';area.style.opacity='0';document.body.append(area);area.select();const ok=document.execCommand('copy');area.remove();return ok;}catch(_){return false;}}
  async function copyDiagnostics(event){
   const button=event?.currentTarget||q('[data-pz-copy-diagnostic]');if(button){button.disabled=true;button.dataset.oldText=button.textContent;button.textContent='Log wird erstellt …';}
-  window.pzDiagnostics?.record?.('diagnostic-copy',{view:activeName()});
-  let backend=null,backendError='';
-  try{backend=await post('/api/v1/diagnostics/snapshot',{});}catch(error){backendError=String(error?.message||error);}
+  window.pzDiagnostics?.record?.('diagnostic-copy',{view:activeName()});let backend=null,backendError='';try{backend=await post('/api/v1/diagnostics/snapshot',{});}catch(error){backendError=String(error?.message||error);}
   const resources=performance.getEntriesByType?.('resource')?.slice(-100).map(entry=>{let path='';try{path=new URL(entry.name,location.href).pathname;}catch(_){path=String(entry.name);}return {path,duration_ms:Math.round(entry.duration),transfer_size:entry.transferSize||0,initiator:entry.initiatorType||''};})||[];
-  const payload={
-   exported_at:new Date().toISOString(),frontend_version:q('meta[name="pz-frontend-version"]')?.content||'',current_view:activeName(),online:navigator.onLine,
-   viewport:{width:innerWidth,height:innerHeight,device_pixel_ratio:devicePixelRatio},user_agent:navigator.userAgent,
-   backend:backend||{error:backendError||'Diagnose-Endpunkt nicht verfügbar'},client_events:[...(window.pzDiagnostics?.events||[])],resources
-  };
-  const text='ProjektZeit Diagnose-Log\n'+JSON.stringify(payload,null,2),ok=await copyText(text);
-  if(ok)notify('Diagnose-Log in die Zwischenablage kopiert','success',5000);else notify('Diagnose-Log konnte nicht kopiert werden','error',6000);
-  if(button){button.disabled=false;button.textContent=button.dataset.oldText||'Log kopieren';delete button.dataset.oldText;}
+  const payload={exported_at:new Date().toISOString(),frontend_version:q('meta[name="pz-frontend-version"]')?.content||'',current_view:activeName(),online:navigator.onLine,viewport:{width:innerWidth,height:innerHeight,device_pixel_ratio:devicePixelRatio},user_agent:navigator.userAgent,backend:backend||{error:backendError||'Diagnose-Endpunkt nicht verfügbar'},client_events:[...(window.pzDiagnostics?.events||[])],resources};
+  const ok=await copyText('ProjektZeit Diagnose-Log\n'+JSON.stringify(payload,null,2));notify(ok?'Diagnose-Log in die Zwischenablage kopiert':'Diagnose-Log konnte nicht kopiert werden',ok?'success':'error',5000);if(button){button.disabled=false;button.textContent=button.dataset.oldText||'Log kopieren';delete button.dataset.oldText;}
  }
 
  function ensureProfile(){
-  const view=q('#view-settings-profile');if(!view)return false;
-  const legacy=q('[data-profile-settings]',view);if(legacy)legacy.hidden=true;
-  if(q('[data-pz-profile-main]',view))return true;
-  const intro=q(':scope > .pz-page-intro',view);
-  const main=document.createElement('div');main.className='pz-profile-main';main.dataset.pzProfileMain='';
-  main.innerHTML=`
-   <article class="panel"><div class="panel-head"><div><p class="eyebrow">STAMMDATEN</p><h3>Persönliche Daten</h3></div></div>
-    <form data-pz-profile-form><label>Benutzername<input name="username" readonly></label><div class="field-grid"><label>Vorname<input name="first_name" autocomplete="given-name"></label><label>Nachname<input name="last_name" autocomplete="family-name"></label></div><div class="field-grid"><label>E-Mail<input type="email" name="email" autocomplete="email"></label><label>Telefon<input name="phone" autocomplete="tel"></label></div><div class="pz-profile-actions"><button class="primary">Stammdaten speichern</button></div><p class="integration-status" data-pz-save-status></p></form>
-   </article>
-   <article class="panel"><div class="panel-head"><div><p class="eyebrow">DARSTELLUNG</p><h3>Darstellung</h3></div></div><p class="muted">Systemstandard folgt dem aktuellen Gerät.</p><div class="theme-options"><label><input type="radio" name="pz-theme" value="system"> Systemstandard</label><label><input type="radio" name="pz-theme" value="light"> Heller Modus</label><label><input type="radio" name="pz-theme" value="dark"> Dunkler Modus</label></div><p class="integration-status" data-pz-theme-status></p></article>
-   <article class="panel pz-session-panel"><div class="panel-head"><div><p class="eyebrow">SITZUNGEN</p><h3>Aktive Sitzungen &amp; Sitzungsverlauf</h3></div><button type="button" class="secondary subtle" data-pz-sessions-refresh>Aktualisieren</button></div><div class="pz-session-columns"><section class="pz-session-section"><h4>Aktive Sitzungen</h4><div class="pz-session-list" data-pz-active-sessions><p class="pz-loading-line">Aktive Sitzungen werden geladen …</p></div></section><section class="pz-session-section"><h4>Sitzungsverlauf</h4><div class="pz-session-list" data-pz-session-history><p class="pz-loading-line">Sitzungsverlauf wird geladen …</p></div></section></div></article>`;
-  if(intro)intro.after(main);else view.prepend(main);
+  const view=q('#view-settings-profile');if(!view)return false;const legacy=q('[data-profile-settings]',view);if(legacy)legacy.hidden=true;q('[data-profile-image-panel]',view)?.remove();if(q('[data-pz-profile-main]',view)){window.pzProfileAvatar?.sync?.();return true;}
+  const intro=q(':scope > .pz-page-intro',view),main=document.createElement('div');main.className='pz-profile-main';main.dataset.pzProfileMain='';
+  main.innerHTML=`<article class="panel pz-profile-data-panel"><div class="pz-profile-avatar-row"><button type="button" class="pz-profile-avatar-button" data-pz-profile-avatar-button aria-label="Profilbild bearbeiten"><span class="pz-profile-avatar" data-pz-profile-avatar></span><span class="pz-profile-avatar-edit" data-pz-profile-avatar-edit aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zm17.71-10.04a1 1 0 0 0 0-1.42l-2.5-2.5a1 1 0 0 0-1.42 0l-1.96 1.96 3.75 3.75 2.13-1.79z"/></svg></span></button><div><p class="eyebrow">PROFIL</p><strong>Persönliches Profil</strong><small>Profilbild antippen, um es zu ändern.</small></div></div><div class="panel-head"><div><p class="eyebrow">STAMMDATEN</p><h3>Persönliche Daten</h3></div></div><form data-pz-profile-form><label>Benutzername<input name="username" readonly></label><div class="field-grid"><label>Vorname<input name="first_name" autocomplete="given-name"></label><label>Nachname<input name="last_name" autocomplete="family-name"></label></div><div class="field-grid"><label>E-Mail<input type="email" name="email" autocomplete="email"></label><label>Telefon<input name="phone" autocomplete="tel"></label></div><div class="pz-profile-actions"><button class="primary">Stammdaten speichern</button></div><p class="integration-status" data-pz-save-status></p></form></article><article class="panel"><div class="panel-head"><div><p class="eyebrow">DARSTELLUNG</p><h3>Darstellung</h3></div></div><p class="muted">Systemstandard folgt dem aktuellen Gerät.</p><div class="theme-options"><label><input type="radio" name="pz-theme" value="system"> Systemstandard</label><label><input type="radio" name="pz-theme" value="light"> Heller Modus</label><label><input type="radio" name="pz-theme" value="dark"> Dunkler Modus</label></div><p class="integration-status" data-pz-theme-status></p></article><article class="panel pz-session-panel"><div class="panel-head"><div><p class="eyebrow">SITZUNGEN</p><h3>Aktive Sitzungen &amp; Sitzungsverlauf</h3></div><button type="button" class="secondary" data-pz-sessions-refresh aria-label="Sitzungen aktualisieren">↻</button></div><div class="pz-session-columns"><section class="pz-session-section"><h4>Aktive Sitzungen</h4><div class="pz-session-list" data-pz-active-sessions><p class="pz-loading-line">Aktive Sitzungen werden geladen …</p></div></section><section class="pz-session-section"><h4>Sitzungsverlauf</h4><div class="pz-session-list" data-pz-session-history><p class="pz-loading-line">Sitzungsverlauf wird geladen …</p></div></section></div></article>`;
+  if(intro)intro.after(main);else view.prepend(main);window.pzProfileAvatar?.sync?.();window.pzProfileAvatar?.load?.();
   const form=q('[data-pz-profile-form]',main);form.onsubmit=async e=>{e.preventDefault();const status=q('[data-pz-save-status]',main);status.textContent='Stammdaten werden gespeichert …';const data=Object.fromEntries(new FormData(form));delete data.username;try{await post('/api/v1/account/save',data);status.textContent='Stammdaten gespeichert.';notify('Persönliche Daten gespeichert','success');}catch(error){status.textContent=error.message;}};
-  qa('input[name="pz-theme"]',main).forEach(input=>input.onchange=async()=>{const status=q('[data-pz-theme-status]',main),theme=input.value;if(theme==='dark'||theme==='light')document.documentElement.dataset.theme=theme;else delete document.documentElement.dataset.theme;status.textContent='Darstellung wird gespeichert …';try{await post('/api/v1/account/theme',{theme});status.textContent='Darstellung gespeichert.';}catch(error){status.textContent=error.message;}});
-  q('[data-pz-sessions-refresh]',main).onclick=()=>loadSessions(true);
-  main.addEventListener('click',async e=>{const button=e.target.closest('[data-pz-session-disconnect]');if(!button)return;const current=button.dataset.current==='1',label=current?'Diese aktuelle Sitzung wirklich abmelden?':'Diese Sitzung wirklich abmelden?';if(!confirm(label))return;button.disabled=true;try{const result=await post('/api/v1/sessions/disconnect',{token_hash:button.dataset.pzSessionDisconnect});if(result.current){location.reload();return;}await loadSessions(true);notify('Sitzung abgemeldet','success');}catch(error){notify(error.message,'error');button.disabled=false;}});
-  return true;
+  qa('input[name="pz-theme"]',main).forEach(input=>input.onchange=async()=>{const status=q('[data-pz-theme-status]',main),theme=input.value;if(theme==='dark'||theme==='light')document.documentElement.dataset.theme=theme;else delete document.documentElement.dataset.theme;status.textContent='Darstellung wird gespeichert …';try{await post('/api/v1/account/theme',{theme});status.textContent='Darstellung gespeichert.';}catch(error){status.textContent=error.message;}});q('[data-pz-sessions-refresh]',main).onclick=()=>loadSessions(true);
+  main.addEventListener('click',async e=>{const button=e.target.closest('[data-pz-session-disconnect]');if(!button)return;const current=button.dataset.current==='1',label=current?'Diese aktuelle Sitzung wirklich abmelden?':'Diese Sitzung wirklich abmelden?';if(!confirm(label))return;button.disabled=true;try{const result=await post('/api/v1/sessions/disconnect',{token_hash:button.dataset.pzSessionDisconnect});if(result.current){location.reload();return;}await loadSessions(true);notify('Sitzung abgemeldet','success');}catch(error){notify(error.message,'error');button.disabled=false;}});return true;
  }
-
  function applyTheme(theme){if(theme==='dark'||theme==='light')document.documentElement.dataset.theme=theme;else delete document.documentElement.dataset.theme;}
- async function loadProfile(force=false){
-  if(!ensureProfile())return;
-  if(profileRequest&&!force)return profileRequest;
-  const view=q('#view-settings-profile'),form=q('[data-pz-profile-form]',view),status=q('[data-pz-save-status]',view);if(status&&!form.dataset.loaded)status.innerHTML='<span class="pz-loading-line">Stammdaten werden geladen …</span>';
-  profileRequest=(async()=>{try{const d=await post('/api/v1/account/context',{}),p=d.profile||{},theme=d.preferences?.theme||'system';form.elements.username.value=typeof state!=='undefined'&&state.user?.username?state.user.username:'';for(const key of ['first_name','last_name','email','phone'])form.elements[key].value=p[key]||'';const radio=q(`input[name="pz-theme"][value="${theme}"]`,view);if(radio)radio.checked=true;applyTheme(theme);form.dataset.loaded='1';if(status)status.textContent='';}catch(error){if(status)status.textContent=error.message;}finally{profileRequest=null;}})();return profileRequest;
- }
+ async function loadProfile(force=false){if(!ensureProfile())return;if(profileRequest&&!force)return profileRequest;const view=q('#view-settings-profile'),form=q('[data-pz-profile-form]',view),status=q('[data-pz-save-status]',view);if(status&&!form.dataset.loaded)status.innerHTML='<span class="pz-loading-line">Stammdaten werden geladen …</span>';profileRequest=(async()=>{try{const d=await post('/api/v1/account/context',{}),p=d.profile||{},theme=d.preferences?.theme||'system';form.elements.username.value=typeof state!=='undefined'&&state.user?.username?state.user.username:'';for(const key of ['first_name','last_name','email','phone'])form.elements[key].value=p[key]||'';const radio=q(`input[name="pz-theme"][value="${theme}"]`,view);if(radio)radio.checked=true;applyTheme(theme);form.dataset.loaded='1';if(status)status.textContent='';}catch(error){if(status)status.textContent=error.message;}finally{profileRequest=null;}})();return profileRequest;}
  function sessionName(s){return s.client_type==='windows'?'Windows-Client':s.client_type==='app'?'App':'Browser';}
- function activeSessionRow(s){return `<article class="pz-session-row"><div><div class="pz-session-title"><strong>${h(sessionName(s))}</strong>${s.current?'<span class="badge">Diese Sitzung</span>':''}<span class="pz-session-state ${h(s.activity||'inactive')}">${s.activity==='active'?'Aktiv':'Inaktiv'}</span></div><small>${h(s.client_name||'Unbekanntes Gerät')}</small><div class="pz-session-meta"><span>IP ${h(s.ip_address||'–')}</span><span>Angemeldet ${h(fmtDate(s.created_at))}</span><span>Zuletzt aktiv ${h(fmtDate(s.last_active_at))}</span></div></div><button type="button" class="secondary subtle danger" data-pz-session-disconnect="${a(s.token_hash)}" data-current="${s.current?'1':'0'}">${s.current?'Diese Sitzung abmelden':'Abmelden'}</button></article>`;}
+ function activeSessionRow(s){return `<article class="pz-session-row"><div><div class="pz-session-title"><strong>${h(sessionName(s))}</strong>${s.current?'<span class="badge">Diese Sitzung</span>':''}<span class="pz-session-state ${h(s.activity||'inactive')}">${s.activity==='active'?'Aktiv':'Inaktiv'}</span></div><small>${h(s.client_name||'Unbekanntes Gerät')}</small><div class="pz-session-meta"><span>IP ${h(s.ip_address||'–')}</span><span>Angemeldet ${h(fmtDate(s.created_at))}</span><span>Zuletzt aktiv ${h(fmtDate(s.last_active_at))}</span></div></div><button type="button" class="danger-button" data-pz-session-disconnect="${a(s.token_hash)}" data-current="${s.current?'1':'0'}">${s.current?'Diese Sitzung abmelden':'Abmelden'}</button></article>`;}
  function historySessionRow(s){return `<article class="pz-session-row"><div><div class="pz-session-title"><strong>${h(sessionName(s))}</strong><span class="pz-session-state">Beendet</span></div><small>${h(s.client_name||'Unbekanntes Gerät')}</small><div class="pz-session-meta"><span>IP ${h(s.ip_address||'–')}</span><span>Start ${h(fmtDate(s.created_at))}</span><span>Letzte Aktivität ${h(fmtDate(s.last_active_at))}</span><span>Ende ${h(fmtDate(s.ended_at))}</span>${s.end_reason?`<span>Grund: ${h(s.end_reason)}</span>`:''}</div></div></article>`;}
- async function loadSessions(force=false){
-  if(!ensureProfile())return;
-  if(sessionsRequest&&!force)return sessionsRequest;
-  const view=q('#view-settings-profile'),active=q('[data-pz-active-sessions]',view),history=q('[data-pz-session-history]',view);active.innerHTML='<p class="pz-loading-line">Aktive Sitzungen werden geladen …</p>';history.innerHTML='<p class="pz-loading-line">Sitzungsverlauf wird geladen …</p>';
-  sessionsRequest=(async()=>{try{const d=await post('/api/v1/sessions/list',{}),connected=d.connected||[],ended=d.history||[];active.innerHTML=connected.length?connected.map(activeSessionRow).join(''):'<p class="muted">Keine aktiven Sitzungen.</p>';history.innerHTML=ended.length?ended.map(historySessionRow).join(''):'<p class="muted">Noch keine beendeten Sitzungen.</p>';}catch(error){active.innerHTML=`<p class="error">${h(error.message)}</p>`;history.innerHTML='<p class="muted">Sitzungsverlauf konnte nicht geladen werden.</p>';}finally{sessionsRequest=null;}})();return sessionsRequest;
- }
- async function loadProfilePage(force=false){ensureProfile();await Promise.allSettled([loadProfile(force),loadSessions(force)]);}
+ async function loadSessions(force=false){if(!ensureProfile())return;if(sessionsRequest&&!force)return sessionsRequest;const view=q('#view-settings-profile'),active=q('[data-pz-active-sessions]',view),history=q('[data-pz-session-history]',view);active.innerHTML='<p class="pz-loading-line">Aktive Sitzungen werden geladen …</p>';history.innerHTML='<p class="pz-loading-line">Sitzungsverlauf wird geladen …</p>';sessionsRequest=(async()=>{try{const d=await post('/api/v1/sessions/list',{}),connected=d.connected||[],ended=d.history||[];active.innerHTML=connected.length?connected.map(activeSessionRow).join(''):'<p class="muted">Keine aktiven Sitzungen.</p>';history.innerHTML=ended.length?ended.map(historySessionRow).join(''):'<p class="muted">Noch keine beendeten Sitzungen.</p>';}catch(error){active.innerHTML=`<p class="error">${h(error.message)}</p>`;history.innerHTML='<p class="muted">Sitzungsverlauf konnte nicht geladen werden.</p>';}finally{sessionsRequest=null;}})();return sessionsRequest;}
+ async function loadProfilePage(force=false){ensureProfile();await Promise.allSettled([loadProfile(force),loadSessions(force),window.pzProfileAvatar?.load?.(force)]);}
 
- function markConnectionsLoading(){
-  const container=q('#integration-cards');if(!container)return;
-  for(const card of qa('[data-provider]',container)){const badge=q('.badge',card);if(!badge)continue;badge.textContent='Status wird geprüft';badge.dataset.connectionState='loading';badge.title='Verbindungsstatus wird geprüft.';}
+ function timeLimit(promise,ms,message){let timer;const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error(message)),ms);});return Promise.race([promise,timeout]).finally(()=>clearTimeout(timer));}
+ function markConnectionsLoading(){const container=q('#integration-cards');if(!container)return;for(const card of qa('[data-provider]',container)){const badge=q('.badge',card);if(!badge)continue;badge.textContent='Status wird geprüft';badge.dataset.connectionState='loading';badge.title='Verbindungsstatus wird geprüft.';}}
+ function applyConnectionStates(){const container=q('#integration-cards');if(!container)return;if(connectionLoading){markConnectionsLoading();return;}for(const [provider,item] of lastConnectionStates){const card=q(`[data-provider="${provider}"]`,container),badge=q('.badge',card);if(!badge)continue;if(item.connected){badge.textContent='Verbunden';badge.dataset.connectionState='connected';badge.title=item.detail||'Verbunden';}else if(item.reason==='missing'||item.reason==='missing_client_secret'){badge.textContent='Nicht eingerichtet';badge.dataset.connectionState='not-configured';badge.title=item.detail||'Nicht eingerichtet';}else{badge.textContent='Verbindung fehlgeschlagen';badge.dataset.connectionState='configured-failed';badge.title=item.detail||'Verbindung fehlgeschlagen';}}}
+ async function loadConnectionStates(){const request=++connectionRequest;connectionLoading=true;markConnectionsLoading();try{const data=await timeLimit(post('/api/v1/provider/navigation-status',{}),3000,'Statusprüfung dauert zu lange.');if(request!==connectionRequest)return;lastConnectionStates=new Map((data.providers||[]).map(item=>[item.provider,item]));connectionLoading=false;applyConnectionStates();}catch(error){if(request!==connectionRequest)return;connectionLoading=false;for(const badge of qa('#integration-cards .badge')){badge.textContent='Status nicht verfügbar';badge.dataset.connectionState='unknown';badge.title=error.message;}}}
+ function renderConnectionCards(data){
+  const container=q('#integration-cards');if(!container)return;const rows=data.integrations||[];
+  container.innerHTML=rows.map(row=>{const p=row.provider;if(p==='starface'&&typeof window.renderStarfaceCard==='function')return window.renderStarfaceCard(row);const info=CONNECTION_INFO[p]||{name:p,label:'Zugangsdaten',placeholder:'',note:''};return `<article class="panel integration-card" data-provider="${a(p)}"><div class="panel-head"><h3>${h(info.name)}</h3><span class="badge" data-connection-state="loading">Status wird geprüft</span></div><p class="integration-note">${h(info.note)}</p><div class="integration-fields"><label>Domain<input data-field="domain" value="${a(row.domain||'')}" placeholder="${a(info.placeholder)}" autocomplete="off" spellcheck="false"></label><label>Benutzername${p==='teamviewer'?' (optional)':''}<input data-field="username" value="${a(row.username||'')}" maxlength="250" autocomplete="off" spellcheck="false"></label><label>${h(info.label)}<input data-field="secret" type="password" maxlength="4096" autocomplete="new-password" placeholder="${row.has_secret?'Gespeichert – leer lassen zum Beibehalten':h(info.label)+' eingeben'}"></label></div><div class="panel-actions"><button type="button" class="primary" data-integration-action="save">Speichern</button><button type="button" class="secondary" data-integration-action="test">Verbindung testen</button><button type="button" class="secondary subtle" data-integration-action="remove">Verknüpfung entfernen</button></div><div class="integration-status" role="status"></div><div class="debug-output hidden"></div></article>`;}).join('')||'<article class="panel"><p class="muted">Keine Verbindungen verfügbar.</p></article>';
+  const tvUser=q('[data-provider="teamviewer"] [data-field="username"]',container);if(tvUser){const label=tvUser.closest('label');tvUser.type='hidden';label?.replaceWith(tvUser);}if(typeof state!=='undefined')state.integrationsLoaded=true;markConnectionsLoading();
  }
- function applyConnectionStates(){
-  const container=q('#integration-cards');if(!container)return;if(connectionLoading){markConnectionsLoading();return;}
-  for(const [provider,item] of lastConnectionStates){const card=q(`[data-provider="${provider}"]`,container),badge=q('.badge',card);if(!badge)continue;if(item.connected){badge.textContent='Verbunden';badge.dataset.connectionState='connected';badge.title=item.detail||'Verbunden';}else if(item.reason==='missing'||item.reason==='missing_client_secret'){badge.textContent='Nicht eingerichtet';badge.dataset.connectionState='not-configured';badge.title=item.detail||'Nicht eingerichtet';}else{badge.textContent='Verbindung fehlgeschlagen';badge.dataset.connectionState='configured-failed';badge.title=item.detail||'Verbindung fehlgeschlagen';}}
- }
- async function loadConnectionStates(){
-  const request=++connectionRequest;connectionLoading=true;markConnectionsLoading();
-  try{const data=await post('/api/v1/provider/navigation-status',{});if(request!==connectionRequest)return;lastConnectionStates=new Map((data.providers||[]).map(item=>[item.provider,item]));connectionLoading=false;applyConnectionStates();}
-  catch(error){if(request!==connectionRequest)return;connectionLoading=false;for(const badge of qa('#integration-cards .badge')){badge.textContent='Status nicht verfügbar';badge.dataset.connectionState='unknown';badge.title=error.message;}}
- }
- function wrapLoadIntegrations(){
-  if(typeof window.loadIntegrations!=='function'||window.loadIntegrations.__pzWrapped)return false;
-  const original=window.loadIntegrations;
-  const wrapped=async function(...args){const pending=original.apply(this,args),container=q('#integration-cards');if(container&&!q('[data-provider]',container))container.innerHTML='<div class="pz-loading-line">Verbindungen werden geladen …</div>';connectionLoading=true;markConnectionsLoading();try{return await pending;}finally{applyConnectionStates();}};
-  wrapped.__pzWrapped=true;window.loadIntegrations=wrapped;return true;
+ function connectionError(error){const container=q('#integration-cards');if(!container)return;container.innerHTML=`<article class="panel pz-connection-load-error"><div class="panel-head"><div><p class="eyebrow">VERBINDUNGEN</p><h3>Laden nicht möglich</h3></div></div><p class="error">${h(error.message||'Verbindungen konnten nicht geladen werden.')}</p><button type="button" class="secondary" data-pz-connections-retry>Erneut versuchen</button></article>`;}
+ async function loadConnections(force=false){
+  if(connectionsRequest&&!force)return connectionsRequest;const container=q('#integration-cards');if(!container)return;container.innerHTML='<div class="pz-loading-line">Verbindungen werden geladen …</div>';window.pzDiagnostics?.record?.('connections-load-start',{});
+  connectionsRequest=(async()=>{const started=performance.now();try{const data=await timeLimit(post('/api/v1/settings/connections',{}),3000,'Verbindungen konnten nicht innerhalb von 3 Sekunden geladen werden.');renderConnectionCards(data);window.pzDiagnostics?.record?.('connections-load-success',{duration_ms:Math.round(performance.now()-started),server_ms:data.duration_ms||0});await loadConnectionStates();return data;}catch(error){window.pzDiagnostics?.record?.('connections-load-error',{duration_ms:Math.round(performance.now()-started),message:String(error.message||error)});connectionError(error);throw error;}finally{connectionsRequest=null;}})();return connectionsRequest.catch(()=>null);
  }
  function watchCards(){const cards=q('#integration-cards');if(!cards||cardsObserver)return false;cardsObserver=new MutationObserver(()=>{if(connectionLoading)markConnectionsLoading();else applyConnectionStates();});cardsObserver.observe(cards,{childList:true,subtree:true});return true;}
-
  function providerViewLoading(provider){const status=q(`#view-${provider} .list-status`);if(status&&!q(`#view-${provider} tbody tr`)){status.classList.add('pz-loading-line');status.textContent='Daten werden geladen …';setTimeout(()=>status.classList.remove('pz-loading-line'),5000);}}
 
+ function openSettingsConnections(name,label){const section=q(`#view-${name}`);if(!section)return;if(typeof showView==='function')showView(name);else{qa('.view').forEach(v=>v.classList.remove('active-view'));section.classList.add('active-view');q('.sidebar')?.classList.remove('open');}const title=q('#page-title');if(title)title.textContent=label||'Verbindungen';window.pzSyncNavigation?.();syncSystemState(name,true);loadConnections();}
  function installHooks(){
-  if(window.pzOpenNavTarget&&!window.pzOpenNavTarget.__pzSettingsPolish){const original=window.pzOpenNavTarget;const wrapped=(name,label)=>{original(name,label);syncWorkPanel(name);if(name==='settings-profile')loadProfilePage();if(name==='settings-connections')loadConnectionStates();setTimeout(()=>{arrangeNav();ensureWorkshopLog();},0);};wrapped.__pzSettingsPolish=true;window.pzOpenNavTarget=wrapped;}
-  wrapLoadIntegrations();watchCards();
+  window.loadIntegrations=loadConnections;
+  if(window.pzOpenNavTarget&&!window.pzOpenNavTarget.__pzSettingsPolish){const original=window.pzOpenNavTarget;const wrapped=(name,label)=>{if(name==='settings-connections'){openSettingsConnections(name,label);return;}original(name,label);syncSystemState(name,true);if(name==='settings-profile')loadProfilePage();setTimeout(()=>{arrangeNav();ensureWorkshopLog();decorateNavIcons();},0);};wrapped.__pzSettingsPolish=true;window.pzOpenNavTarget=wrapped;}
+  watchCards();
  }
- document.addEventListener('click',event=>{
-  const profile=event.target.closest('[data-pz-nav-target="settings-profile"]');if(profile)setTimeout(()=>loadProfilePage(),0);
-  const connections=event.target.closest('[data-pz-nav-target="settings-connections"]');if(connections){connectionLoading=true;markConnectionsLoading();loadConnectionStates();}
-  const provider=event.target.closest('.nav[data-view="zammad"],.nav[data-view="starface"],.nav[data-view="teamviewer"]');if(provider)providerViewLoading(provider.dataset.view);
-  if(event.target.closest('.sidebar [data-view],.sidebar [data-pz-nav-target],.sidebar [data-admin-open]'))setTimeout(()=>{syncWorkPanel();arrangeNav();ensureWorkshopLog();},0);
- });
-
- function init(){
-  arrangeNav();ensureWorkshopLog();ensureProfile();syncWorkPanel();installHooks();
-  const nav=q('.sidebar nav');if(nav&&!navObserver){navObserver=new MutationObserver(()=>{arrangeNav();ensureWorkshopLog();});navObserver.observe(nav,{childList:true});}
- }
+ function watchViews(){if(viewObserver)return;viewObserver=new MutationObserver(()=>queueMicrotask(()=>syncSystemState()));for(const view of qa('.view'))viewObserver.observe(view,{attributes:true,attributeFilter:['class']});}
+ document.addEventListener('click',event=>{const profile=event.target.closest('[data-pz-nav-target="settings-profile"]');if(profile)setTimeout(()=>loadProfilePage(),0);if(event.target.closest('[data-pz-connections-retry]')){event.preventDefault();loadConnections(true);}const provider=event.target.closest('.nav[data-view="zammad"],.nav[data-view="starface"],.nav[data-view="teamviewer"]');if(provider)providerViewLoading(provider.dataset.view);if(event.target.closest('.sidebar [data-view],.sidebar [data-pz-nav-target],.sidebar [data-admin-open]'))setTimeout(()=>{syncSystemState(activeName(),true);arrangeNav();ensureWorkshopLog();decorateNavIcons();},0);});
+ function init(){arrangeNav();ensureWorkshopLog();ensureProfile();syncSystemState();installHooks();watchViews();decorateNavIcons();q('[data-profile-image-panel]')?.remove();}
  init();let tries=0;const settle=setInterval(()=>{tries++;init();if(typeof state!=='undefined'&&state.user&&q('[data-pz-nav-group="workshop"]')&&q('#view-settings-profile')&&tries>20)clearInterval(settle);else if(tries>60)clearInterval(settle);},150);
 })();

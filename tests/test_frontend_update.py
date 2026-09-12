@@ -16,11 +16,12 @@ class FrontendUpdateTests(unittest.TestCase):
             second = frontend_update_runtime._frontend_version(root)
             self.assertNotEqual(first, second)
 
-    def test_index_gets_version_meta_update_assets_and_cache_busters(self):
+    def test_index_gets_version_meta_update_assets_cache_busters_and_locked_mobile_viewport(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / 'index.html').write_text(
-                '<html><head><link rel="stylesheet" href="/app.css?v=1"></head>'
+                '<html><head><meta name="viewport" content="width=device-width,initial-scale=1">'
+                '<link rel="stylesheet" href="/app.css?v=1"></head>'
                 '<body><script src="/app.js?v=1" defer></script></body></html>',
                 encoding='utf-8',
             )
@@ -30,6 +31,7 @@ class FrontendUpdateTests(unittest.TestCase):
             self.assertIn('/frontend-update.js?pzv=abc123', html)
             self.assertIn('/app.css?v=1&pzv=abc123', html)
             self.assertIn('/app.js?v=1&pzv=abc123', html)
+            self.assertIn('maximum-scale=1,user-scalable=no', html)
 
 
 if __name__ == '__main__':
