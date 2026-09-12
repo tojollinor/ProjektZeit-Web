@@ -50,7 +50,13 @@ class MariaConnection:
         sql = sql.replace('?', '%s')
         try:
             cursor = self.conn.cursor()
-            cursor.execute(sql, params)
+            # PyMySQL applies Python %-formatting whenever an args object is passed.
+            # With no bind parameters, call execute(sql) directly so literal SQL wildcards
+            # such as LIKE 'superadmin.%' remain untouched.
+            if params:
+                cursor.execute(sql, params)
+            else:
+                cursor.execute(sql)
             return Result(cursor)
         except pymysql.IntegrityError as error:
             raise sqlite3.IntegrityError(str(error)) from error
