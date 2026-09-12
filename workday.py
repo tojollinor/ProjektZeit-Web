@@ -10,6 +10,11 @@ def iso(value):
     return value.astimezone(timezone.utc).isoformat(timespec="microseconds")
 
 
+def _reconcile_existing(c):
+    for row in c.execute('SELECT DISTINCT owner_id FROM work_sessions'):
+        reconcile(c, row['owner_id'])
+
+
 def migrate(c):
     if getattr(c, 'dialect', '') == 'mariadb':
         c.executescript('''CREATE TABLE IF NOT EXISTS work_sessions (
@@ -27,6 +32,7 @@ def migrate(c):
             ALTER TABLE work_sessions ADD COLUMN IF NOT EXISTS open_owner INTEGER
               GENERATED ALWAYS AS (CASE WHEN ended_at IS NULL THEN owner_id ELSE NULL END) PERSISTENT;
             CREATE UNIQUE INDEX IF NOT EXISTS idx_work_open ON work_sessions(open_owner);''')
+        _reconcile_existing(c)
         return
     c.execute("""CREATE TABLE IF NOT EXISTS work_sessions (
         id INTEGER PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES users(id),
@@ -45,6 +51,7 @@ def migrate(c):
     ):
         if column not in [r['name'] for r in c.execute('PRAGMA table_info(%s)' % table)]:
             c.execute('ALTER TABLE %s ADD COLUMN %s %s' % (table, column, definition))
+    _reconcile_existing(c)
 
 
 def idle_ids(c, uid):
