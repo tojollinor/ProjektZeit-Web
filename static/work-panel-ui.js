@@ -2,7 +2,7 @@
  const panel=document.querySelector('.work-panel');if(!panel)return;
  const q=(s,r=document)=>r.querySelector(s),notify=(m,l='info')=>window.pzToast?.(m,l,4500);
  const compact=document.createElement('div');compact.className='work-panel-compact';compact.innerHTML='<div class="work-panel-compact-main"><span data-work-compact-project>Kein Projekt läuft</span><strong data-work-compact-time>00:00:00</strong></div><div class="work-panel-compact-actions"><button type="button" class="primary" data-workday-toggle>Arbeit starten</button><button type="button" class="secondary" data-work-pause>Pause</button></div>';
- panel.append(compact);
+ q('.panel-head',panel)?.after(compact);
  const collapse=document.createElement('button');collapse.type='button';collapse.className='work-panel-chevron';collapse.setAttribute('aria-label','Arbeitszeitleiste ein- oder ausklappen');collapse.innerHTML='⌃';q('.panel-head',panel)?.append(collapse);
  let workState={state:'stopped',work:null,pause:null},busy=false;
  function fmt(start){if(!start)return'00:00:00';let s=Math.max(0,Math.floor((Date.now()-new Date(start))/1000));return`${String(Math.floor(s/3600)).padStart(2,'0')}:${String(Math.floor(s%3600/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;}
