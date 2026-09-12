@@ -24,6 +24,13 @@ def _versioned_index(static_dir, version):
         html = html.replace('</head>', f'  {meta}\n</head>', 1)
     if '/frontend-update.css' not in html:
         html = html.replace('</head>', '  <link rel="stylesheet" href="/frontend-update.css">\n</head>', 1)
+    if '/performance-guard.js' not in html:
+        marker = '  <script src="/starface-connect.js'
+        index = html.find(marker)
+        if index >= 0:
+            html = html[:index] + '  <script src="/performance-guard.js" defer></script>\n' + html[index:]
+        else:
+            html = html.replace('</body>', '  <script src="/performance-guard.js" defer></script>\n</body>', 1)
     for script in ('/frontend-update.js','/profile-avatar.js'):
         if script not in html:
             html = html.replace('</body>', f'  <script src="{script}" defer></script>\n</body>', 1)
