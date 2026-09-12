@@ -26,11 +26,10 @@
   syncScrim();
  }
 
- // Load the current UX/provider refinement layer after the base scripts.
- if(!document.querySelector('link[data-ux-batch]')){
-  const link=document.createElement('link');link.rel='stylesheet';link.href='/ux-batch.css?v=0.7.0-1';link.dataset.uxBatch='';document.head.append(link);
- }
- if(!document.querySelector('script[data-ux-batch]')){
-  const script=document.createElement('script');script.src='/ux-batch.js?v=0.7.0-1';script.defer=true;script.dataset.uxBatch='';document.body.append(script);
- }
+ function stylesheet(href,key){if(document.querySelector(`link[data-${key}]`))return;const link=document.createElement('link');link.rel='stylesheet';link.href=href;link.dataset[key]='';document.head.append(link);}
+ function script(src,key){if(document.querySelector(`script[data-${key}]`))return;const el=document.createElement('script');el.src=src;el.defer=true;el.dataset[key]='';document.body.append(el);}
+ stylesheet('/ux-batch.css?v=0.7.0-2','uxBatch');
+ script('/ux-batch.js?v=0.7.0-2','uxBatch');
+ stylesheet('/provider-api-ui.css?v=0.7.0-1','providerApiUi');
+ script('/provider-api-ui.js?v=0.7.0-1','providerApiUi');
 })();
