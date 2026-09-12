@@ -1,0 +1,85 @@
+/* September batch: compact operational UI, system navigation and responsive fixes. */
+.sidebar{display:flex!important;flex-direction:column!important;overflow:hidden!important}
+.sidebar>nav{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding-bottom:12px}
+.sidebar-bottom{flex:0 0 auto;position:relative;z-index:3;background:inherit}
+.admin-nav-group{display:grid;gap:3px}
+.admin-nav-toggle{width:100%}
+.admin-nav-toggle::after{content:"▾";margin-left:auto;transition:transform .18s ease}
+.admin-nav-toggle[aria-expanded="true"]::after{transform:rotate(180deg)}
+.admin-nav-submenu{display:grid;gap:3px;padding:2px 0 7px 27px}
+.admin-nav-submenu[hidden]{display:none}
+.admin-subnav{border:0;background:transparent;color:var(--muted);text-align:left;padding:8px 10px;border-radius:9px;display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer}
+.admin-subnav:hover{background:rgba(127,127,127,.1);color:var(--text)}
+.admin-subnav .beta-tag{font-size:.62rem}
+
+.work-panel-compact{display:grid!important;grid-template-columns:1fr;gap:8px!important}
+.work-panel-compact-main{display:flex!important;width:100%;justify-content:space-between;gap:10px;padding-right:30px}
+.work-panel-compact-actions{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));width:100%;gap:8px}
+.work-panel-compact-actions button{width:100%;min-height:38px}
+.work-panel.work-is-paused .work-panel-compact-actions{grid-template-columns:1fr}
+.work-panel.work-is-paused .work-pause-end{width:100%}
+@media(max-width:700px){.work-panel.is-collapsed{padding-top:20px}.work-panel-compact-main{align-items:center}.work-panel-compact-actions button{padding:.55rem .65rem}}
+
+.zammad-status-filters{display:flex!important;flex-wrap:wrap;gap:5px!important;align-items:center}
+.zammad-status-filters .zammad-filter-chip{padding:.36rem .62rem!important;min-height:30px!important;border-color:var(--blue,#397bd6)!important;background:color-mix(in srgb,var(--blue,#397bd6) 14%,transparent)!important;color:var(--blue,#397bd6)!important;font-size:.78rem!important;border-radius:8px!important}
+.zammad-status-filters .zammad-filter-chip.active{background:var(--green,#16a57b)!important;border-color:var(--green,#16a57b)!important;color:#fff!important}
+.zammad-list-controls{gap:8px!important}
+.list-status{font-size:.78rem!important;color:var(--muted)!important;margin:.35rem 0 .6rem!important}
+
+.customer-row-sub{justify-content:flex-start!important}
+.customer-fallback-phone,.customer-quick-phone{width:auto!important;max-width:min(250px,72vw)!important;min-width:145px!important;justify-self:start!important;background:color-mix(in srgb,var(--blue,#397bd6) 12%,var(--surface,#fff))!important;border-color:color-mix(in srgb,var(--blue,#397bd6) 45%,transparent)!important;color:var(--text)!important;padding:.45rem .7rem!important}
+.customer-fallback-phone strong,.customer-quick-phone strong{font-size:.88rem}
+.customer-add-button{width:44px;height:38px;padding:0!important;font-size:1.35rem;line-height:1;margin-bottom:10px}
+.customer-create-dialog>form{min-width:min(600px,86vw);display:grid;gap:12px}
+
+.project-manager{margin-top:14px}
+.project-status-groups{display:grid;gap:12px}
+.project-status-group{border-top:1px solid var(--border);padding-top:10px}
+.project-status-group h4{margin:0 0 7px}
+.project-status-row,.billing-row,.session-row,.missed-call-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--border)}
+.project-status-row>div:first-child,.billing-row>div:first-child,.session-row>div:first-child,.missed-call-row>div:first-child{display:grid;gap:2px;min-width:0}
+.project-status-row small,.billing-row small,.session-row small,.missed-call-row small{color:var(--muted)}
+.project-status-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:5px}
+.project-status-actions button{padding:.35rem .55rem;font-size:.75rem}
+.billing-group{margin:0 0 18px}
+.billing-group h4{margin-bottom:3px}
+
+.session-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}
+.session-tabs button{padding:.42rem .7rem}
+.session-title{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.session-state{font-size:.7rem;font-weight:700;padding:.18rem .45rem;border-radius:99px;background:rgba(127,127,127,.12);color:var(--muted)}
+.session-state.active{background:color-mix(in srgb,var(--green,#16a57b) 16%,transparent);color:var(--green,#16a57b)}
+.session-row .danger{flex:0 0 auto}
+
+.dashboard-edit{margin:0 0 10px auto;display:block}
+.dashboard-editor{min-width:min(480px,86vw)}
+.widget-editor-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--border)}
+.widget-editor-row>div{display:flex;gap:4px}
+.widget-editor-row button{padding:.25rem .55rem}
+.missed-calls-widget{margin-bottom:16px}
+.missed-call-row a{flex:0 0 auto;text-decoration:none}
+.callback-write-note{display:block;margin-top:10px}
+
+.badge[data-connection-state="connected"]{background:color-mix(in srgb,var(--green,#16a57b) 18%,transparent)!important;color:var(--green,#16a57b)!important}
+.badge[data-connection-state="not-configured"]{background:rgba(127,127,127,.14)!important;color:var(--muted)!important}
+.badge[data-connection-state="configured-failed"]{background:color-mix(in srgb,#d64b4b 15%,transparent)!important;color:#d64b4b!important}
+
+.log-list .log-row{padding:7px 9px!important;min-height:0!important}
+.log-compact-copy{gap:2px!important}
+.log-compact-copy>div:first-child{display:flex!important;align-items:center!important;gap:8px!important}
+.log-compact-copy>div:first-child small{display:none!important}
+.log-compact-second{display:flex;align-items:baseline;gap:7px;min-width:0;font-size:.78rem}
+.log-compact-second small{flex:0 0 auto;color:var(--muted);white-space:nowrap}
+.log-compact-second span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.log-compact-copy>span{display:none!important}
+
+#view-settings>[data-import-export]{margin-top:12px}
+#view-settings [data-profile-settings]{order:-10}
+#project-activity{display:none!important}
+
+@media(max-width:700px){
+ .project-status-row,.billing-row,.session-row,.missed-call-row{align-items:flex-start}
+ .project-status-actions{max-width:46%}
+ .session-row{display:grid;grid-template-columns:1fr auto}
+ .admin-nav-submenu{padding-left:20px}
+}
