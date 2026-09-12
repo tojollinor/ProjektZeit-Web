@@ -19,6 +19,13 @@ def _frontend_version(static_dir):
 
 def _versioned_index(static_dir, version):
     html = (static_dir / 'index.html').read_text(encoding='utf-8')
+    html = re.sub(
+        r'<meta\s+name=["\']viewport["\']\s+content=["\'][^"\']*["\']\s*/?>',
+        '<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">',
+        html,
+        count=1,
+        flags=re.IGNORECASE,
+    )
     meta = f'<meta name="pz-frontend-version" content="{version}">'
     if 'name="pz-frontend-version"' not in html:
         html = html.replace('</head>', f'  {meta}\n</head>', 1)
