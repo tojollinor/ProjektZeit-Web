@@ -22,6 +22,10 @@ def _versioned_index(static_dir, version):
     meta = f'<meta name="pz-frontend-version" content="{version}">'
     if 'name="pz-frontend-version"' not in html:
         html = html.replace('</head>', f'  {meta}\n</head>', 1)
+    if '/frontend-update.css' not in html:
+        html = html.replace('</head>', '  <link rel="stylesheet" href="/frontend-update.css">\n</head>', 1)
+    if '/frontend-update.js' not in html:
+        html = html.replace('</body>', '  <script src="/frontend-update.js" defer></script>\n</body>', 1)
 
     pattern = re.compile(r'''\b(src|href)=(?P<q>["'])(?P<url>/[^"']+\.(?:js|css)(?:\?[^"']*)?)(?P=q)''')
     def rewrite(match):
