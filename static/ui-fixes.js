@@ -23,5 +23,5 @@
  stylesheet('/customer-extra-ui.css?v=0.7.0-1','customerExtraUi');script('/customer-extra-ui.js?v=0.7.0-1','customerExtraUi');
  stylesheet('/ux-round2.css?v=0.7.0-1','uxRound2');script('/ux-round2.js?v=0.7.0-1','uxRound2');
  stylesheet('/next-batch-ui.css?v=0.7.0-1','nextBatchUi');script('/next-batch-ui.js?v=0.7.0-2','nextBatchUi');script('/next-batch-fixes.js?v=0.7.0-1','nextBatchFixes');
- stylesheet('/final-batch-ui.css?v=0.7.0-1','finalBatchUi');script('/final-batch-ui.js?v=0.7.0-1','finalBatchUi');
+ stylesheet('/final-batch-ui.css?v=0.7.0-1','finalBatchUi');script('/final-batch-ui.js?v=0.7.0-1','finalBatchUi');script('/final-batch-hooks.js?v=0.7.0-1','finalBatchHooks');
 })();
