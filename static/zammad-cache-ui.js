@@ -10,11 +10,9 @@
  function classifyStatus(text){const s=String(text||'').toLowerCase();if(/geschlossen|closed|merged|zusammengeführt|removed|entfernt/.test(s))return'closed';return'open';}
  function apply(){if(!view||decorating)return;decorating=true;try{
   const tbody=q('tbody',view);if(!tbody)return;let rows=qa(':scope > tr',tbody);
-  for(const row of rows){const s=value(row,'status');row.hidden=statusFilter!=='all'&&statusFilter!==(statusFilter==='open'||statusFilter==='closed'?classifyStatus(s):'status:'+s.toLowerCase());}
-  const visible=rows.filter(r=>!r.hidden);const sorted=[...visible].sort((a,b)=>{let av=value(a,sortBy),bv=value(b,sortBy);let cmp;if(sortBy==='created'||sortBy==='updated')cmp=dateValue(av)-dateValue(bv);else cmp=av.localeCompare(bv,'de',{numeric:true,sensitivity:'base'});return sortDir==='desc'?-cmp:cmp;});
-  const current=visible.map(x=>x);if(sorted.some((x,i)=>x!==current[i]))for(const r of sorted)tbody.append(r);
-  const status=q('.list-status',view);if(status&&!/lädt|geladen|fehler|abgleich|aktualisiert/i.test(status.textContent||''))status.textContent=`${visible.length} Einträge`;
-  rebuildStatuses(rows);
+  for(const row of rows){const s=value(row,'status'),match=statusFilter==='all'||statusFilter===(statusFilter==='open'||statusFilter==='closed'?classifyStatus(s):'status:'+s.toLowerCase());row.dataset.zammadHidden=match?'0':'1';if(!match)row.hidden=true;}
+  const visible=rows.filter(r=>r.dataset.zammadHidden!=='1');const sorted=[...visible].sort((a,b)=>{let av=value(a,sortBy),bv=value(b,sortBy),cmp;if(sortBy==='created'||sortBy==='updated')cmp=dateValue(av)-dateValue(bv);else cmp=av.localeCompare(bv,'de',{numeric:true,sensitivity:'base'});return sortDir==='desc'?-cmp:cmp;});const current=visible.map(x=>x);if(sorted.some((x,i)=>x!==current[i]))for(const r of sorted)tbody.append(r);
+  const status=q('.list-status',view);if(status&&!/lädt|geladen|fehler|abgleich|aktualisiert/i.test(status.textContent||''))status.textContent=`${visible.filter(r=>!r.hidden).length} Einträge`;rebuildStatuses(rows);
  }finally{decorating=false;}}
  function rebuildStatuses(rows){const box=q('[data-zammad-statuses]',view);if(!box)return;const found=[...new Set(rows.map(r=>value(r,'status')).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'de'));for(const old of qa('[data-dynamic-status]',box))old.remove();for(const s of found){const b=document.createElement('button');b.type='button';b.className='secondary subtle zammad-filter-chip';b.dataset.dynamicStatus='';b.dataset.filter='status:'+s.toLowerCase();b.textContent=s;b.onclick=()=>{statusFilter=b.dataset.filter;syncButtons();apply();};box.append(b);}syncButtons();}
  function syncButtons(){qa('[data-filter]',view).forEach(b=>b.classList.toggle('active',b.dataset.filter===statusFilter));}
