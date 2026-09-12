@@ -34,5 +34,16 @@
 
  let attempts=0;const timer=setInterval(()=>{attempts++;const done=repairProfile();refineAllLogs();if(done&&attempts>8)clearInterval(timer);if(attempts>120)clearInterval(timer);},100);
  new MutationObserver(()=>requestAnimationFrame(()=>{repairProfile();refineAllLogs();})).observe(document.body,{childList:true,subtree:true});
+
+ // The original app.js binds navigation directly to every .nav button and showView()
+ // closes the mobile sidebar. Admin-Optionen is an accordion toggle, not a route.
+ // Intercept it during document capture before the original button handler can run.
+ document.addEventListener('click',event=>{
+  const toggle=event.target.closest('.admin-nav-toggle');if(!toggle)return;
+  event.preventDefault();event.stopImmediatePropagation();
+  const group=toggle.closest('.admin-nav-group'),submenu=q('.admin-nav-submenu',group);if(!submenu)return;
+  const open=submenu.hidden;submenu.hidden=!open;toggle.setAttribute('aria-expanded',String(open));
+ },true);
+
  document.addEventListener('click',event=>{if(event.target.closest('[data-view="settings"]'))setTimeout(()=>{repairProfile();loadProfile();},180);});
 })();
