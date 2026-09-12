@@ -1,56 +1,28 @@
 (()=>{
  const q=(s,r=document)=>r.querySelector(s),qa=(s,r=document)=>[...r.querySelectorAll(s)];
  const notify=(m,l='info',t=5000)=>window.pzToast?window.pzToast(m,l,t):typeof toast==='function'?toast(m):null;
- let running=false,customerSort='';
-
- function decorateRows(){
-  const view=q('#view-zammad');if(!view)return;
-  for(const row of qa('tbody tr',view)){
-   const actions=q('.provider-actions',row);if(actions&&!q('.zammad-cache-badge',actions)){
-    const badge=document.createElement('span');badge.className='badge zammad-cache-badge';badge.textContent='Aktuell';badge.title='Im letzten vollständig erfolgreichen Zammad-Abgleich vorhanden';actions.append(badge);
-   }
-  }
-  const first=q('thead tr:first-child th:first-child',view);
-  if(first&&!q('[data-zammad-customer-sort]',first)){
-   first.replaceChildren();const b=document.createElement('button');b.type='button';b.className='table-sort';b.dataset.zammadCustomerSort='';b.textContent='Kunde';
-   b.onclick=()=>{customerSort=customerSort==='asc'?'desc':'asc';sortCustomers();};first.append(b);
-  }
-  if(customerSort)sortCustomers(false);
- }
- function sortCustomers(update=true){
-  const view=q('#view-zammad'),tbody=q('tbody',view);if(!tbody)return;
-  const rows=qa(':scope > tr',tbody);rows.sort((a,b)=>{
-   const av=(a.children[0]?.textContent||'').trim(),bv=(b.children[0]?.textContent||'').trim();
-   const cmp=av.localeCompare(bv,'de',{numeric:true,sensitivity:'base'});return customerSort==='desc'?-cmp:cmp;
-  });for(const row of rows)tbody.append(row);
-  if(update){const b=q('[data-zammad-customer-sort]',view);if(b)b.textContent='Kunde '+(customerSort==='asc'?'↑':'↓');}
- }
- const view=q('#view-zammad');if(view){
-  new MutationObserver(()=>requestAnimationFrame(decorateRows)).observe(view,{childList:true,subtree:true});
-  view.addEventListener('click',event=>{const sort=event.target.closest('.table-sort');if(sort&&!sort.matches('[data-zammad-customer-sort]'))customerSort='';},true);
- }
-
+ let running=false,sortBy='updated',sortDir='desc',statusFilter='all',decorating=false;
+ const view=q('#view-zammad');
+ function cells(row){return qa(':scope > td',row).filter(x=>!x.classList.contains('pz-mobile-summary'));}
+ function headers(){return qa('thead th',view).map(x=>x.textContent.trim().toLowerCase());}
+ function value(row,key){const cs=cells(row),hs=headers();if(key==='customer')return (cs[0]?.textContent||'').trim();const patterns={title:/title|titel/,created:/created|erstellt/,updated:/updated|geändert|aktualisiert/,status:/state|status/},idx=hs.findIndex(x=>patterns[key]?.test(x));return (cs[idx]?.textContent||'').trim();}
+ function dateValue(v){const d=new Date(v);if(!Number.isNaN(+d))return +d;const m=String(v).match(/(\d{1,2})\.(\d{1,2})\.(\d{4})(?:.*?(\d{1,2}):(\d{2}))?/);return m?+new Date(+m[3],+m[2]-1,+m[1],+(m[4]||0),+(m[5]||0)):0;}
+ function classifyStatus(text){const s=String(text||'').toLowerCase();if(/geschlossen|closed|merged|zusammengeführt|removed|entfernt/.test(s))return'closed';return'open';}
+ function apply(){if(!view||decorating)return;decorating=true;try{
+  const tbody=q('tbody',view);if(!tbody)return;let rows=qa(':scope > tr',tbody);
+  for(const row of rows){const s=value(row,'status');row.hidden=statusFilter!=='all'&&statusFilter!==(statusFilter==='open'||statusFilter==='closed'?classifyStatus(s):'status:'+s.toLowerCase());}
+  const visible=rows.filter(r=>!r.hidden);const sorted=[...visible].sort((a,b)=>{let av=value(a,sortBy),bv=value(b,sortBy);let cmp;if(sortBy==='created'||sortBy==='updated')cmp=dateValue(av)-dateValue(bv);else cmp=av.localeCompare(bv,'de',{numeric:true,sensitivity:'base'});return sortDir==='desc'?-cmp:cmp;});
+  const current=visible.map(x=>x);if(sorted.some((x,i)=>x!==current[i]))for(const r of sorted)tbody.append(r);
+  const status=q('.list-status',view);if(status&&!/lädt|geladen|fehler|abgleich|aktualisiert/i.test(status.textContent||''))status.textContent=`${visible.length} Einträge`;
+  rebuildStatuses(rows);
+ }finally{decorating=false;}}
+ function rebuildStatuses(rows){const box=q('[data-zammad-statuses]',view);if(!box)return;const found=[...new Set(rows.map(r=>value(r,'status')).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'de'));for(const old of qa('[data-dynamic-status]',box))old.remove();for(const s of found){const b=document.createElement('button');b.type='button';b.className='secondary subtle zammad-filter-chip';b.dataset.dynamicStatus='';b.dataset.filter='status:'+s.toLowerCase();b.textContent=s;b.onclick=()=>{statusFilter=b.dataset.filter;syncButtons();apply();};box.append(b);}syncButtons();}
+ function syncButtons(){qa('[data-filter]',view).forEach(b=>b.classList.toggle('active',b.dataset.filter===statusFilter));}
+ function controls(){if(!view||q('[data-zammad-list-controls]',view))return;const toolbar=q('.provider-toolbar',view);if(!toolbar)return;const wrap=document.createElement('div');wrap.dataset.zammadListControls='';wrap.className='zammad-list-controls';wrap.innerHTML='<label>Sortieren nach<select data-z-sort><option value="customer">Name / Kunde</option><option value="title">Titel</option><option value="created">Erstellungsdatum</option><option value="updated" selected>Änderungsdatum</option><option value="status">Status</option></select></label><label>Reihenfolge<select data-z-dir><option value="asc">Aufsteigend</option><option value="desc" selected>Absteigend</option></select></label><div class="zammad-status-filters" data-zammad-statuses><button type="button" class="secondary subtle active" data-filter="all">Alle Tickets</button><button type="button" class="secondary subtle" data-filter="open">Offene Tickets</button><button type="button" class="secondary subtle" data-filter="closed">Geschlossene Tickets</button></div>';toolbar.insertAdjacentElement('afterend',wrap);q('[data-z-sort]',wrap).onchange=e=>{sortBy=e.target.value;apply();};q('[data-z-dir]',wrap).onchange=e=>{sortDir=e.target.value;apply();};qa('[data-filter]',wrap).forEach(b=>b.onclick=()=>{statusFilter=b.dataset.filter;syncButtons();apply();});}
+ function decorateRows(){controls();for(const row of qa('tbody tr',view)){const actions=q('.provider-actions',row);if(actions&&!q('.zammad-cache-badge',actions)){const badge=document.createElement('span');badge.className='badge zammad-cache-badge';badge.textContent='Aktuell';actions.append(badge);}}apply();}
+ if(view){let pending=false;new MutationObserver(()=>{if(pending)return;pending=true;requestAnimationFrame(()=>{pending=false;decorateRows();});}).observe(view,{childList:true,subtree:true});}
  async function repaint(){try{if(typeof providerLoaders!=='undefined'&&providerLoaders.zammad)await providerLoaders.zammad(false);}catch(_){}}
  function statusChanged(){document.dispatchEvent(new CustomEvent('pz-provider-status-changed',{detail:{provider:'zammad'}}));}
- async function refresh(){
-  if(running)return;running=true;const status=q('#view-zammad .list-status');
-  try{
-   const started=await post('/api/v1/provider/refresh/start',{provider:'zammad'}),id=started.job?.id||'';
-   if(status)status.dataset.backgroundRefresh='Vollständiger Zammad-Abgleich läuft …';
-   const poll=async()=>{
-    try{
-     const d=await post('/api/v1/provider/refresh/job',{provider:'zammad'}),job=d.job||{};
-     if(id&&job.id&&id!==job.id)return;
-     if(job.state==='running'){setTimeout(poll,800);return;}
-     running=false;if(status)delete status.dataset.backgroundRefresh;await repaint();decorateRows();statusChanged();
-     if(job.state==='success'){
-      const r=job.result||{};notify(`Zammad aktualisiert · ${r.total_records||0} Tickets · ${r.removed||0} entfernt`,'success',4500);
-     }else notify(job.error||'Zammad konnte nicht vollständig aktualisiert werden. Der bisherige Datenbankstand bleibt erhalten.','warning',7000);
-    }catch(error){running=false;if(status)delete status.dataset.backgroundRefresh;statusChanged();notify('Zammad-Status konnte nicht geladen werden. Der lokale Datenbankstand bleibt erhalten.','warning',6000);}
-   };setTimeout(poll,350);
-  }catch(error){running=false;if(status)delete status.dataset.backgroundRefresh;statusChanged();notify(error.message,'warning',7000);}
- }
- q('[data-view="zammad"]')?.addEventListener('click',()=>setTimeout(refresh,80));
- q('#view-zammad')?.addEventListener('click',event=>{if(event.target.closest('[data-refresh]'))setTimeout(refresh,40);});
- setTimeout(decorateRows,350);
+ async function refresh(){if(running)return;running=true;const status=q('#view-zammad .list-status');try{const started=await post('/api/v1/provider/refresh/start',{provider:'zammad'}),id=started.job?.id||'';if(status)status.textContent='Vollständiger Zammad-Abgleich läuft …';const poll=async()=>{try{const d=await post('/api/v1/provider/refresh/job',{provider:'zammad'}),job=d.job||{};if(id&&job.id&&id!==job.id)return;if(job.state==='running'){setTimeout(poll,800);return;}running=false;await repaint();decorateRows();statusChanged();if(job.state==='success'){const r=job.result||{};notify(`Zammad aktualisiert · ${r.total_records||0} Tickets · ${r.removed||0} entfernt`,'success',4500);}else notify(job.error||'Zammad konnte nicht vollständig aktualisiert werden.','warning',7000);}catch(error){running=false;statusChanged();notify('Zammad-Status konnte nicht geladen werden.','warning',6000);}};setTimeout(poll,350);}catch(error){running=false;statusChanged();notify(error.message,'warning',7000);}}
+ q('#view-zammad')?.addEventListener('click',event=>{if(event.target.closest('[data-refresh]'))setTimeout(refresh,40);});setTimeout(decorateRows,350);
 })();
