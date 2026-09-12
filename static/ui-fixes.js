@@ -12,28 +12,12 @@
  const observer=new MutationObserver(scheduleApply);observer.observe(document.body,{childList:true,subtree:true});
  let tries=0;const wait=setInterval(()=>{tries++;apply();if((typeof state!=='undefined'&&state.user)||tries>40)clearInterval(wait);},100);
 
- // Navigation groups are controls, not routes. Capture them before legacy click handlers
- // and before the old mobile-close helper can treat them like a page navigation.
  let lastCustomerNav=0;
  document.addEventListener('click',event=>{
   const toggle=event.target.closest('.pz-nav-toggle,.admin-nav-toggle');
-  if(toggle){
-   event.preventDefault();event.stopImmediatePropagation();
-   const group=toggle.closest('.pz-nav-group,.admin-nav-group');
-   const submenu=group?.querySelector('.pz-nav-submenu,.admin-nav-submenu');
-   if(!submenu)return;
-   const open=submenu.hidden;submenu.hidden=!open;toggle.setAttribute('aria-expanded',String(open));
-   return;
-  }
+  if(toggle){event.preventDefault();event.stopImmediatePropagation();const group=toggle.closest('.pz-nav-group,.admin-nav-group'),submenu=group?.querySelector('.pz-nav-submenu,.admin-nav-submenu');if(!submenu)return;const open=submenu.hidden;submenu.hidden=!open;toggle.setAttribute('aria-expanded',String(open));return;}
   const adminSub=event.target.closest('.admin-subnav[data-admin-open]');
-  if(adminSub){
-   event.preventDefault();event.stopImmediatePropagation();
-   if(typeof showView==='function')showView('admin-options');
-   q('#page-title')&&(q('#page-title').textContent='Admin-Optionen');
-   setTimeout(()=>q(`[data-admin-tab="${adminSub.dataset.adminOpen}"]`)?.click(),30);
-   setTimeout(()=>window.pzSyncNavigation?.(),70);
-   return;
-  }
+  if(adminSub){event.preventDefault();event.stopImmediatePropagation();if(typeof showView==='function')showView('admin-options');q('#page-title')&&(q('#page-title').textContent='Admin-Optionen');setTimeout(()=>q(`[data-admin-tab="${adminSub.dataset.adminOpen}"]`)?.click(),30);setTimeout(()=>window.pzSyncNavigation?.(),70);return;}
   const custom=event.target.closest('[data-pz-nav-target]');
   if(custom){event.preventDefault();event.stopImmediatePropagation();window.pzOpenNavTarget?.(custom.dataset.pzNavTarget,custom.dataset.pzNavTitle||'');return;}
   const hard=event.target.closest('[data-pz-hard-reload]');
@@ -59,5 +43,5 @@
  stylesheet('/ux-round2.css?v=0.7.0-1','uxRound2');script('/ux-round2.js?v=0.7.0-1','uxRound2');
  stylesheet('/next-batch-ui.css?v=0.7.0-1','nextBatchUi');script('/next-batch-ui.js?v=0.7.0-2','nextBatchUi');script('/next-batch-fixes.js?v=0.7.0-2','nextBatchFixes');
  stylesheet('/final-batch-ui.css?v=0.7.0-1','finalBatchUi');script('/final-batch-ui.js?v=0.7.0-1','finalBatchUi');script('/final-batch-hooks.js?v=0.7.0-1','finalBatchHooks');
- stylesheet('/navigation-v2.css?v=0.8.0-1','navigationV2');script('/navigation-v2.js?v=0.8.0-1','navigationV2');
+ stylesheet('/navigation-v2.css?v=0.8.0-1','navigationV2');script('/navigation-v2.js?v=0.8.0-1','navigationV2');script('/navigation-v2-fixes.js?v=0.8.0-1','navigationV2Fixes');
 })();
