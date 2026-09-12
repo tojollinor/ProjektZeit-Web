@@ -55,6 +55,7 @@ jobs:
           node --check static/ui-next.js
           node --check static/ui-fixes.js
           node --check static/ux-batch.js
+          node --check static/provider-api-ui.js
 
       - name: Runtime-Stack initialisieren
         env:
@@ -64,7 +65,7 @@ jobs:
           ADMIN_USER: ciadmin
           ADMIN_PASSWORD: ci-runtime-password-2026
         run: |
-          python -c "import app, customer_runtime, feature_runtime, contact_runtime, ux_runtime; customer_runtime.install(app); feature_runtime.install(app); contact_runtime.install(app); ux_runtime.install(app); app.init_db(); print('Runtime-Stack erfolgreich initialisiert')"
+          python -c "import app, customer_runtime, feature_runtime, contact_runtime, ux_runtime, provider_cache_runtime, api_runtime; customer_runtime.install(app); feature_runtime.install(app); contact_runtime.install(app); ux_runtime.install(app); provider_cache_runtime.install(app); api_runtime.install(app); app.init_db(); print('Runtime-Stack erfolgreich initialisiert')"
 
       - name: Tests gegen MariaDB
         env:
