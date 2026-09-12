@@ -23,21 +23,14 @@ def _versioned_index(static_dir, version):
     if 'name="pz-frontend-version"' not in html:
         html = html.replace('</head>', f'  {meta}\n</head>', 1)
 
-    def add_version(match):
-        attr, url, quote = match.groups()
-        separator = '&' if '?' in url else '?'
-        return f'{attr}={quote}{url}{separator}pzv={version}{quote}'
-
-    html = re.sub(r'\b(src|href)=(\"|\')([^\"\']+\.(?:js|css)(?:\?[^\"\']*)?)(\2)',
-                  lambda m: m.group(0), html)
-    # The regex above keeps quote pairing explicit; perform the actual rewrite with a simpler callback.
-    pattern = re.compile(r'\b(src|href)=(?P<q>[\"\'])(?P<url>/[^\"\']+\.(?:js|css)(?:\?[^\"\']*)?)(?P=q)')
+    pattern = re.compile(r'''\b(src|href)=(?P<q>["'])(?P<url>/[^"']+\.(?:js|css)(?:\?[^"']*)?)(?P=q)''')
     def rewrite(match):
         url = match.group('url')
         if 'pzv=' in url:
             return match.group(0)
         separator = '&' if '?' in url else '?'
-        return f'{match.group(1)}={match.group("q")}{url}{separator}pzv={version}{match.group("q")}'
+        quote = match.group('q')
+        return f'{match.group(1)}={quote}{url}{separator}pzv={version}{quote}'
     return pattern.sub(rewrite, html)
 
 
