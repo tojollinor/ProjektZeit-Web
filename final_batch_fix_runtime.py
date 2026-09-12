@@ -16,6 +16,18 @@ def _parse(value):
 
 
 def install(app):
+    # final_batch_runtime wraps workday.reconcile before app.init_db runs. On an existing
+    # database, workday.migrate performs an initial reconcile before the new total columns
+    # have been added. Skip only that premature totals update; final.migrate adds the
+    # columns immediately afterwards and recomputes every existing work session.
+    old_recompute=final.recompute_work_totals
+    def safe_recompute(c,uid=None):
+        try:columns=final._columns(c,'work_sessions')
+        except Exception:return None
+        if not {'pause_seconds','net_seconds'}.issubset(columns):return None
+        return old_recompute(c,uid)
+    final.recompute_work_totals=safe_recompute
+
     # Existing customer APIs keep their shape, but archived state is now visible to the UI.
     try:
         cd=__import__('customer_data');old_list=cd.list_all
