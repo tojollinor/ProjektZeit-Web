@@ -1,10 +1,31 @@
 """Small runtime extension for editing customer contacts with audit history."""
 from urllib.parse import urlparse
 
+import customer_data
 import system_features
 
 
 def install(app):
+    # customer_runtime calls customer_data.update dynamically, so wrapping it here
+    # captures company-name/profile edits without changing the legacy route.
+    original_customer_update = customer_data.update
+    def customer_update(c, uid, customer_id, body):
+        row = c.execute('''SELECT c.name,p.email,p.note FROM customers c
+                           LEFT JOIN customer_profiles p ON p.customer_id=c.id AND p.owner_id=c.owner_id
+                           WHERE c.id=? AND c.owner_id=?''', (customer_id, uid)).fetchone()
+        before = dict(row) if row else {}
+        result = original_customer_update(c, uid, customer_id, body)
+        row = c.execute('''SELECT c.name,p.email,p.note FROM customers c
+                           LEFT JOIN customer_profiles p ON p.customer_id=c.id AND p.owner_id=c.owner_id
+                           WHERE c.id=? AND c.owner_id=?''', (customer_id, uid)).fetchone()
+        after = dict(row) if row else {}
+        changes = {key: {'old': before.get(key) or '', 'new': after.get(key) or ''}
+                   for key in after if (before.get(key) or '') != (after.get(key) or '')}
+        if changes:
+            system_features.audit(c, uid, uid, 'customer', customer_id, 'profile_updated', changes)
+        return result
+    customer_data.update = customer_update
+
     previous_post = app.App.do_POST
 
     def do_POST(self):
