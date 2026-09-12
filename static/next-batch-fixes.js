@@ -32,18 +32,11 @@
   }
  }
 
- let attempts=0;const timer=setInterval(()=>{attempts++;const done=repairProfile();refineAllLogs();if(done&&attempts>8)clearInterval(timer);if(attempts>120)clearInterval(timer);},100);
- new MutationObserver(()=>requestAnimationFrame(()=>{repairProfile();refineAllLogs();})).observe(document.body,{childList:true,subtree:true});
-
- // The original app.js binds navigation directly to every .nav button and showView()
- // closes the mobile sidebar. Admin-Optionen is an accordion toggle, not a route.
- // Intercept it during document capture before the original button handler can run.
+ // Settle the asynchronously assembled UI for a short bounded period. The old version
+ // observed the entire document forever, causing expensive rescans on every DOM mutation.
+ let attempts=0;const timer=setInterval(()=>{attempts++;repairProfile();refineAllLogs();if(attempts>=20)clearInterval(timer);},150);
  document.addEventListener('click',event=>{
-  const toggle=event.target.closest('.admin-nav-toggle');if(!toggle)return;
-  event.preventDefault();event.stopImmediatePropagation();
-  const group=toggle.closest('.admin-nav-group'),submenu=q('.admin-nav-submenu',group);if(!submenu)return;
-  const open=submenu.hidden;submenu.hidden=!open;toggle.setAttribute('aria-expanded',String(open));
- },true);
-
- document.addEventListener('click',event=>{if(event.target.closest('[data-view="settings"]'))setTimeout(()=>{repairProfile();loadProfile();},180);});
+  if(event.target.closest('[data-pz-nav-target="settings-profile"],[data-view="account"]'))setTimeout(()=>{repairProfile();loadProfile();},80);
+  if(event.target.closest('[data-view="logs"],[data-log-refresh]'))setTimeout(refineAllLogs,80);
+ });
 })();
