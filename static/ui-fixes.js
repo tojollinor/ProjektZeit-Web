@@ -32,4 +32,9 @@
  script('/ux-batch.js?v=0.7.0-2','uxBatch');
  stylesheet('/provider-api-ui.css?v=0.7.0-1','providerApiUi');
  script('/provider-api-ui.js?v=0.7.0-1','providerApiUi');
+ script('/network-guard.js?v=0.7.0-1','networkGuard');
+ stylesheet('/work-panel-ui.css?v=0.7.0-1','workPanelUi');
+ script('/work-panel-ui.js?v=0.7.0-1','workPanelUi');
+ stylesheet('/zammad-ticket-ui.css?v=0.7.0-1','zammadTicketUi');
+ script('/zammad-ticket-ui.js?v=0.7.0-1','zammadTicketUi');
 })();
