@@ -11,8 +11,6 @@
  let tries=0;const wait=setInterval(()=>{tries++;apply();if((typeof state!=='undefined'&&state.user)||tries>80)clearInterval(wait);},100);
 
  // Keep the mobile navigation scrim strictly in sync with the sidebar.
- // showView() closes the sidebar after selecting a destination, so the
- // scrim must be cleared there as well or it remains as a dark overlay.
  const sidebar=q('.sidebar');
  function syncScrim(){
   if(!sidebar)return;
@@ -26,5 +24,13 @@
   });
   window.addEventListener('resize',()=>{if(innerWidth>900){sidebar.classList.remove('open');syncScrim();}});
   syncScrim();
+ }
+
+ // Load the current UX/provider refinement layer after the base scripts.
+ if(!document.querySelector('link[data-ux-batch]')){
+  const link=document.createElement('link');link.rel='stylesheet';link.href='/ux-batch.css?v=0.7.0-1';link.dataset.uxBatch='';document.head.append(link);
+ }
+ if(!document.querySelector('script[data-ux-batch]')){
+  const script=document.createElement('script');script.src='/ux-batch.js?v=0.7.0-1';script.defer=true;script.dataset.uxBatch='';document.body.append(script);
  }
 })();
