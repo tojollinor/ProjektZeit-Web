@@ -2,6 +2,7 @@ import sqlite3
 import unittest
 
 import final_batch_runtime as final
+import final_batch_fix_runtime as final_fix
 
 
 class FinalBatchTests(unittest.TestCase):
@@ -33,6 +34,24 @@ class FinalBatchTests(unittest.TestCase):
         row=c.execute('SELECT pause_seconds,net_seconds FROM work_sessions WHERE id=1').fetchone()
         self.assertEqual(row['pause_seconds'],2700)
         self.assertEqual(row['net_seconds'],11700)
+
+    def test_existing_worktime_schema_can_reconcile_before_new_total_columns_exist(self):
+        class DummyHandler:
+            def do_POST(self):
+                return None
+        class DummyApp:
+            App=DummyHandler
+        final_fix.install(DummyApp)
+        c=sqlite3.connect(':memory:')
+        c.row_factory=sqlite3.Row
+        c.executescript('''
+          CREATE TABLE work_sessions(id INTEGER PRIMARY KEY,owner_id INTEGER,started_at TEXT,ended_at TEXT);
+          CREATE TABLE work_pauses(id INTEGER PRIMARY KEY,owner_id INTEGER,work_session_id INTEGER,started_at TEXT,ended_at TEXT);
+          INSERT INTO work_sessions(id,owner_id,started_at,ended_at) VALUES(1,7,'2026-09-12T08:00:00+00:00','2026-09-12T12:00:00+00:00');
+        ''')
+        final.recompute_work_totals(c,7)
+        row=c.execute('SELECT id FROM work_sessions WHERE id=1').fetchone()
+        self.assertEqual(row['id'],1)
 
 
 if __name__=='__main__':
