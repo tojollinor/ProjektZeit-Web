@@ -9,4 +9,22 @@
  }
  const observer=new MutationObserver(apply);observer.observe(document.body,{childList:true,subtree:true});
  let tries=0;const wait=setInterval(()=>{tries++;apply();if((typeof state!=='undefined'&&state.user)||tries>80)clearInterval(wait);},100);
+
+ // Keep the mobile navigation scrim strictly in sync with the sidebar.
+ // showView() closes the sidebar after selecting a destination, so the
+ // scrim must be cleared there as well or it remains as a dark overlay.
+ const sidebar=q('.sidebar');
+ function syncScrim(){
+  if(!sidebar)return;
+  const scrim=q('.sidebar-scrim');
+  if(scrim)scrim.classList.toggle('open',sidebar.classList.contains('open'));
+ }
+ if(sidebar){
+  new MutationObserver(syncScrim).observe(sidebar,{attributes:true,attributeFilter:['class']});
+  document.addEventListener('click',event=>{
+   if(event.target.closest('.nav,[data-go],#menu-toggle,.sidebar-scrim'))setTimeout(syncScrim,0);
+  });
+  window.addEventListener('resize',()=>{if(innerWidth>900){sidebar.classList.remove('open');syncScrim();}});
+  syncScrim();
+ }
 })();
