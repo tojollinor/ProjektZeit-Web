@@ -38,8 +38,8 @@
 
  const nativeSetInterval=window.setInterval.bind(window);
  window.setInterval=(fn,delay,...args)=>{
-  const stack=String(new Error().stack||'');
-  if(Number(delay)===1400&&/next-batch-ui\.js/i.test(stack)){
+  const stack=String(new Error().stack||''),source=String(fn||'');
+  if(Number(delay)===1400&&(/next-batch-ui\.js/i.test(stack)||/cleanCustomerRows|providerSettingsStatus|refineLogs/.test(source))){
    record('legacy-poller-suppressed',{source:'next-batch-ui.js',interval_ms:1400});
    return 0;
   }
