@@ -53,6 +53,8 @@ jobs:
           node --check static/portal.js
           node --check static/customer-master.js
           node --check static/ui-next.js
+          node --check static/ui-fixes.js
+          node --check static/ux-batch.js
 
       - name: Tests gegen MariaDB
         env:
