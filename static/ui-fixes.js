@@ -11,8 +11,10 @@
  let tries=0;const wait=setInterval(()=>{tries++;apply();if((typeof state!=='undefined'&&state.user)||tries>80)clearInterval(wait);},100);
  const sidebar=q('.sidebar');function syncScrim(){if(!sidebar)return;const scrim=q('.sidebar-scrim');if(scrim)scrim.classList.toggle('open',sidebar.classList.contains('open'));}
  if(sidebar){new MutationObserver(syncScrim).observe(sidebar,{attributes:true,attributeFilter:['class']});document.addEventListener('click',event=>{if(event.target.closest('.nav,[data-go],#menu-toggle,.sidebar-scrim'))setTimeout(syncScrim,0);});window.addEventListener('resize',()=>{if(innerWidth>900){sidebar.classList.remove('open');syncScrim();}});syncScrim();}
- function stylesheet(href,key){if(document.querySelector(`link[data-${key}]`))return;const link=document.createElement('link');link.rel='stylesheet';link.href=href;link.dataset[key]='';document.head.append(link);}
- function script(src,key){if(document.querySelector(`script[data-${key}]`))return;const el=document.createElement('script');el.src=src;el.defer=true;el.dataset[key]='';document.body.append(el);}
+ const build=q('meta[name="pz-frontend-version"]')?.content||'';
+ function versioned(url){if(!build||/([?&])pzv=/.test(url))return url;return `${url}${url.includes('?')?'&':'?'}pzv=${encodeURIComponent(build)}`;}
+ function stylesheet(href,key){if(document.querySelector(`link[data-${key}]`))return;const link=document.createElement('link');link.rel='stylesheet';link.href=versioned(href);link.dataset[key]='';document.head.append(link);}
+ function script(src,key){if(document.querySelector(`script[data-${key}]`))return;const el=document.createElement('script');el.src=versioned(src);el.defer=true;el.dataset[key]='';document.body.append(el);}
  stylesheet('/ux-batch.css?v=0.7.0-2','uxBatch');script('/ux-batch.js?v=0.7.0-2','uxBatch');
  stylesheet('/provider-api-ui.css?v=0.7.0-1','providerApiUi');script('/provider-api-ui.js?v=0.7.0-1','providerApiUi');script('/network-guard.js?v=0.7.0-1','networkGuard');
  stylesheet('/work-panel-ui.css?v=0.7.0-2','workPanelUi');script('/work-panel-ui.js?v=0.7.0-2','workPanelUi');
