@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlencode, urlparse
 
 import integrations
+import provider_archive
 import provider_lists
 
 _JOBS = {}
@@ -65,11 +66,15 @@ def _normalize(ticket, secret=''):
     return raw,hint
 
 
+def _state_name(ticket):
+    return provider_lists.text(ticket.get('state'),'')
+
+
 def _upsert(c, uid, ticket, generation, secret=''):
     tid=str(ticket.get('id') or '')
     if not tid: return False
     raw,hint=_normalize(ticket,secret)
-    values=(str(ticket.get('number') or ''),str(ticket.get('title') or ''),_ticket_name(ticket),str(ticket.get('state') or ''),
+    values=(str(ticket.get('number') or ''),str(ticket.get('title') or ''),_ticket_name(ticket),_state_name(ticket),
             str(ticket.get('created_at') or ''),str(ticket.get('updated_at') or ''),json.dumps(raw,ensure_ascii=False,default=str),
             json.dumps(hint,ensure_ascii=False,default=str),generation,now_iso())
     exists=c.execute('SELECT id FROM zammad_ticket_cache WHERE owner_id=? AND ticket_id=?',(uid,tid)).fetchone()
@@ -88,14 +93,14 @@ def cached_list(c, uid):
         except Exception: continue
         raw_names.update(str(k) for k in raw.keys())
         last_sync=max(last_sync,row['synced_at'] or '')
-        raw.setdefault('id',row['ticket_id']);raw.setdefault('number',row['number']);raw.setdefault('title',row['title'])
-        raw.setdefault('organization',row['organization']);raw.setdefault('state',row['state']);raw.setdefault('created_at',row['created_at']);raw.setdefault('updated_at',row['updated_at'])
+        raw['id']=row['ticket_id'];raw['number']=row['number'];raw['title']=row['title'];raw['organization_name']=row['organization']
+        raw['status']=row['state'];raw['created_at']=row['created_at'];raw['updated_at']=row['updated_at']
         rows.append({'cells':[row['ticket_id'],row['number'],row['title'],row['organization'],row['state'],row['created_at'],row['updated_at']],
                      'ticket_id':row['ticket_id'],'raw':raw,'external_key':'zammad:id:'+row['ticket_id'],'customer_hint':hint,
                      'cache_status':'current','synced_at':row['synced_at']})
-    priority=['id','number','title','organization','state','created_at','updated_at']
+    priority=['id','number','title','organization_name','status','created_at','updated_at']
     ordered=[x for x in priority]
-    ordered.extend(sorted(raw_names-set(ordered),key=str.lower))
+    ordered.extend(sorted(raw_names-set(ordered)-{'organization','state'},key=str.lower))
     note=f'Lokale Zammad-Datenbank · {len(rows)} Tickets'
     if last_sync: note+=f' · zuletzt vollständig aktualisiert {last_sync}'
     return {'columns':['ID','Ticketnummer','Titel','Organisation','Status','Erstellt','Geändert'],'raw_columns':ordered,'date_columns':[5,6],
@@ -104,17 +109,23 @@ def cached_list(c, uid):
 
 def _full_refresh(app, uid):
     config=_config(app,uid);client=integrations.Client(config['domain']);headers=_auth(config)
-    generation='z-'+__import__('secrets').token_urlsafe(12);received=0;pages=0
+    generation='z-'+__import__('secrets').token_urlsafe(12);received=0;pages=0;current_keys=set()
     page=1
     while True:
         path='/api/v1/tickets?'+urlencode({'expand':'true','page':page,'per_page':100,'sort_by':'updated_at','order_by':'desc'})
         status,payload,message=client.request(path,headers)
         if not 200<=status<300 or not isinstance(payload,list):
             raise ValueError((message or 'Zammad-Tickets konnten nicht vollständig geladen werden.')+' (HTTP %s)'%status)
-        pages+=1
+        pages+=1;archive_rows=[]
         with app.db() as c:
             for ticket in payload:
-                if isinstance(ticket,dict) and _upsert(c,uid,ticket,generation,config['secret']):received+=1
+                if not isinstance(ticket,dict): continue
+                if _upsert(c,uid,ticket,generation,config['secret']): received+=1
+                tid=str(ticket.get('id') or '')
+                if not tid: continue
+                raw,hint=_normalize(ticket,config['secret']);key='zammad:id:'+tid;current_keys.add(key)
+                archive_rows.append({'raw':raw,'external_key':key,'customer_hint':hint})
+            if archive_rows: provider_archive.cache_with_stats(c,uid,'zammad',{'rows':archive_rows})
         if len(payload)<100: break
         page+=1
         if page>10000: raise ValueError('Zammad lieferte unerwartet viele Seiten. Abbruch zum Schutz vor Endlosschleifen.')
@@ -122,6 +133,9 @@ def _full_refresh(app, uid):
         before=c.execute('SELECT COUNT(*) n FROM zammad_ticket_cache WHERE owner_id=?',(uid,)).fetchone()['n']
         c.execute('DELETE FROM zammad_ticket_cache WHERE owner_id=? AND sync_generation<>?',(uid,generation))
         after=c.execute('SELECT COUNT(*) n FROM zammad_ticket_cache WHERE owner_id=?',(uid,)).fetchone()['n']
+        for event in list(c.execute('SELECT external_key FROM provider_events WHERE owner_id=? AND provider=?',(uid,'zammad'))):
+            if event['external_key'] not in current_keys:
+                c.execute('DELETE FROM provider_events WHERE owner_id=? AND provider=? AND external_key=?',(uid,'zammad',event['external_key']))
     return {'received':received,'pages':pages,'total_records':after,'removed':max(0,before-after),'last_sync_at':now_iso()}
 
 
