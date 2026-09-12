@@ -37,5 +37,7 @@
  script('/work-panel-ui.js?v=0.7.0-1','workPanelUi');
  stylesheet('/zammad-ticket-ui.css?v=0.7.0-1','zammadTicketUi');
  script('/zammad-ticket-ui.js?v=0.7.0-1','zammadTicketUi');
- script('/zammad-cache-ui.js?v=0.7.0-1','zammadCacheUi');
+ script('/zammad-cache-ui.js?v=0.7.0-2','zammadCacheUi');
+ stylesheet('/provider-nav-status.css?v=0.7.0-1','providerNavStatus');
+ script('/provider-nav-status.js?v=0.7.0-1','providerNavStatus');
 })();
