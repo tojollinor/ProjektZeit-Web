@@ -6,7 +6,7 @@ WORKDIR /app
 COPY requirements.txt /app/
 RUN pip install --no-cache-dir -r requirements.txt
 # Alle Python-Module der Anwendung kopieren. So werden neue Runtime-Module
-# wie admin_controls.py nicht versehentlich aus dem Image ausgespart.
+# nicht versehentlich aus dem Image ausgespart.
 COPY *.py /app/
 COPY static /app/static
 RUN mkdir -p /app/data && chown -R projektzeit:projektzeit /app
@@ -15,4 +15,4 @@ ENV HOST=0.0.0.0 PORT=8080 DATA_DIR=/app/data PYTHONDONTWRITEBYTECODE=1 TZ=Europ
 EXPOSE 8080
 VOLUME ["/app/data"]
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 CMD wget -qO- http://127.0.0.1:8080/health || exit 1
-CMD ["python", "-u", "-c", "import app, customer_runtime; customer_runtime.serve(app)"]
+CMD ["python", "-u", "-c", "import app, customer_runtime, feature_runtime, contact_runtime; customer_runtime.install(app); feature_runtime.install(app); contact_runtime.install(app); app.init_db(); print('ProjektZeit Web läuft auf http://%s:%d' % (app.HOST, app.PORT)); app.ThreadingHTTPServer((app.HOST, app.PORT), app.App).serve_forever()"]
