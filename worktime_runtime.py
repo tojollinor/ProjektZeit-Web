@@ -34,7 +34,9 @@ def _audit(c,uid,action,entity_id,changes=None,source='stamp'):
     system_features.audit(c,uid,uid,'worktime',entity_id,labels.get(action,action),changes or {},source=source)
 
 
-def _require(c,uid,permission):admin_controls.require_permission(c,uid,permission)
+def _require(c,uid,permission):
+    if permission=='worktime.view':return
+    admin_controls.require_permission(c,uid,permission)
 
 
 def install(app):
