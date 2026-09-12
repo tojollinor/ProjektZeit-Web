@@ -64,6 +64,7 @@ jobs:
           node --check static/customer-extra-ui.js
           node --check static/ux-round2.js
           node --check static/next-batch-ui.js
+          node --check static/next-batch-fixes.js
 
       - name: Runtime-Stack initialisieren
         env:
