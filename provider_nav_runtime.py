@@ -16,12 +16,21 @@ def _central_domain(c, provider):
             row=c.execute('SELECT domain FROM starface_system_config WHERE id=1').fetchone()
             return str(row['domain'] or '') if row else ''
         except Exception:
+            pass
+        try:
+            row=c.execute('SELECT domain FROM integrations WHERE provider=? ORDER BY updated_at DESC LIMIT 1',(provider,)).fetchone()
+            return str(row['domain'] or '') if row else ''
+        except Exception:
             return ''
     try:
         row=c.execute('SELECT domain FROM provider_system_config WHERE provider=?',(provider,)).fetchone()
         return str(row['domain'] or '') if row else ''
     except Exception:
-        return ''
+        try:
+            row=c.execute('SELECT domain FROM integrations WHERE provider=? ORDER BY updated_at DESC LIMIT 1',(provider,)).fetchone()
+            return str(row['domain'] or '') if row else ''
+        except Exception:
+            return ''
 
 
 def _access(c, uid, provider):
@@ -41,16 +50,32 @@ def _last_log(c, uid, provider):
         return None
 
 
-def provider_status(c, uid, provider):
+def _starface_client_secret(app,c,uid):
+    try:
+        row=c.execute('SELECT domain,username FROM integrations WHERE owner_id=? AND provider=?',(uid,'starface')).fetchone()
+        if not row or not row['domain'] or not row['username']:
+            return False
+        config=app.integrations.config(c,uid,dict(provider='starface',domain=row['domain'],username=row['username'],secret=''),app.DATA_DIR)
+        return bool(str(config.get('secret') or '').strip())
+    except Exception:
+        return False
+
+
+def provider_status(app, c, uid, provider):
     provider=str(provider or '').lower()
     domain=_central_domain(c,provider)
     configured_server=bool(domain)
-    ever=False;credentials=False
+    ever=False;credentials=False;client_secret_configured=None
     if provider=='starface':
+        client_secret_configured=_starface_client_secret(app,c,uid)
         try:
             token=c.execute('SELECT 1 FROM oauth_tokens WHERE owner_id=?',(uid,)).fetchone()
             credentials=bool(token)
             ever=credentials or bool(c.execute('SELECT 1 FROM provider_events WHERE owner_id=? AND provider=? LIMIT 1',(uid,provider)).fetchone())
+        except Exception:
+            pass
+        try:
+            ever=ever or bool(c.execute('SELECT 1 FROM integrations WHERE owner_id=? AND provider=?',(uid,provider)).fetchone())
         except Exception:
             pass
     else:
@@ -72,16 +97,20 @@ def provider_status(c, uid, provider):
     bad_state=access['state'] in ('invalid','unavailable')
     latest_error=bool(last and str(last.get('level') or '').lower()=='error')
     connected=bool(configured_server and credentials and not bad_state and not latest_error)
-    if connected:
+    if provider=='starface' and not client_secret_configured:
+        connected=False;reason='missing_client_secret';detail='Es wurde kein STARFACE Client Secret hinterlegt. Bitte an einen Administrator wenden.'
+    elif connected:
         reason='connected';detail='Verbindung ist eingerichtet.'
     elif not configured_server or not credentials:
         reason='interrupted' if ever else 'missing'
         detail='Verbindung wurde unterbrochen.' if ever else 'Verbindung wurde noch nicht eingerichtet.'
     else:
         reason='interrupted';detail=access['message'] or (last.get('message') if last else '') or 'Verbindung wurde unterbrochen.'
-    return {'provider':provider,'connected':connected,'reason':reason,'label':'Verbunden' if connected else 'Nicht verbunden',
+    result={'provider':provider,'connected':connected,'reason':reason,'label':'Verbunden' if connected else 'Nicht verbunden',
             'detail':detail,'configured':bool(configured_server and credentials),'ever_configured':ever,
             'checked_at':access['checked_at'] or (last.get('created_at') if last else '')}
+    if client_secret_configured is not None:result['client_secret_configured']=client_secret_configured
+    return result
 
 
 def install(app):
@@ -95,6 +124,6 @@ def install(app):
         session=self.require(csrf=True)
         if not session:return
         with app.db() as c:
-            providers=[provider_status(c,session['id'],p) for p in ('zammad','starface','teamviewer')]
+            providers=[provider_status(app,c,session['id'],p) for p in ('zammad','starface','teamviewer')]
         return self.send_json(200,{'providers':providers})
     app.App.do_POST=do_POST
