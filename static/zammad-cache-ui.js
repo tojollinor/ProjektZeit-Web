@@ -25,7 +25,10 @@
   });for(const row of rows)tbody.append(row);
   if(update){const b=q('[data-zammad-customer-sort]',view);if(b)b.textContent='Kunde '+(customerSort==='asc'?'↑':'↓');}
  }
- const view=q('#view-zammad');if(view)new MutationObserver(()=>requestAnimationFrame(decorateRows)).observe(view,{childList:true,subtree:true});
+ const view=q('#view-zammad');if(view){
+  new MutationObserver(()=>requestAnimationFrame(decorateRows)).observe(view,{childList:true,subtree:true});
+  view.addEventListener('click',event=>{const sort=event.target.closest('.table-sort');if(sort&&!sort.matches('[data-zammad-customer-sort]'))customerSort='';},true);
+ }
 
  async function repaint(){try{if(typeof providerLoaders!=='undefined'&&providerLoaders.zammad)await providerLoaders.zammad(false);}catch(_){}}
  async function refresh(){
