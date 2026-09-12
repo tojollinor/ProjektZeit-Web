@@ -70,6 +70,8 @@ jobs:
           node --check static/frontend-update.js
           node --check static/final-batch-ui.js
           node --check static/final-batch-hooks.js
+          node --check static/navigation-v2.js
+          node --check static/navigation-v2-fixes.js
 
       - name: Runtime-Stack initialisieren
         env:
