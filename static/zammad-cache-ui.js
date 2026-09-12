@@ -31,6 +31,7 @@
  }
 
  async function repaint(){try{if(typeof providerLoaders!=='undefined'&&providerLoaders.zammad)await providerLoaders.zammad(false);}catch(_){}}
+ function statusChanged(){document.dispatchEvent(new CustomEvent('pz-provider-status-changed',{detail:{provider:'zammad'}}));}
  async function refresh(){
   if(running)return;running=true;const status=q('#view-zammad .list-status');
   try{
@@ -41,13 +42,13 @@
      const d=await post('/api/v1/provider/refresh/job',{provider:'zammad'}),job=d.job||{};
      if(id&&job.id&&id!==job.id)return;
      if(job.state==='running'){setTimeout(poll,800);return;}
-     running=false;if(status)delete status.dataset.backgroundRefresh;await repaint();decorateRows();
+     running=false;if(status)delete status.dataset.backgroundRefresh;await repaint();decorateRows();statusChanged();
      if(job.state==='success'){
       const r=job.result||{};notify(`Zammad aktualisiert · ${r.total_records||0} Tickets · ${r.removed||0} entfernt`,'success',4500);
      }else notify(job.error||'Zammad konnte nicht vollständig aktualisiert werden. Der bisherige Datenbankstand bleibt erhalten.','warning',7000);
-    }catch(error){running=false;if(status)delete status.dataset.backgroundRefresh;notify('Zammad-Status konnte nicht geladen werden. Der lokale Datenbankstand bleibt erhalten.','warning',6000);}
+    }catch(error){running=false;if(status)delete status.dataset.backgroundRefresh;statusChanged();notify('Zammad-Status konnte nicht geladen werden. Der lokale Datenbankstand bleibt erhalten.','warning',6000);}
    };setTimeout(poll,350);
-  }catch(error){running=false;if(status)delete status.dataset.backgroundRefresh;notify(error.message,'warning',7000);}
+  }catch(error){running=false;if(status)delete status.dataset.backgroundRefresh;statusChanged();notify(error.message,'warning',7000);}
  }
  q('[data-view="zammad"]')?.addEventListener('click',()=>setTimeout(refresh,80));
  q('#view-zammad')?.addEventListener('click',event=>{if(event.target.closest('[data-refresh]'))setTimeout(refresh,40);});
