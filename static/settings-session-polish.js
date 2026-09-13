@@ -83,6 +83,7 @@
   if(connectionsRequest&&!force)return connectionsRequest;const container=q('#integration-cards');if(!container)return;container.innerHTML='<div class="pz-loading-line">Verbindungen werden geladen …</div>';window.pzDiagnostics?.record?.('connections-load-start',{});
   connectionsRequest=(async()=>{const started=performance.now();try{const data=await timeLimit(post('/api/v1/settings/connections',{}),3000,'Verbindungen konnten nicht innerhalb von 3 Sekunden geladen werden.');renderConnectionCards(data);window.pzDiagnostics?.record?.('connections-load-success',{duration_ms:Math.round(performance.now()-started),server_ms:data.duration_ms||0});await loadConnectionStates();return data;}catch(error){window.pzDiagnostics?.record?.('connections-load-error',{duration_ms:Math.round(performance.now()-started),message:String(error.message||error)});connectionError(error);throw error;}finally{connectionsRequest=null;}})();return connectionsRequest.catch(()=>null);
  }
+ window.pzLoadConnectionStates=()=>activeName()==='settings-connections'?loadConnectionStates():Promise.resolve();
  function watchCards(){return false;}
  function providerViewLoading(provider){const status=q(`#view-${provider} .list-status`);if(status&&!q(`#view-${provider} tbody tr`)){status.classList.add('pz-loading-line');status.textContent='Daten werden geladen …';setTimeout(()=>status.classList.remove('pz-loading-line'),5000);}}
 

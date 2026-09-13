@@ -23,9 +23,9 @@
  }
 
  const systemViews=new Set(['settings','account','admin-options','logs','bookkeeping']);
- function syncWorkPanel(){const active=q('.view.active-view'),name=active?.id?.replace(/^view-/,'')||'';const panel=q('.work-panel');if(panel)panel.hidden=systemViews.has(name);}
+ function syncWorkPanel(){const active=q('.view.active-view'),name=active?.id?.replace(/^view-/,'')||'';const panel=q('.work-panel');if(panel)panel.hidden=systemViews.has(name)||name.startsWith('settings-')||name.startsWith('workshop-');}
  document.addEventListener('click',e=>{const nav=e.target.closest('[data-view],[data-go]');if(nav)setTimeout(()=>{syncWorkPanel();if((nav.dataset.view||nav.dataset.go)==='dashboard')q('#page-title').textContent='Dashboard';},0);},true);
- new MutationObserver(syncWorkPanel).observe(q('main')||document.body,{subtree:true,attributes:true,attributeFilter:['class']});
+ document.addEventListener('pz-view-changed',syncWorkPanel);
 
  function viewport(){const meta=q('meta[name="viewport"]');if(!meta)return;meta.content=innerWidth<=900?'width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no':'width=device-width,initial-scale=1';}
  viewport();window.addEventListener('resize',viewport);
@@ -40,28 +40,8 @@
  }
  function csvLast(){const settings=q('#view-settings'),csv=q('[data-import-export]',settings);if(settings&&csv&&csv!==settings.lastElementChild)settings.append(csv);}
 
- function providerSettingsStatus(){
-  for(const card of qa('#integration-cards [data-provider]')){
-   const fold=q('.settings-fold',card)||card,badge=q('.badge',fold);if(!badge)continue;const text=(badge.textContent||'').trim().toLowerCase();
-   let state='configured-failed',label='Eingerichtet, aber nicht verbunden';
-   if(/verbunden/.test(text)){state='connected';label='Verbunden';}
-   else if(/nicht eingerichtet|kein client-secret|nicht konfiguriert/.test(text)){state='not-configured';label='Nicht eingerichtet';}
-   else if(/fehl|ungültig|nicht verbunden/.test(text)){state='configured-failed';label=/fehl/.test(text)?'Verbindung fehlgeschlagen':'Eingerichtet, aber nicht verbunden';}
-   badge.textContent=label;badge.dataset.connectionState=state;
-  }
- }
-
- async function refreshProviderSettingsStatus(){
-  try{
-   const d=await post('/api/v1/provider/navigation-status',{});
-   for(const item of d.providers||[]){
-    const card=q(`#integration-cards [data-provider="${item.provider}"]`),badge=q('.badge',card);if(!badge)continue;
-    if(item.connected){badge.textContent='Verbunden';badge.dataset.connectionState='connected';}
-    else if(item.reason==='missing'){badge.textContent='Nicht eingerichtet';badge.dataset.connectionState='not-configured';}
-    else{badge.textContent=item.detail&&/fehl|ungültig|abgewiesen/i.test(item.detail)?'Verbindung fehlgeschlagen':'Eingerichtet, aber nicht verbunden';badge.dataset.connectionState='configured-failed';}
-   }
-  }catch(_){}
- }
+ function providerSettingsStatus(){}
+ async function refreshProviderSettingsStatus(){return window.pzLoadConnectionStates?.();}
 
  function adminAccordion(){
   const nav=q('.sidebar nav'),admin=q('[data-view="admin-options"]',nav);if(!nav||!admin||q('.admin-nav-group',nav))return;

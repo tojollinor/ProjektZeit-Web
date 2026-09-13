@@ -10,7 +10,7 @@
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),15000);
   try{
    const r=await fetch(path,{method:'POST',signal:controller.signal,headers:{'Content-Type':'application/json',...(typeof state!=='undefined'&&state.csrf?{'X-CSRF-Token':state.csrf}:{})},body:JSON.stringify(body)});
-   const data=await r.json();if(!r.ok)throw new Error(data.error||`HTTP ${r.status}`);return data;
+   const data=await r.json();if(!r.ok)throw new Error(data.error||`HTTP ${r.status}`);window.pzNotifyMutation?.(path);return data;
   }catch(e){if(e?.name==='AbortError')throw new Error('Die Anfrage hat zu lange gedauert. Bitte erneut versuchen.');throw e;}finally{clearTimeout(timer);}
  }
 
@@ -95,10 +95,7 @@
  }
 
  /* Settings status comes from one fresh source and starts in a loading state. */
- async function providerStatus(){
-  const cards=qa('#integration-cards [data-provider]');for(const c of cards){const b=q('.badge',c);if(b){b.textContent='Wird geprüft …';b.dataset.connectionState='loading';}}
-  try{const d=await pzPost('/api/v1/provider/navigation-status',{});for(const item of d.providers||[]){const card=q(`#integration-cards [data-provider="${item.provider}"]`),b=q('.badge',card);if(!b)continue;if(item.connected){b.textContent='Verbunden';b.dataset.connectionState='connected';}else if(item.reason==='missing'){b.textContent='Nicht eingerichtet';b.dataset.connectionState='not-configured';}else{b.textContent='Eingerichtet · Verbindung fehlgeschlagen';b.dataset.connectionState='configured-failed';b.title=item.detail||'';}}}catch(e){for(const b of qa('#integration-cards .badge')){b.textContent='Status nicht verfügbar';b.dataset.connectionState='configured-failed';b.title=e.message;}}
- }
+ async function providerStatus(){return window.pzLoadConnectionStates?.();}
  q('[data-view="settings"]')?.addEventListener('click',()=>setTimeout(providerStatus,80));
 
  /* Provider row assignment status and detail dialog. */

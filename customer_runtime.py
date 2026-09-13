@@ -76,6 +76,12 @@ def install(app):
             entries=[dict(x) for x in c.execute('''SELECT e.id,e.project_id,e.category_id,e.is_idle,e.work_session_id,e.started_at,e.ended_at,e.note,CASE WHEN e.is_idle=1 THEN 'unproduktiv' ELSE p.name END project,c.name customer,k.name category
                 FROM entries e JOIN projects p ON p.id=e.project_id LEFT JOIN customers c ON c.id=p.customer_id
                 JOIN categories k ON k.id=e.category_id WHERE e.owner_id=? AND (e.ended_at IS NULL OR (e.started_at<? AND e.ended_at>?)) ORDER BY e.started_at DESC LIMIT 1001''',(uid,time_workspace.iso(finish),time_workspace.iso(begin)))]
+            today_start,today_end=time_workspace.bounds({})
+            now=time_workspace.datetime.now(time_workspace.timezone.utc)
+            today_seconds=0
+            for item in c.execute('SELECT started_at,ended_at FROM entries WHERE owner_id=? AND is_idle=0 AND started_at<? AND (ended_at IS NULL OR ended_at>?)',(uid,time_workspace.iso(today_end),time_workspace.iso(today_start))):
+                a=time_workspace.parse(item['started_at']);b=time_workspace.parse(item['ended_at']) or now
+                if a and b:today_seconds+=max(0,int((min(b,today_end).astimezone(time_workspace.timezone.utc)-max(a,today_start).astimezone(time_workspace.timezone.utc)).total_seconds()))
             work=c.execute('SELECT * FROM work_sessions WHERE owner_id=? AND ended_at IS NULL',(uid,)).fetchone()
             users=[]
             if session['role']=='admin':
@@ -83,7 +89,7 @@ def install(app):
                 for x in c.execute('SELECT id,username,role,active,created_at FROM users ORDER BY username'):
                     if not superuser and admin_controls.is_superadmin(c,x['id']):continue
                     users.append(dict(x))
-        return self.send_json(200,{'customers':customers,'projects':projects,'categories':categories,'entries':entries[:1000],'entries_truncated':len(entries)>1000,'users':users,'work':dict(work) if work else None})
+        return self.send_json(200,{'customers':customers,'projects':projects,'categories':categories,'entries':entries[:1000],'entries_truncated':len(entries)>1000,'today_seconds':today_seconds,'users':users,'work':dict(work) if work else None})
     app.App.dashboard=dashboard
 
     def integration_config(uid,provider):
