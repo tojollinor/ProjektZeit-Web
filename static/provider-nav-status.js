@@ -10,14 +10,14 @@
  function decorate(){
   for(const provider of Object.keys(names)){
    const tag=navTag(provider);if(!tag)continue;const s=states.get(provider);
-   if(!s){tag.textContent='Status unbekannt';tag.className='provider-nav-tag';continue;}
+   if(!s||s.reason==='unknown'){tag.textContent='Status unbekannt';tag.className='provider-nav-tag loading';tag.dataset.state='unknown';tag.title='Noch keine aktuelle erfolgreiche Verbindungsprüfung.';continue;}
    tag.textContent=s.connected?'Verbunden':s.reason==='missing'||s.reason==='missing_client_secret'?'Nicht eingerichtet':'Verbindung fehlgeschlagen';
    tag.className='provider-nav-tag '+(s.connected?'connected':'disconnected');tag.dataset.state=s.connected?'connected':'disconnected';tag.title=s.detail||'';
   }
  }
  async function load(){
-  if(loading||typeof post!=='function'||typeof state==='undefined'||!state.user)return;
-  loading=true;if(!ready)decorateLoading();try{const d=await post('/api/v1/provider/navigation-status',{});states=new Map((d.providers||[]).map(x=>[x.provider,x]));ready=true;decorate();}catch(_){/* Statusabruf blockiert die Navigation nicht. */}finally{loading=false;}
+  if(document.hidden||loading||typeof post!=='function'||typeof state==='undefined'||!state.user)return;
+  loading=true;if(!ready)decorateLoading();try{const d=await post('/api/v1/provider/navigation-status',{});states=new Map((d.providers||[]).map(x=>[x.provider,x]));ready=true;decorate();}catch(_){states=new Map();ready=true;decorate();}finally{loading=false;}
  }
  function focusSettings(provider,attempt=0){
   const card=q(`#integration-cards [data-provider="${provider}"]`);if(!card&&attempt<12){setTimeout(()=>focusSettings(provider,attempt+1),250);return;}if(!card)return;
@@ -27,7 +27,7 @@
  yes.onclick=()=>{if(pendingProvider)goSettings(pendingProvider);};
  document.addEventListener('click',event=>{
   const nav=event.target.closest('.nav[data-view="zammad"],.nav[data-view="starface"],.nav[data-view="teamviewer"]');if(!nav||!ready)return;
-  const provider=nav.dataset.view,s=states.get(provider);if(!s||s.connected)return;
+  const provider=nav.dataset.view,s=states.get(provider);if(!s||s.reason!=='missing_client_secret')return; // Cached data remains accessible when a provider is offline.
   event.preventDefault();event.stopImmediatePropagation();pendingProvider=provider;
   const unavailableSetup=provider==='starface'&&s.reason==='missing_client_secret';
   q('[data-provider-connect-title]',dialog).textContent=unavailableSetup?'STARFACE nicht eingerichtet':`${names[provider]} nicht verbunden`;

@@ -48,7 +48,7 @@
   const svg='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-7 8c.5-4.1 3-6.2 7-6.2s6.5 2.1 7 6.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
   if(span){span.innerHTML=svg;span.dataset.pzCustomerIcon='1';}
  }
- function dashboardPencil(){const b=q('[data-dashboard-edit]');if(!b)return;b.textContent='✎';b.title='Dashboard bearbeiten';b.setAttribute('aria-label','Dashboard bearbeiten');b.classList.add('pz-dashboard-pencil');}
+ function dashboardPencil(){const b=q('[data-dashboard-edit]');if(!b)return;if(b.textContent!=='✎')b.textContent='✎';b.title='Dashboard bearbeiten';b.setAttribute('aria-label','Dashboard bearbeiten');b.classList.add('pz-dashboard-pencil');}
 
  /* Customer lifecycle watchdog. One controlled retry instead of a request/render storm. */
  function customersStuck(){const sec=q('#view-customers');if(!sec?.classList.contains('active-view'))return false;const st=q('[data-customer-status]',sec)?.textContent||'';return /werden geladen|wird geladen/i.test(st);}
@@ -130,7 +130,7 @@
   });
   assignmentFilter(sec);
  }
- function assignmentFilter(sec){const toolbar=q('.provider-toolbar',sec);if(!toolbar||q('[data-pz-assignment-filter]',toolbar))return;const s=document.createElement('select');s.dataset.pzAssignmentFilter='';s.innerHTML='<option value="all">Alle Zuordnungen</option><option value="green">Projekt zugeordnet</option><option value="blue">Kunde, Projekt fehlt</option><option value="red">Kunde fehlt</option>';toolbar.append(s);s.onchange=()=>qa('tbody tr',sec).forEach(tr=>tr.hidden=s.value!=='all'&&tr.dataset.pzAssigned!==s.value);}
+ function assignmentFilter(sec){const toolbar=q('.provider-toolbar',sec);if(!toolbar||q('[data-pz-assignment-filter]',toolbar))return;const s=document.createElement('select');s.dataset.pzAssignmentFilter='';s.innerHTML='<option value="all">Alle Zuordnungen</option><option value="green">Projekt zugeordnet</option><option value="blue">Kunde, Projekt fehlt</option><option value="red">Kunde fehlt</option>';toolbar.append(s);s.onchange=()=>qa('tbody tr',sec).forEach(tr=>(tr.dataset.assignmentHidden=s.value!=='all'&&tr.dataset.pzAssigned!==s.value?'1':'0',window.pzApplyRowVisibility?.(tr)));}
 
  /* Customer detail: stable provider identity links, history, archive/delete. */
  const history=document.createElement('dialog');history.className='audit-dialog';history.innerHTML='<div class="audit-head"><strong>Historie</strong><button type="button" class="secondary">Schließen</button></div><div class="audit-list"></div>';document.body.append(history);q('button',history).onclick=()=>history.close();
@@ -161,7 +161,7 @@
   if(id==='settings'){loading(view,true,'Einstellungen werden geladen');providerStatus().finally(()=>loading(view,false));settingsOrder();}
   if(id==='admin-options'){fixAdminNav();permissionDependencies();}
  }
- const observer=new MutationObserver(()=>requestAnimationFrame(()=>{customerIcon();dashboardPencil();compactRefresh();whiteNames();fixAdminNav();permissionDependencies();missedButtons();settingsOrder();for(const p of ['zammad','starface','teamviewer'])decorateProvider(p);const sec=q('#view-customers');if(sec&&!customersStuck())loading(sec,false);}));observer.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['class']});
+ const observer=new MutationObserver(()=>requestAnimationFrame(()=>{customerIcon();dashboardPencil();compactRefresh();whiteNames();fixAdminNav();permissionDependencies();missedButtons();settingsOrder();for(const p of ['zammad','starface','teamviewer'])decorateProvider(p);const sec=q('#view-customers');if(sec&&!customersStuck())loading(sec,false);}));observer.observe(document.body,{childList:true,subtree:true});
  document.addEventListener('click',e=>{if(e.target.closest('[data-view],[data-go]'))setTimeout(autoLoad,80);},true);
  setTimeout(async()=>{try{context=await getContext();}catch(_){}customerIcon();dashboardPencil();compactRefresh();whiteNames();fixAdminNav();permissionDependencies();settingsOrder();providerStatus();autoLoad();},600);
 })();

@@ -66,13 +66,16 @@ def install(app):
 
     def dashboard(self,session):
         uid=session['id']
-        with app.db() as c:
+        import time_workspace
+        query=__import__('urllib.parse',fromlist=['parse_qs']).parse_qs(urlparse(self.path).query)
+        begin,finish=time_workspace.bounds({'day':query.get('day',[None])[0]})
+        with app.db(read_only=True) as c:
             customers=[dict(x) for x in c.execute('SELECT id,name FROM customers WHERE owner_id=? ORDER BY name',(uid,))]
             projects=[dict(x) for x in c.execute('SELECT id,name,customer_id,active FROM projects WHERE owner_id=? AND is_system=0 ORDER BY name',(uid,))]
             categories=[dict(x) for x in c.execute('SELECT id,name FROM categories WHERE owner_id=? ORDER BY name',(uid,))]
             entries=[dict(x) for x in c.execute('''SELECT e.id,e.project_id,e.category_id,e.is_idle,e.work_session_id,e.started_at,e.ended_at,e.note,CASE WHEN e.is_idle=1 THEN 'unproduktiv' ELSE p.name END project,c.name customer,k.name category
                 FROM entries e JOIN projects p ON p.id=e.project_id LEFT JOIN customers c ON c.id=p.customer_id
-                JOIN categories k ON k.id=e.category_id WHERE e.owner_id=? ORDER BY e.started_at DESC''',(uid,))]
+                JOIN categories k ON k.id=e.category_id WHERE e.owner_id=? AND (e.ended_at IS NULL OR (e.started_at<? AND e.ended_at>?)) ORDER BY e.started_at DESC LIMIT 1001''',(uid,time_workspace.iso(finish),time_workspace.iso(begin)))]
             work=c.execute('SELECT * FROM work_sessions WHERE owner_id=? AND ended_at IS NULL',(uid,)).fetchone()
             users=[]
             if session['role']=='admin':
@@ -80,7 +83,7 @@ def install(app):
                 for x in c.execute('SELECT id,username,role,active,created_at FROM users ORDER BY username'):
                     if not superuser and admin_controls.is_superadmin(c,x['id']):continue
                     users.append(dict(x))
-        return self.send_json(200,{'customers':customers,'projects':projects,'categories':categories,'entries':entries,'users':users,'work':dict(work) if work else None})
+        return self.send_json(200,{'customers':customers,'projects':projects,'categories':categories,'entries':entries[:1000],'entries_truncated':len(entries)>1000,'users':users,'work':dict(work) if work else None})
     app.App.dashboard=dashboard
 
     def integration_config(uid,provider):
@@ -108,7 +111,7 @@ def install(app):
 
     def available_teamviewer_devices(c,uid):
         found={}
-        for r in c.execute('SELECT raw_json,captured_at FROM provider_events WHERE owner_id=? AND provider=? ORDER BY captured_at DESC',(uid,'teamviewer')):
+        for r in c.execute('''SELECT e.raw_json,e.captured_at FROM provider_events e WHERE e.id IN (SELECT MAX(p.id) FROM provider_events p JOIN event_intervals i ON i.owner_id=p.owner_id AND i.provider=p.provider AND i.external_key=p.external_key WHERE p.owner_id=? AND p.provider=? AND i.match_value<>'' GROUP BY i.match_value)''',(uid,'teamviewer')):
             try: raw=json.loads(r['raw_json'])
             except Exception: continue
             value=next((raw.get(k) for k in ('deviceid','device_id','partner_id','remotecontrol_id') if raw.get(k) not in (None,'')),None)
@@ -150,7 +153,7 @@ def install(app):
     def zammad_tickets(c,uid,customer_id):
         ids={x['id'] for x in assigned_zammad_orgs(c,uid,customer_id)};out=[]
         if not ids:return out
-        for r in c.execute('SELECT occurred_at,summary,raw_json FROM provider_events WHERE owner_id=? AND provider=? ORDER BY captured_at DESC',(uid,'zammad')):
+        for r in c.execute('SELECT e.occurred_at,e.summary,e.raw_json FROM provider_events e JOIN event_organizations o ON o.owner_id=e.owner_id AND o.provider=e.provider AND o.external_key=e.external_key WHERE e.owner_id=? AND o.organization_id IN ('+','.join('?' for _ in ids)+') ORDER BY e.occurred_at DESC LIMIT 500',(uid,*sorted(ids))):
             try: raw=json.loads(r['raw_json'])
             except Exception: continue
             oid=str(raw.get('organization_id') or raw.get('organizationId') or '')
@@ -255,15 +258,14 @@ def install(app):
                     with app.db() as c:users=starface_directory.list_all(c,uid)
                 return self.send_json(200,{'users':users,'auto':auto})
             if path in ('/api/v1/customers/detail','/api/v1/customers/activity'):
-                refresh_teamviewer(uid);refresh_zammad_orgs(uid)
+                with app.db(read_only=True) as c:
+                    cid=int(body.get('id'));customer=customer_data.get_one(c,uid,cid)
+                    customer['master']=admin_controls.customer_master(c,uid,cid)
+                    return self.send_json(200,{'customer':customer,'activity':customer_data.activity(c,uid,cid),'teamviewer_devices':available_teamviewer_devices(c,uid), 'zammad_organizations':provider_archive.zammad_organizations(c,uid),'zammad_assigned':assigned_zammad_orgs(c,uid,cid),'zammad_tickets':zammad_tickets(c,uid,cid)})
             with app.db() as c:
                 if path=='/api/v1/customers/data':return self.send_json(200,{'customers':customer_data.list_all(c,uid),'links':{p:customer_data.links(c,uid,p) for p in customer_data.PROVIDERS}})
                 if path=='/api/v1/customers/workshop':return self.send_json(200,{'suggestions':customer_data.suggestions(c,uid),'teamviewer_devices':available_teamviewer_devices(c,uid)})
-                if path in ('/api/v1/customers/detail','/api/v1/customers/activity'):
-                    cid=int(body.get('id'));customers=[x for x in customer_data.list_all(c,uid) if x['id']==cid]
-                    if not customers:raise ValueError('Unbekannter Kunde.')
-                    customer=customers[0];customer['devices']=current_devices(c,uid,cid);customer['master']=admin_controls.customer_master(c,uid,cid)
-                    return self.send_json(200,{'customer':customer,'activity':customer_data.activity(c,uid,cid),'teamviewer_devices':available_teamviewer_devices(c,uid),'zammad_organizations':available_zammad_orgs(c,uid),'zammad_assigned':assigned_zammad_orgs(c,uid,cid),'zammad_tickets':zammad_tickets(c,uid,cid)})
+
                 if path=='/api/v1/customers/timeline':
                     cid=int(body.get('id'));return self.send_json(200,{'events':provider_archive.customer_timeline(c,uid,cid,body.get('day'))})
                 if path=='/api/v1/customers/zammad-organization':

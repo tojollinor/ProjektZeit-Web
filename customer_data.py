@@ -52,6 +52,8 @@ def migrate(c):
       captured_at TEXT NOT NULL, UNIQUE(owner_id,provider,external_key)
     );
     ''')
+    import time_workspace
+    time_workspace.migrate(c)
 
 
 def _clean(value, limit=500):
@@ -236,31 +238,42 @@ def cache_rows(c, uid, provider, result):
         c.execute('DELETE FROM provider_events WHERE owner_id=? AND provider=? AND external_key=?',(uid,provider,key))
         c.execute('INSERT INTO provider_events(owner_id,provider,external_key,occurred_at,summary,raw_json,hint_json,captured_at) VALUES(?,?,?,?,?,?,?,?)',
                   (uid,provider,key,_event_time(provider,raw),summary,json.dumps(raw,ensure_ascii=False,default=str),json.dumps(hint,ensure_ascii=False,default=str),now))
+        import time_workspace
+        time_workspace.index_event(c,uid,provider,key,raw,hint,_event_time(provider,raw),now)
 
 
 def activity(c, uid, customer_id, limit=200):
-    customer=_customer(c,uid,customer_id)
-    if not customer: raise ValueError('Unbekannter Kunde.')
-    phone_values=[]
-    for r in c.execute('SELECT number FROM customer_phones WHERE owner_id=? AND customer_id=?',(uid,customer_id)): phone_values.append(r['number'])
-    for r in c.execute('''SELECT p.number FROM customer_contact_phones p JOIN customer_contacts x ON x.id=p.contact_id
-                          WHERE p.owner_id=? AND x.customer_id=?''',(uid,customer_id)): phone_values.append(r['number'])
-    devices=[dict(r) for r in c.execute('SELECT provider,external_id,name FROM customer_devices WHERE owner_id=? AND customer_id=?',(uid,customer_id))]
-    linked={(r['provider'],r['external_key']) for r in c.execute('SELECT provider,external_key FROM customer_provider_links WHERE owner_id=? AND customer_id=?',(uid,customer_id))}
-    name=str(customer['name']).casefold(); matches=[]
-    for r in c.execute('SELECT provider,external_key,occurred_at,summary,raw_json,hint_json,captured_at FROM provider_events WHERE owner_id=? ORDER BY captured_at DESC',(uid,)):
-        raw_text=r['raw_json']; hint_text=r['hint_json']; matched=(r['provider'],r['external_key']) in linked
-        if not matched and any(p and p in raw_text for p in phone_values): matched=True
-        if not matched:
-            for d in devices:
-                if d['provider']==r['provider'] and ((d['external_id'] and d['external_id'] in raw_text) or (d['name'] and d['name'] in raw_text)): matched=True; break
-        if not matched and name:
-            try: matched=str(json.loads(hint_text).get('name') or '').casefold()==name
-            except Exception: pass
-        if matched:
-            matches.append(dict(provider=r['provider'],external_key=r['external_key'],occurred_at=r['occurred_at'],summary=r['summary'],raw=json.loads(raw_text),hint=json.loads(hint_text)))
-            if len(matches)>=limit: break
-    return matches
+    if not _customer(c,uid,customer_id): raise ValueError('Unbekannter Kunde.')
+    import time_workspace
+    identities=[key for key,ids in time_workspace.customer_identities(c,uid).items() if customer_id in ids]
+    selects=['SELECT provider,external_key FROM customer_provider_links WHERE owner_id=? AND customer_id=?',
+             'SELECT provider,external_key FROM provider_assignments WHERE owner_id=? AND customer_id=?']
+    args=[uid,customer_id,uid,customer_id]
+    for provider,kind,value in identities:
+        selects.append('SELECT provider,external_key FROM event_intervals WHERE owner_id=? AND provider=? AND match_type=? AND match_value=?')
+        args.extend((uid,provider,kind,value))
+    for r in c.execute('SELECT external_key FROM customer_provider_links WHERE owner_id=? AND customer_id=? AND provider=?',(uid,customer_id,'zammad')):
+        if r['external_key'].startswith('zammad:organization:'):
+            selects.append('SELECT provider,external_key FROM event_organizations WHERE owner_id=? AND organization_id=?')
+            args.extend((uid,r['external_key'].split(':',2)[2]))
+    rows=c.execute('SELECT e.provider,e.external_key,e.occurred_at,e.summary,e.raw_json,e.hint_json FROM provider_events e JOIN ('+' UNION '.join(selects)+') selected ON selected.provider=e.provider AND selected.external_key=e.external_key WHERE e.owner_id=? ORDER BY e.occurred_at DESC LIMIT ?',tuple(args+[uid,min(int(limit),1000)]))
+    return [dict(provider=r['provider'],external_key=r['external_key'],occurred_at=r['occurred_at'],summary=r['summary'],raw=json.loads(r['raw_json']),hint=json.loads(r['hint_json'])) for r in rows]
+
+
+
+def get_one(c,uid,cid):
+    r=c.execute('SELECT id,name,archived FROM customers WHERE owner_id=? AND id=?',(uid,cid)).fetchone()
+    if not r:raise ValueError('Unbekannter Kunde.')
+    result=dict(r);profile=c.execute('SELECT contact_person,email,note FROM customer_profiles WHERE owner_id=? AND customer_id=?',(uid,cid)).fetchone()
+    result.update(dict(profile) if profile else {'email':'','note':''})
+    result['phones']=[dict(r) for r in c.execute('SELECT id,number,label,source FROM customer_phones WHERE owner_id=? AND customer_id=?',(uid,cid))]
+    result['contacts']=[dict(r) for r in c.execute('SELECT id,name,email,note FROM customer_contacts WHERE owner_id=? AND customer_id=?',(uid,cid))]
+    phones={}
+    for r in c.execute('SELECT p.* FROM customer_contact_phones p JOIN customer_contacts x ON x.id=p.contact_id WHERE p.owner_id=? AND x.customer_id=?',(uid,cid)):phones.setdefault(r['contact_id'],[]).append(dict(r))
+    for x in result['contacts']:x['phones']=phones.get(x['id'],[])
+    result['devices']=[dict(r) for r in c.execute('SELECT * FROM customer_devices WHERE owner_id=? AND customer_id=?',(uid,cid))]
+    result['provider_links']=[dict(r) for r in c.execute('SELECT provider,external_key,label FROM customer_provider_links WHERE owner_id=? AND customer_id=?',(uid,cid))]
+    return result
 
 
 def suggestions(c, uid):

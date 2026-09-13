@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 import provider_archive
+from diagnostics import sanitize
 
 _STARTED = time.monotonic()
 
@@ -24,11 +25,13 @@ def _fast_enrich(final, c, uid, provider, result):
     if not rows:
         return result
 
+    keys = [str(r.get('external_key') or '') for r in rows]
+    placeholders = ','.join('?' for _ in keys)
     assignments = {
         r['external_key']: dict(r)
         for r in c.execute(
             'SELECT owner_id,provider,external_key,customer_id,project_id,match_type,match_value,assigned_by,assigned_at '
-            'FROM provider_assignments WHERE owner_id=? AND provider=?', (uid, provider)
+            'FROM provider_assignments WHERE owner_id=? AND provider=? AND external_key IN ('+placeholders+')', (uid, provider, *keys)
         )
     }
     links = {}
@@ -42,7 +45,7 @@ def _fast_enrich(final, c, uid, provider, result):
     events = {}
     if links:
         for r in c.execute(
-            'SELECT external_key,occurred_at,captured_at FROM provider_events WHERE owner_id=? AND provider=?', (uid, provider)
+            'SELECT external_key,occurred_at,captured_at FROM provider_events WHERE owner_id=? AND provider=? AND external_key IN ('+placeholders+')', (uid, provider, *keys)
         ):
             events[r['external_key']] = dict(r)
 
@@ -172,7 +175,7 @@ def install(app):
             'process_uptime_seconds': int(time.monotonic() - _STARTED),
             'thread_count': threading.active_count(),
             'counts': counts,
-            'providers': providers,
-            'logs': logs,
+            'providers': sanitize(providers),
+            'logs': sanitize(logs),
         })
     app.App.do_POST = do_POST

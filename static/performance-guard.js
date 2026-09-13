@@ -1,10 +1,12 @@
 (()=>{
  if(window.__pzPerformanceGuard)return;
  window.__pzPerformanceGuard=true;
+ window.pzApplyRowVisibility=row=>{row.hidden=['statusHidden','dateHidden','assignmentHidden','searchHidden'].some(k=>row.dataset[k]==='1');};
+ const safe=(value,depth=0)=>{if(depth>8)return '[begrenzt]';if(Array.isArray(value))return value.slice(0,1000).map(x=>safe(x,depth+1));if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).slice(0,100).map(([k,v])=>[k,/password|passwd|secret|token|authorization|cookie|api.?key|oauth.?code/i.test(k)?'[entfernt]':safe(v,depth+1)]));if(typeof value==='string')return value.replace(/(Bearer\s+)[^\s,;]+/gi,'$1[entfernt]').replace(/((?:password|client_secret|access_token|refresh_token|api_key|code)\s*[=:]\s*)[^\s&,;]+/gi,'$1[entfernt]').slice(0,2000);return value;};window.pzSanitize=safe;
  const ring=[];
  const MAX=400;
  const record=(type,data={})=>{
-  ring.push({at:new Date().toISOString(),type,...data});
+  ring.push({at:new Date().toISOString(),type,...safe(data)});
   if(ring.length>MAX)ring.splice(0,ring.length-MAX);
  };
  window.pzDiagnostics={record,events:ring};
@@ -16,6 +18,8 @@
     this.callback=callback;this.pending=[];this.timer=null;this.global=false;
     this.native=new NativeObserver(records=>{
      if(!this.global)return this.invoke(records);
+     records=records.filter(r=>[...r.addedNodes,...r.removedNodes].some(n=>n.nodeType===1)&&!r.target.closest?.('.view:not(.active-view)'));
+     if(!records.length)return;
      this.pending.push(...records.slice(-80));
      if(this.pending.length>160)this.pending.splice(0,this.pending.length-160);
      if(this.timer)return;
@@ -36,16 +40,6 @@
   window.MutationObserver=PzMutationObserver;
  }
 
- const nativeSetInterval=window.setInterval.bind(window);
- window.setInterval=(fn,delay,...args)=>{
-  const stack=String(new Error().stack||''),source=String(fn||'');
-  if(Number(delay)===1400&&(/next-batch-ui\.js/i.test(stack)||/cleanCustomerRows|providerSettingsStatus|refineLogs/.test(source))){
-   record('legacy-poller-suppressed',{source:'next-batch-ui.js',interval_ms:1400});
-   return 0;
-  }
-  return nativeSetInterval(fn,delay,...args);
- };
-
  const nativeFetch=window.fetch.bind(window);
  window.fetch=(input,init={})=>{
   const url=typeof input==='string'?input:input?.url||'';
@@ -53,7 +47,7 @@
   const path=(()=>{try{return new URL(url,location.href).pathname;}catch(_){return String(url).split('?')[0];}})();
   return nativeFetch(input,init).then(response=>{
    const duration=Math.round(performance.now()-started);
-   if(path.startsWith('/api/')&&(duration>=120||!response.ok))record('api',{path,status:response.status,duration_ms:duration});
+   if(path.startsWith('/api/')&&(duration>=120||!response.ok))record('api',{path,status:response.status,duration_ms:duration,server_timing:response.headers.get('Server-Timing')||''});
    return response;
   },error=>{
    const duration=Math.round(performance.now()-started);

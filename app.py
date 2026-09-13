@@ -39,8 +39,8 @@ def now_iso():
 
 
 @contextmanager
-def db():
-    with database.connect(DB_PATH) as connection:
+def db(read_only=False):
+    with database.connect(DB_PATH, read_only=read_only) as connection:
         yield connection
 
 
@@ -167,16 +167,28 @@ class App(SimpleHTTPRequestHandler):
             return str(STATIC / '__not_found__')
         return str(resolved)
 
+    def handle_one_request(self):
+        import request_metrics
+        request_metrics.reset()
+        self.__dict__.pop('_parsed_body', None)
+        return super().handle_one_request()
+
     def json_body(self):
+        if hasattr(self, '_parsed_body'):
+            return self._parsed_body
         length = int(self.headers.get("Content-Length", "0"))
         if length > 1_000_000:
             raise ValueError("Anfrage zu groß")
-        return json.loads(self.rfile.read(length) or b"{}")
+        self._parsed_body = json.loads(self.rfile.read(length) or b"{}")
+        return self._parsed_body
 
     def send_json(self, status, payload, extra_headers=None):
         body = json.dumps(payload, ensure_ascii=False).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        import request_metrics
+        timing=request_metrics.header()
+        if timing:self.send_header("Server-Timing",timing)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         for key, value in (extra_headers or {}).items():
@@ -201,7 +213,7 @@ class App(SimpleHTTPRequestHandler):
         if not bearer and not morsel:
             return None
         token_hash = hashlib.sha256((authorization[7:] if bearer else morsel.value).encode()).hexdigest()
-        with db() as c:
+        with db(read_only=True) as c:
             native = c.execute('SELECT 1 FROM native_sessions WHERE token_hash=?', (token_hash,)).fetchone()
             if bearer != bool(native):
                 return None
@@ -211,7 +223,10 @@ class App(SimpleHTTPRequestHandler):
         return dict(row, bearer=bearer) if row and row["active"] else None
 
     def require(self, csrf=False, admin=False):
+        import request_metrics
+        started=time.perf_counter()
         session = self.current_session()
+        request_metrics.add("auth",time.perf_counter()-started)
         if not session:
             self.send_json(401, {"error": "Nicht angemeldet"})
             return None
@@ -289,6 +304,9 @@ class App(SimpleHTTPRequestHandler):
         session = self.require(csrf=True, admin=path == "/api/v1/users" or path.startswith('/api/v1/integrations'))
         if not session:
             return
+        if path.startswith('/api/v1/time-workspace/'):
+            import time_workspace, sys
+            return time_workspace.handle(sys.modules[__name__], self, session, body, path.rsplit('/', 1)[-1])
         routes = {
             '/api/v1/integrations/starface/start': self.start_starface,
             '/api/v1/integrations/starface/finish': self.finish_starface,

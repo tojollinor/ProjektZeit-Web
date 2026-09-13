@@ -2,6 +2,8 @@
 import os
 import re
 import sqlite3
+from time import perf_counter
+import request_metrics
 from contextlib import contextmanager
 
 
@@ -39,6 +41,13 @@ class MariaConnection:
         self.conn = conn
 
     def execute(self, sql, params=()):
+        started=perf_counter()
+        try:return self._execute(sql,params)
+        finally:
+            request_metrics.add("db_query",perf_counter()-started)
+            request_metrics.add("queries",1)
+
+    def _execute(self, sql, params=()):
         import pymysql
         # Existing transaction boundaries are serialized by a database lock.
         if sql == 'BEGIN IMMEDIATE':
@@ -79,12 +88,24 @@ class MariaConnection:
             self.execute(statement)
 
 
+class TimedSQLite(sqlite3.Connection):
+    def execute(self,sql,parameters=()):
+        started=perf_counter()
+        try:return super().execute(sql,parameters)
+        finally:
+            request_metrics.add('db_query',perf_counter()-started)
+            request_metrics.add('queries',1)
+
+
 @contextmanager
-def connect(sqlite_path):
+def connect(sqlite_path, read_only=False):
+    started=perf_counter()
     if not is_maria():
-        conn = sqlite3.connect(sqlite_path, timeout=10)
+        conn = sqlite3.connect(sqlite_path, timeout=10, factory=TimedSQLite)
+        request_metrics.add('db_connect',perf_counter()-started)
         conn.row_factory = sqlite3.Row
         conn.execute('PRAGMA foreign_keys=ON')
+        if read_only: conn.execute('PRAGMA query_only=ON')
         try:
             with conn:
                 yield conn
@@ -99,12 +120,14 @@ def connect(sqlite_path):
                            database=os.environ.get('DB_NAME', 'projektzeit'),
                            charset='utf8mb4', cursorclass=pymysql.cursors.DictCursor,
                            autocommit=False, connect_timeout=10)
+    request_metrics.add('db_connect',perf_counter()-started)
     wrapper = MariaConnection(conn)
     lock = 'projektzeit:' + os.environ.get('DB_NAME', 'projektzeit')
     try:
         # Serialize units of work across threads/containers; prevents overlapping
         # timers and refresh-token races, including on an initially empty table.
-        row = wrapper.execute('SELECT GET_LOCK(?, 15) AS acquired', (lock,)).fetchone()
+        row = {'acquired': 1} if read_only else wrapper.execute('SELECT GET_LOCK(?, 15) AS acquired', (lock,)).fetchone()
+        if read_only: wrapper.execute('SET TRANSACTION READ ONLY')
         if row['acquired'] != 1:
             raise sqlite3.OperationalError('Datenbank ist beschäftigt. Bitte erneut versuchen.')
         yield wrapper
@@ -114,6 +137,6 @@ def connect(sqlite_path):
         raise
     finally:
         try:
-            wrapper.execute('SELECT RELEASE_LOCK(?)', (lock,))
+            if not read_only: wrapper.execute('SELECT RELEASE_LOCK(?)', (lock,))
         finally:
             conn.close()

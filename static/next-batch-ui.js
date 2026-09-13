@@ -117,7 +117,7 @@
   q('[data-view="settings"]')?.addEventListener('click',()=>setTimeout(()=>{moveProfile();sessionsUi();csvLast();providerSettingsStatus();refreshProviderSettingsStatus();window.pzLoadAccount?.();},160));
   q('[data-view="customers"]')?.addEventListener('click',()=>setTimeout(()=>{customerCreateButton();cleanCustomerRows();},200));
   q('[data-view="tracking"]')?.addEventListener('click',()=>setTimeout(renderProjects,180));
-  setInterval(()=>{cleanCustomerRows();providerSettingsStatus();csvLast();providerStatus();refineLogs();},1400);
+  document.addEventListener('pz-view-changed',()=>{cleanCustomerRows();csvLast();refineLogs();});
  }
  init();
 })();
