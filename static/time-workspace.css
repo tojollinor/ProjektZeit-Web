@@ -7,3 +7,5 @@
 @media(max-width:600px){dialog{max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);overflow:auto}.panel-actions{flex-wrap:wrap}.panel-actions button{min-height:44px}.customer-card,.panel{min-width:0;overflow-wrap:anywhere}}
 
 .sidebar nav .nav>span[data-pz-unified-icon]{grid-template-columns:1fr!important;grid-template-rows:1fr!important;padding:0!important;gap:0!important}
+
+.sidebar nav button.nav{display:grid!important;grid-template-columns:24px minmax(0,1fr) 12px!important;align-items:center;column-gap:7px!important;text-align:left}.sidebar nav button.nav>span:first-child{margin-right:0}

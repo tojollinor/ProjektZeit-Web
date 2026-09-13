@@ -141,7 +141,7 @@ server.shutdown()
             with conn.cursor() as c:c.execute('CREATE DATABASE '+name+' CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci')
             with tempfile.TemporaryDirectory() as folder:
                 env={**os.environ,'DATA_DIR':folder,'DB_BACKEND':'mariadb','DB_NAME':name,'DEMO_MODE':'1','SEED_DEMO':'0'}
-                result=subprocess.run([sys.executable,'-c',"import runtime; app=runtime.initialize(False); import time_workspace; c=app.db(read_only=True); conn=c.__enter__(); assert conn.execute('SELECT COUNT(*) n FROM time_reviews').fetchone()['n']==0; c.__exit__(None,None,None)"],env=env,text=True,capture_output=True,timeout=60)
+                result=subprocess.run([sys.executable,'-c','import runtime; app=runtime.initialize(False); import time_workspace; c=app.db(); conn=c.__enter__(); conn.execute("INSERT INTO users(id,username,password_salt,password_hash,role,created_at) VALUES(1,\'ci\',\'\',\'\',\'admin\',\'\')"); conn.execute("INSERT INTO customers(id,owner_id,name) VALUES(1,1,\'Example\')"); c.__exit__(None,None,None); c=app.db(read_only=True); conn=c.__enter__(); assert time_workspace.workspace(conn,1,{\'day\':\'2026-03-29\',\'customer_id\':1})[\'events\']==[]; c.__exit__(None,None,None)'],env=env,text=True,capture_output=True,timeout=60)
                 self.assertEqual(result.returncode,0,result.stderr)
         finally:
             with conn.cursor() as c:c.execute('DROP DATABASE '+name)
