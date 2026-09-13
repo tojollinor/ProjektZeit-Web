@@ -4,11 +4,12 @@
  const compact=document.createElement('div');compact.className='work-panel-compact';compact.innerHTML='<div class="work-panel-compact-main"><span data-work-compact-project>Kein Projekt läuft</span><strong data-work-compact-time>00:00:00</strong></div><div class="work-panel-compact-actions"><button type="button" class="primary" data-workday-toggle>Arbeit starten</button><button type="button" class="secondary" data-work-pause>Pause</button></div>';
  q('.panel-head',panel)?.after(compact);
  const collapse=document.createElement('button');collapse.type='button';collapse.className='work-panel-chevron';collapse.setAttribute('aria-label','Arbeitszeitleiste ein- oder ausklappen');collapse.innerHTML='⌃';q('.panel-head',panel)?.append(collapse);
- let workState={state:'stopped',work:null,pause:null},busy=false;
+ let workState={state:'unknown',work:null,pause:null},busy=false,request=null;
  function fmt(start){if(!start)return'00:00:00';let s=Math.max(0,Math.floor((Date.now()-new Date(start))/1000));return`${String(Math.floor(s/3600)).padStart(2,'0')}:${String(Math.floor(s%3600/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;}
  function setText(el,value){if(el&&el.textContent!==value)el.textContent=value;}
  function setCollapsed(value){panel.classList.toggle('is-collapsed',value);collapse.innerHTML=value?'⌄':'⌃';collapse.setAttribute('aria-expanded',String(!value));}
  function syncCompact(){
+  if(workState.state==='unknown'){setText(q('[data-work-compact-project]',compact),'Arbeitszeit wird geladen …');q('[data-workday-toggle]',compact).disabled=true;q('[data-work-pause]',compact).disabled=true;return;}q('[data-workday-toggle]',compact).disabled=false;
   const data=typeof state!=='undefined'?state.data:null,running=data?.entries?.find(e=>!e.ended_at&&!e.is_idle),working=workState.state!=='stopped',paused=workState.state==='pause';
   setText(q('[data-work-compact-project]',compact),paused?'Pause':running?.project||(!working?'Arbeitstag nicht gestartet':'Kein Projekt läuft'));
   setText(q('[data-work-compact-time]',compact),paused?fmt(workState.pause?.started_at):(working?fmt(workState.work?.started_at):'00:00:00'));
@@ -17,13 +18,13 @@
   else{toggle.hidden=false;toggle.textContent=working?'Arbeit beenden':'Arbeit starten';pause.hidden=false;pause.className='secondary';pause.textContent='Pause';pause.disabled=!working;}
   panel.classList.toggle('work-is-paused',paused);
  }
- async function refreshState(){if(typeof post!=='function'||typeof state==='undefined'||!state.user)return;try{workState=await post('/api/v1/worktime/state',{});syncCompact();}catch(_){}}
- async function action(name){if(busy)return;busy=true;try{workState=await post('/api/v1/worktime/action',{action:name});await (typeof loadData==='function'?loadData():Promise.resolve());syncCompact();}catch(e){notify(e.message,'error');}finally{busy=false;}}
+ async function refreshState(){if(request)return request;if(typeof post!=='function'||typeof state==='undefined'||!state.user)return;request=(async()=>{try{workState=await post('/api/v1/worktime/state',{});syncCompact();}catch(_){}finally{request=null;}})();return request;}
+ async function action(name){if(busy)return;busy=true;try{workState=await post('/api/v1/worktime/action',{action:name});await (typeof refresh==='function'?refresh():Promise.resolve());syncCompact();}catch(e){notify(e.message,'error');}finally{busy=false;}}
  q('[data-workday-toggle]',compact).onclick=e=>{e.stopPropagation();action(workState.state==='stopped'?'begin':'end');};
  q('[data-work-pause]',compact).onclick=e=>{e.stopPropagation();action(workState.state==='pause'?'resume':'pause');};
  collapse.onclick=e=>{e.stopPropagation();if(workState.state!=='pause')setCollapsed(!panel.classList.contains('is-collapsed'));};
  panel.addEventListener('click',e=>{if(workState.state==='pause')return;if(e.target.closest('button,a,input,select,textarea,label,[role="button"],details,summary'))return;setCollapsed(!panel.classList.contains('is-collapsed'));});
- setCollapsed(true);syncCompact();refreshState();setInterval(()=>{syncCompact();if(!busy)refreshState();},5000);
+ setCollapsed(true);syncCompact();refreshState();setInterval(()=>{if(document.hidden||panel.hidden)return;syncCompact();if(!busy)refreshState();},15000);document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!panel.hidden)refreshState();});document.addEventListener('pz-view-changed',()=>{if(!panel.hidden)refreshState();});
  document.addEventListener('click',event=>{if(event.target.closest('.nav,[data-go]'))setCollapsed(true);if(event.target.closest('#logout')){try{sessionStorage.removeItem('pz-workday-prompted');}catch(_){}}});
  const prompt=document.createElement('dialog');prompt.className='workday-start-dialog';prompt.innerHTML='<div><h3>Arbeitstag starten?</h3><p>Möchten Sie den Arbeitstag jetzt beginnen?</p><div class="panel-actions"><button type="button" class="primary" data-workday-yes>Ja</button><button type="button" class="secondary" data-workday-no>Nein</button></div></div>';document.body.append(prompt);
  q('[data-workday-no]',prompt).onclick=()=>prompt.close();q('[data-workday-yes]',prompt).onclick=async()=>{await action('begin');prompt.close();};

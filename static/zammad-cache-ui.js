@@ -7,7 +7,7 @@
  function statusIndex(){const hs=qa('thead tr:first-child th',view).map(x=>(x.textContent||'').trim().toLowerCase());return hs.findIndex(x=>/state|status/.test(x));}
  function applyFilter(){
   const tbody=q('tbody',view);if(!tbody)return;const idx=statusIndex(),rows=qa(':scope > tr',tbody);let visible=0;
-  for(const row of rows){const cells=qa(':scope > td',row),key=statusKey(cells[idx]?.textContent||'');const show=statusFilter==='all'||key===statusFilter;row.hidden=!show;if(show)visible++;}
+  for(const row of rows){const cells=qa(':scope > td',row),key=statusKey(cells[idx]?.textContent||'');const show=statusFilter==='all'||key===statusFilter;row.dataset.statusHidden=show?'0':'1';window.pzApplyRowVisibility?.(row);if(!row.hidden)visible++;}
   qa('[data-filter]',view).forEach(b=>b.classList.toggle('active',b.dataset.filter===statusFilter));const status=q('.list-status',view);if(status)status.dataset.filterCount=visible!==rows.length?`${visible} von ${rows.length} sichtbar`:'';
  }
  function controls(){
@@ -16,7 +16,7 @@
   toolbar.insertAdjacentElement('afterend',wrap);qa('[data-filter]',wrap).forEach(b=>b.onclick=()=>{statusFilter=b.dataset.filter;applyFilter();});
  }
  function loader(on){const panel=q(':scope > article.panel',view);if(!panel)return;let el=q('.zammad-list-loader',panel);if(!el){el=document.createElement('span');el.className='zammad-list-loader';el.innerHTML='<i></i><span>Aktualisierung</span>';q('.panel-head',panel)?.append(el);}el.classList.toggle('active',!!on);}
- function syncRows(){controls();const tbody=q('tbody',view);if(!tbody||tbody===lastBody&&tbody.dataset.pzZammadSeen===String(tbody.childElementCount))return;lastBody=tbody;tbody.dataset.pzZammadSeen=String(tbody.childElementCount);applyFilter();}
+ function syncRows(){controls();const tbody=q('tbody',view);if(!tbody||false)return;lastBody=tbody;tbody.dataset.pzZammadSeen=String(tbody.childElementCount);applyFilter();}
  const status=q('.list-status',view);if(status)new MutationObserver(()=>{const text=status.textContent||'';loader(/geladen|aktualisiert|abgleich|läuft/i.test(text)&&!/einträge/i.test(text));queueMicrotask(syncRows);}).observe(status,{childList:true,characterData:true,subtree:true});
  const tbody=q('tbody',view);if(tbody)new MutationObserver(()=>requestAnimationFrame(syncRows)).observe(tbody,{childList:true});
  async function repaint(){try{if(typeof providerLoaders!=='undefined'&&providerLoaders.zammad)await providerLoaders.zammad(false);}catch(_){}syncRows();}

@@ -10,7 +10,7 @@
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),15000);
   try{
    const r=await fetch(path,{method:'POST',signal:controller.signal,headers:{'Content-Type':'application/json',...(typeof state!=='undefined'&&state.csrf?{'X-CSRF-Token':state.csrf}:{})},body:JSON.stringify(body)});
-   const data=await r.json();if(!r.ok)throw new Error(data.error||`HTTP ${r.status}`);return data;
+   const data=await r.json();if(!r.ok)throw new Error(data.error||`HTTP ${r.status}`);window.pzNotifyMutation?.(path);return data;
   }catch(e){if(e?.name==='AbortError')throw new Error('Die Anfrage hat zu lange gedauert. Bitte erneut versuchen.');throw e;}finally{clearTimeout(timer);}
  }
 
@@ -48,7 +48,7 @@
   const svg='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-7 8c.5-4.1 3-6.2 7-6.2s6.5 2.1 7 6.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
   if(span){span.innerHTML=svg;span.dataset.pzCustomerIcon='1';}
  }
- function dashboardPencil(){const b=q('[data-dashboard-edit]');if(!b)return;b.textContent='✎';b.title='Dashboard bearbeiten';b.setAttribute('aria-label','Dashboard bearbeiten');b.classList.add('pz-dashboard-pencil');}
+ function dashboardPencil(){const b=q('[data-dashboard-edit]');if(!b)return;if(b.textContent!=='✎')b.textContent='✎';b.title='Dashboard bearbeiten';b.setAttribute('aria-label','Dashboard bearbeiten');b.classList.add('pz-dashboard-pencil');}
 
  /* Customer lifecycle watchdog. One controlled retry instead of a request/render storm. */
  function customersStuck(){const sec=q('#view-customers');if(!sec?.classList.contains('active-view'))return false;const st=q('[data-customer-status]',sec)?.textContent||'';return /werden geladen|wird geladen/i.test(st);}
@@ -95,10 +95,7 @@
  }
 
  /* Settings status comes from one fresh source and starts in a loading state. */
- async function providerStatus(){
-  const cards=qa('#integration-cards [data-provider]');for(const c of cards){const b=q('.badge',c);if(b){b.textContent='Wird geprüft …';b.dataset.connectionState='loading';}}
-  try{const d=await pzPost('/api/v1/provider/navigation-status',{});for(const item of d.providers||[]){const card=q(`#integration-cards [data-provider="${item.provider}"]`),b=q('.badge',card);if(!b)continue;if(item.connected){b.textContent='Verbunden';b.dataset.connectionState='connected';}else if(item.reason==='missing'){b.textContent='Nicht eingerichtet';b.dataset.connectionState='not-configured';}else{b.textContent='Eingerichtet · Verbindung fehlgeschlagen';b.dataset.connectionState='configured-failed';b.title=item.detail||'';}}}catch(e){for(const b of qa('#integration-cards .badge')){b.textContent='Status nicht verfügbar';b.dataset.connectionState='configured-failed';b.title=e.message;}}
- }
+ async function providerStatus(){return window.pzLoadConnectionStates?.();}
  q('[data-view="settings"]')?.addEventListener('click',()=>setTimeout(providerStatus,80));
 
  /* Provider row assignment status and detail dialog. */
@@ -130,7 +127,7 @@
   });
   assignmentFilter(sec);
  }
- function assignmentFilter(sec){const toolbar=q('.provider-toolbar',sec);if(!toolbar||q('[data-pz-assignment-filter]',toolbar))return;const s=document.createElement('select');s.dataset.pzAssignmentFilter='';s.innerHTML='<option value="all">Alle Zuordnungen</option><option value="green">Projekt zugeordnet</option><option value="blue">Kunde, Projekt fehlt</option><option value="red">Kunde fehlt</option>';toolbar.append(s);s.onchange=()=>qa('tbody tr',sec).forEach(tr=>tr.hidden=s.value!=='all'&&tr.dataset.pzAssigned!==s.value);}
+ function assignmentFilter(sec){const toolbar=q('.provider-toolbar',sec);if(!toolbar||q('[data-pz-assignment-filter]',toolbar))return;const s=document.createElement('select');s.dataset.pzAssignmentFilter='';s.innerHTML='<option value="all">Alle Zuordnungen</option><option value="green">Projekt zugeordnet</option><option value="blue">Kunde, Projekt fehlt</option><option value="red">Kunde fehlt</option>';toolbar.append(s);s.onchange=()=>qa('tbody tr',sec).forEach(tr=>(tr.dataset.assignmentHidden=s.value!=='all'&&tr.dataset.pzAssigned!==s.value?'1':'0',window.pzApplyRowVisibility?.(tr)));}
 
  /* Customer detail: stable provider identity links, history, archive/delete. */
  const history=document.createElement('dialog');history.className='audit-dialog';history.innerHTML='<div class="audit-head"><strong>Historie</strong><button type="button" class="secondary">Schließen</button></div><div class="audit-list"></div>';document.body.append(history);q('button',history).onclick=()=>history.close();
@@ -161,7 +158,7 @@
   if(id==='settings'){loading(view,true,'Einstellungen werden geladen');providerStatus().finally(()=>loading(view,false));settingsOrder();}
   if(id==='admin-options'){fixAdminNav();permissionDependencies();}
  }
- const observer=new MutationObserver(()=>requestAnimationFrame(()=>{customerIcon();dashboardPencil();compactRefresh();whiteNames();fixAdminNav();permissionDependencies();missedButtons();settingsOrder();for(const p of ['zammad','starface','teamviewer'])decorateProvider(p);const sec=q('#view-customers');if(sec&&!customersStuck())loading(sec,false);}));observer.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['class']});
+ const observer=new MutationObserver(()=>requestAnimationFrame(()=>{customerIcon();dashboardPencil();compactRefresh();whiteNames();fixAdminNav();permissionDependencies();missedButtons();settingsOrder();for(const p of ['zammad','starface','teamviewer'])decorateProvider(p);const sec=q('#view-customers');if(sec&&!customersStuck())loading(sec,false);}));observer.observe(document.body,{childList:true,subtree:true});
  document.addEventListener('click',e=>{if(e.target.closest('[data-view],[data-go]'))setTimeout(autoLoad,80);},true);
  setTimeout(async()=>{try{context=await getContext();}catch(_){}customerIcon();dashboardPencil();compactRefresh();whiteNames();fixAdminNav();permissionDependencies();settingsOrder();providerStatus();autoLoad();},600);
 })();

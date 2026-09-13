@@ -44,7 +44,7 @@ def _access(c, uid, provider):
 
 def _last_log(c, uid, provider):
     try:
-        row=c.execute('SELECT level,message,created_at FROM operation_logs WHERE owner_id=? AND category=? ORDER BY id DESC',(uid,provider)).fetchone()
+        row=c.execute('SELECT level,message,created_at FROM operation_logs WHERE owner_id=? AND category=? ORDER BY id DESC LIMIT 1',(uid,provider)).fetchone()
         return dict(row) if row else None
     except Exception:
         return None
@@ -96,7 +96,10 @@ def provider_status(app, c, uid, provider):
     last=_last_log(c,uid,provider)
     bad_state=access['state'] in ('invalid','unavailable')
     latest_error=bool(last and str(last.get('level') or '').lower()=='error')
-    connected=bool(configured_server and credentials and not bad_state and not latest_error)
+    confirmed=access['state']=='valid' and bool(access['checked_at'])
+    connected=bool(configured_server and credentials and confirmed and not bad_state)
+    if configured_server and credentials and not confirmed and not bad_state and (provider!='starface' or client_secret_configured):
+        return {'provider':provider,'connected':False,'reason':'unknown','label':'Status noch nicht geprüft','detail':'Zugangsdaten sind hinterlegt; noch keine erfolgreiche Verbindungsprüfung.','configured':True,'ever_configured':ever,'checked_at':access['checked_at']}
     if provider=='starface' and not client_secret_configured:
         connected=False;reason='missing_client_secret';detail='Es wurde kein STARFACE Client Secret hinterlegt. Bitte an einen Administrator wenden.'
     elif connected:
