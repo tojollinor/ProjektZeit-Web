@@ -2,7 +2,7 @@
   "name": "projektzeit-web-checks",
   "private": true,
   "scripts": {
-    "test:ui": "node tests/action-feedback.cjs && node tests/project-catalog.cjs && node tests/work-models.cjs && node tests/company-ui.cjs && node tests/interface-runtime.cjs"
+    "test:ui": "node tests/action-feedback.cjs && node tests/ui-components.cjs && node tests/project-catalog.cjs && node tests/work-models.cjs && node tests/company-ui.cjs && node tests/interface-runtime.cjs"
   },
   "devDependencies": {
     "jsdom": "26.1.0"

@@ -1,4 +1,6 @@
 FROM python:3.12-alpine
+ARG BUILD_REVISION
+ENV BUILD_REVISION=$BUILD_REVISION
 
 RUN apk add --no-cache tzdata ca-certificates
 RUN addgroup -S projektzeit && adduser -S projektzeit -G projektzeit

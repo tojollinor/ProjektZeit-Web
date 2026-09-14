@@ -22,3 +22,19 @@
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;transition-duration:.01ms!important}}
 
 .company-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin:18px 0}.company-kpis>span{padding:16px;border:1px solid var(--line);background:var(--panel2);border-radius:12px;font-size:1rem}.company-tracking-controls{gap:12px;align-items:center}.company-tracking-controls span{font-size:.85rem;color:var(--muted)}#login-form input[type=checkbox]{width:18px;height:18px}
+
+/* Destructive actions share the same two-click confirmation and progress states. */
+button:is(.danger,.danger-button,[data-confirm],[data-remove-role],[data-integration-action=remove],[data-starface-action=remove],#logout,[data-archive-customer],[data-delete-link],[data-delete-customer],[data-session-disconnect],[data-pz-session-disconnect]){background:#bd3040!important;border:1px solid #bd3040!important;color:#fff!important}
+button[data-confirm-armed]{background:#686b73!important;border-color:#858992!important;color:#fff!important;opacity:1!important;min-width:76px}
+button[data-action-phase=busy]{background:var(--blue)!important;color:#fff!important}button[data-action-phase=success]{background:#16794c!important;color:#fff!important}button[data-action-phase=error]{background:#bd3040!important;color:#fff!important}
+.role-chip button[data-confirm-armed]{padding:0 8px}.role-chip button:focus-visible{opacity:1}.role-picker-input{min-width:0}
+/* All horizontal scrolling stays inside the affected widget/table. */
+main,.view,.panel,.provider-view,.provider-view .raw-provider-table,.dashboard-grid>*{min-width:0;max-width:100%}
+.provider-view .raw-provider-table{width:100%;overflow:auto;overscroll-behavior:contain}
+.raw-provider-table thead tr:first-child th,.raw-provider-table td:first-child{background:var(--panel2)!important;color:var(--text)!important}
+.raw-provider-table td{overflow-wrap:anywhere}.raw-provider-table .pz-mobile-summary{background:var(--panel2)!important}
+.ticket-thread-dialog,.ticket-article,.ticket-mail-meta,.customer-master-card{background:var(--panel)!important;color:var(--text)!important;border-color:var(--line)!important}.ticket-sticky-bar{background:var(--panel)!important}.ticket-article.internal{background:var(--panel2)!important}.ticket-facts,.ticket-article-head small,.ticket-mail-meta small,.ticket-attachments{color:var(--muted)!important}
+[data-dashboard-widget=timeline]{container-type:inline-size}.timeline-panel .date-controls{display:flex;flex-wrap:wrap;max-width:100%}.timeline-panel .date-controls input{width:140px;min-width:0}.timeline-panel .panel-head{flex-wrap:wrap}.timeline-layout .timeline-track{background-image:linear-gradient(90deg,var(--line) 1px,var(--panel2) 1px)}.timeline-empty{padding:8px;text-align:center;white-space:normal}.timeline-hours{min-width:0}
+@container(max-width:380px){.date-controls{gap:4px}.date-controls button{padding:6px}.date-controls input{flex:1 1 100px}}
+.missed-call-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}.missed-call-row>div{overflow-wrap:anywhere}.missed-call-row strong,.missed-call-row small{white-space:normal;overflow-wrap:anywhere}.missed-call-row>button{grid-column:2;max-width:100%}
+.release-info{display:grid;gap:4px;margin:6px 0 10px;min-width:0;font-size:11px;line-height:1.4;color:var(--muted)}.release-info small{font-size:inherit;overflow-wrap:anywhere}.release-check{padding:0;background:transparent!important;border:0;border-radius:0;color:var(--blue);font-size:11px;font-weight:400;text-align:left;text-decoration:underline;min-height:24px}.release-check[aria-busy=true]{opacity:.6}.release-info [data-state=available]{color:var(--green);font-weight:600}.release-info [data-state=error]{color:var(--text)}

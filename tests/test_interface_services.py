@@ -33,6 +33,17 @@ class InterfaceServicesTest(unittest.TestCase):
             role=acl._role(c,'user')['id'];acl.assign_roles(c,self.uid,new,[role,role])
             self.assertEqual(c.execute('SELECT COUNT(*) n FROM user_role_links WHERE user_id=?',(new,)).fetchone()['n'],1)
 
+    def test_user_deactivation_permissions_and_protected_accounts(self):
+        with app.db() as c:
+            target=acl.create_user(c,self.uid,{'username':'ActiveTest','password':'a-safe-password'},app.hash_password)
+            with self.assertRaises(PermissionError):acl.set_user_active(c,target,{'user_id':self.uid,'active':False})
+            with self.assertRaises(ValueError):acl.set_user_active(c,self.uid,{'user_id':self.uid,'active':False})
+            with self.assertRaises(ValueError):acl.set_user_active(c,self.uid,{'user_id':target,'active':'false'})
+            self.assertEqual(acl.set_user_active(c,self.uid,{'user_id':target,'active':False}),(target,False))
+            self.assertEqual(c.execute('SELECT active FROM users WHERE id=?',(target,)).fetchone()['active'],0)
+            acl.set_user_active(c,self.uid,{'user_id':target,'active':True})
+            self.assertEqual(c.execute('SELECT active FROM users WHERE id=?',(target,)).fetchone()['active'],1)
+
     def test_totp_reference_enrollment_replay_and_recovery(self):
         # RFC 6238 Appendix B, SHA-1 at 59 seconds, truncated to six digits.
         secret=base64.b32encode(b'12345678901234567890').decode()

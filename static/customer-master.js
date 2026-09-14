@@ -9,17 +9,17 @@
  function bindPhoneEditors(root,customerId,refresh){
   root.querySelectorAll('[data-phone-id]').forEach(row=>{
    row.querySelector('[data-p-save]').onclick=async()=>{try{await post('/api/v1/customers/phone/update',{id:+row.dataset.phoneId,scope:row.dataset.scope,number:row.querySelector('[data-p-number]').value,label:row.querySelector('[data-p-label]').value});window.pzToast?.('Rufnummer gespeichert','success');await refresh();}catch(e){window.pzToast?.(e.message,'error');}};
-   row.querySelector('[data-p-delete]').onclick=async()=>{if(!confirm('Rufnummer wirklich löschen?'))return;try{await post('/api/v1/customers/phone/delete',{id:+row.dataset.phoneId,scope:row.dataset.scope});window.pzToast?.('Rufnummer gelöscht','success');await refresh();}catch(e){window.pzToast?.(e.message,'error');}};
+   row.querySelector('[data-p-delete]').onclick=async()=>{try{await post('/api/v1/customers/phone/delete',{id:+row.dataset.phoneId,scope:row.dataset.scope});window.pzToast?.('Rufnummer gelöscht','success');await refresh();}catch(e){window.pzToast?.(e.message,'error');}};
   });
   root.querySelectorAll('[data-copy-number]').forEach(el=>el.onclick=()=>copy(el.dataset.copyNumber));
  }
  async function render(id){
   const box=document.querySelector('.customer-detail-dialog [data-detail]'),pane=box?.querySelector('[data-pane="master"]');if(!pane)return;
   try{
-   const data=await post('/api/v1/customers/detail',{id}),c=data.customer||{},m=c.master||{};
+   const data=await loadCustomerDetail(id),c=data.customer||{},m=c.master||{};if(!box.isConnected||box.dataset.customerId!==String(id))return;
    pane.querySelectorAll('[data-customer-master],[data-compact-contacts]').forEach(x=>x.remove());
    // Legacy inline add/edit forms stay available in code, but no longer occupy the normal view.
-   pane.querySelectorAll('.inline-form').forEach(x=>x.classList.add('hidden'));
+   const contactCreation=pane.querySelector('[data-new-contact]');pane.querySelector('.customer-detail-grid')?.remove();
    const article=document.createElement('article');article.dataset.customerMaster='';article.className='customer-master-card';
    const address=[`${m.street||''} ${m.house_number||''}`.trim(),`${m.zip_code||''} ${m.city||''}`.trim(),m.country||''].filter(Boolean);
    article.innerHTML=`<div class="panel-head"><div><p class="eyebrow">STAMMDATEN <span class="beta-tag">Beta</span></p><h3>${h(c.name||'Unternehmensdaten')}</h3></div><button type="button" class="secondary" data-master-edit>Bearbeiten</button></div>
@@ -37,7 +37,7 @@
    for(const contact of c.contacts||[]){const card=document.createElement('section');card.className='compact-contact';card.innerHTML=`<div class="panel-head"><div><strong>${h(contact.name)}</strong>${contact.email?`<small>${h(contact.email)}</small>`:''}</div><button type="button" class="secondary subtle" data-contact-edit>Bearbeiten</button></div><div>${(contact.phones||[]).map(phoneView).join('')||'<small class="muted">Keine Rufnummer</small>'}</div><form class="hidden" data-contact-form><label>Name<input name="name" value="${a(contact.name)}"></label><label>E-Mail<input name="email" value="${a(contact.email||'')}"></label><label>Bemerkung<textarea name="note">${h(contact.note||'')}</textarea></label><h4>Rufnummern</h4>${phoneEditors(contact.phones,'contact')}<button type="button" class="secondary subtle" data-contact-add>+ Rufnummer</button><div class="master-phone-add hidden" data-contact-add-row><div class="field-grid"><label>Rufnummer<input data-contact-new-number></label><label>Typ<select data-contact-new-label>${opts('Sonstige')}</select></label></div><button type="button" class="secondary" data-contact-save-phone>Hinzufügen</button></div><div class="panel-actions"><button type="button" class="secondary subtle" data-contact-cancel>Abbrechen</button><button class="primary">Speichern</button></div></form>`;
     const cf=card.querySelector('[data-contact-form]');card.querySelector('[data-contact-edit]').onclick=()=>cf.classList.remove('hidden');card.querySelector('[data-contact-cancel]').onclick=()=>render(id);card.querySelector('[data-contact-add]').onclick=()=>card.querySelector('[data-contact-add-row]').classList.toggle('hidden');card.querySelector('[data-contact-save-phone]').onclick=async()=>{try{await post('/api/v1/customers/contact-phone',{contact_id:contact.id,number:card.querySelector('[data-contact-new-number]').value,label:card.querySelector('[data-contact-new-label]').value,source:'manual'});await render(id);}catch(e){window.pzToast?.(e.message,'error');}};cf.onsubmit=async ev=>{ev.preventDefault();const p=Object.fromEntries(new FormData(cf));try{await post('/api/v1/customers/contact/update',{id:contact.id,...p});window.pzToast?.('Ansprechpartner gespeichert','success');await render(id);}catch(e){window.pzToast?.(e.message,'error');}};bindPhoneEditors(card,id,()=>render(id));list.append(card);
    }
-   pane.prepend(contacts);bindPhoneEditors(contacts,id,()=>render(id));
+   if(contactCreation){const add=document.createElement('details');add.innerHTML='<summary>Ansprechpartner hinzufügen</summary>';add.append(contactCreation);contacts.append(add);}pane.append(contacts);bindPhoneEditors(contacts,id,()=>render(id));
   }catch(e){window.pzToast?.(`Stammdaten konnten nicht geladen werden: ${e.message}`,'error');}
  }
  openCustomer=async function(id){await original(id);await render(id);};

@@ -1,0 +1,15 @@
+const {JSDOM}=require('jsdom'),fs=require('node:fs'),assert=require('node:assert/strict');
+const page=new JSDOM('<main><section class="view active-view"><form><input name="name"></form><button data-tab="other">Wechseln</button><button class="danger" id="remove">Löschen</button></section></main>',{url:'https://projektzeit.test',runScripts:'outside-only',pretendToBeVisual:true}),w=page.window,q=s=>w.document.querySelector(s);
+w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};w.HTMLDialogElement.prototype.close=function(){this.open=false;this.dispatchEvent(new w.Event('close'));};
+w.confirm=w.prompt=()=>{throw Error('Native dialog forbidden');};w.Headers=Headers;w.Response=Response;w.Request=Request;let calls=0,finish;
+w.fetch=()=>{calls++;return new Promise(r=>finish=r);};
+w.eval(fs.readFileSync('static/ui-components.js','utf8'));w.eval(fs.readFileSync('static/action-feedback.js','utf8'));
+const settle=()=>new Promise(r=>setTimeout(r,20));
+(async()=>{const b=q('#remove');b.onclick=()=>w.fetch('/api/v1/customers/delete',{method:'POST',body:'{}'});
+b.click();assert.equal(b.textContent,'Confirm');assert.equal(calls,0);b.click();assert.equal(calls,1);assert.equal(b.disabled,true);assert.equal(b.dataset.actionPhase,'busy');b.click();assert.equal(calls,1);finish(new Response('{"ok":true}',{status:200}));await settle();assert.equal(b.dataset.actionPhase,'success');assert.equal(b.textContent,'Gespeichert');
+const input=q('input');input.value='Unsaved';input.dispatchEvent(new w.Event('input',{bubbles:true}));let navigations=0;q('[data-tab]').onclick=()=>navigations++;
+q('[data-tab]').click();assert.equal(navigations,0);q('dialog button:last-child').click();await settle();assert.equal(navigations,0);assert.equal(w.pzUI.dirty(q('form')),true);
+q('[data-tab]').click();q('dialog button:first-child').click();await settle();assert.equal(navigations,1);assert.equal(w.pzUI.dirty(q('form')),false);
+const prompt=w.pzUI.prompt('Wert');q('dialog input').value='123';q('dialog form').dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));assert.equal(await prompt,'123');
+const d=w.pzUI.formDialog('Bearbeiten','<input name="title">',async()=>{});d.querySelector('input').dispatchEvent(new w.Event('input',{bubbles:true}));const escape=new w.Event('cancel',{bubbles:false,cancelable:true});d.dispatchEvent(escape);assert.equal(escape.defaultPrevented,true);assert.equal(d.open,true);[...w.document.querySelectorAll('dialog')].at(-1).querySelector('button').click();await settle();assert.equal(d.isConnected,false);
+console.log('Shared UI: two-click removal, loading lock, success, cancel/discard and nonblocking prompts passed');})().catch(e=>{console.error(e);process.exitCode=1;}).finally(()=>page.window.close());

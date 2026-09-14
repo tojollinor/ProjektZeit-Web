@@ -426,3 +426,23 @@ def admin_context(c, uid):
         'smtp':smtp_public(c) if (superuser or 'smtp.view' in perms) else {},
         'superadmin_settings':({'admin_may_reset_2fa':bool(setting(c,'security.admin_may_reset_2fa',True))} if can(c,uid,'system.options.edit') else {}),
     }
+
+
+def set_user_active(c, actor, body):
+    """Disable access while preserving time records and accounting history."""
+    require_permission(c, actor, 'users.disable')
+    target = int(body.get('user_id') or 0)
+    active = body.get('active')
+    if type(active) is not bool:
+        raise ValueError('Aktiv muss Ja oder Nein sein.')
+    user = c.execute('SELECT id,role,active FROM users WHERE id=?', (target,)).fetchone()
+    if not user:
+        raise ValueError('Benutzer nicht gefunden.')
+    if target == actor:
+        raise ValueError('Die eigene Anmeldung kann hier nicht deaktiviert werden.')
+    if is_superadmin(c, target):
+        raise ValueError('Der geschützte Systemadministrator kann nicht deaktiviert werden.')
+    if user['role'] == 'admin':
+        require_permission(c, actor, 'system.options.edit')
+    c.execute('UPDATE users SET active=? WHERE id=?', (int(active), target))
+    return target, active
