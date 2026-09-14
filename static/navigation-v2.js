@@ -53,21 +53,22 @@
   const button=q('[data-view="settings"]',nav);if(!button)return false;
   const {submenu}=makeGroup(button,'settings');
   button.innerHTML='<span>⚙</span>Einstellungen';
-  submenu.append(makeSub('Persönliches Profil','settings-profile'),makeSub('Verbindungen','settings-connections'),makeSub('Windows-Client','settings-client'),makeSub('Import & Export','settings-data'),makeSub('API','settings-api'));
+  submenu.append(makeSub('Persönliches Profil','settings-profile'),makeSub('Verbindungen','settings-connections'),makeSub('Downloads','settings-client'),makeSub('Import & Export','settings-data'),makeSub('API','settings-api'));
   for(const name of ['settings-profile','settings-connections','settings-client','settings-data','settings-api'])createView(name);
   moveSettingsContent();return true;
  }
  function moveSettingsContent(){
   const source=q('#view-settings');if(!source)return;
-  const profile=q('[data-profile-settings]');if(profile)q('#view-settings-profile')?.append(profile);
-  const intro=q('.settings-intro',source),cards=q('#integration-cards');if(intro)q('#view-settings-connections')?.append(intro);if(cards)q('#view-settings-connections')?.append(cards);
-  const win=qa('article.panel',source).find(x=>/Windows-Client/i.test(x.textContent||''));if(win)q('#view-settings-client')?.append(win);
-  for(const block of qa('[data-import-export]'))q('#view-settings-data')?.append(block);
-  for(const block of qa('[data-user-api-settings]'))q('#view-settings-api')?.append(block);
+  const move=(node,target)=>{const parent=q(target);if(node&&parent&&node.parentElement!==parent)parent.append(node);};
+  const profile=q('[data-profile-settings]');move(profile,'#view-settings-profile');
+  const intro=q('.settings-intro',source),cards=q('#integration-cards');move(intro,'#view-settings-connections');move(cards,'#view-settings-connections');
+  const win=qa('article.panel',source).find(x=>/Windows-Client/i.test(x.textContent||''));move(win,'#view-settings-client');
+  for(const block of qa('[data-import-export]'))move(block,'#view-settings-data');
+  for(const block of qa('[data-user-api-settings]'))move(block,'#view-settings-api');
   for(const [name,label,copy] of [
    ['settings-profile','Persönliches Profil','Profil, Darstellung sowie Geräte und Sitzungen.'],
    ['settings-connections','Verbindungen','Zammad, STARFACE und TeamViewer konfigurieren und prüfen.'],
-   ['settings-client','Windows-Client','Lokalen ProjektZeit-Client herunterladen und verwenden.'],
+   ['settings-client','Downloads','Lokalen ProjektZeit-Client herunterladen und verwenden.'],
    ['settings-data','Import & Export','Zeiterfassungsdaten importieren und exportieren.'],
    ['settings-api','API','Persönliche API-Zugänge und Automationen verwalten.']]){
     const sec=q(`#view-${name}`);if(sec&&!q(':scope > .pz-page-intro',sec)){const head=document.createElement('div');head.className='settings-intro pz-page-intro';head.innerHTML=`<p class="eyebrow">EINSTELLUNGEN</p><h3>${h(label)}</h3><p class="muted">${h(copy)}</p>`;sec.prepend(head);}

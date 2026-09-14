@@ -57,7 +57,7 @@
    b.innerHTML=`<span>${h(label)}</span>${beta?'<small class="beta-tag">Beta</small>':''}`;submenu.append(b);
    b.onclick=e=>{e.stopPropagation();window.pzAdmin?.open(tab);};
   }
-  group.append(submenu);admin.addEventListener('click',e=>{e.preventDefault();e.stopImmediatePropagation();const open=submenu.hidden;submenu.hidden=!open;admin.setAttribute('aria-expanded',String(open));},true);
+  const staff=q('[data-company-nav="staff-settings"]');if(staff)submenu.append(staff);group.append(submenu);admin.addEventListener('click',e=>{e.preventDefault();e.stopImmediatePropagation();const open=submenu.hidden;submenu.hidden=!open;admin.setAttribute('aria-expanded',String(open));},true);
  }
 
  const customerCreate=document.createElement('dialog');customerCreate.className='customer-create-dialog';

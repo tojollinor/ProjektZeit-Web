@@ -180,7 +180,6 @@ function renderWork(){
   customer.onchange=choose;project.onchange=()=>button.disabled=!working||!project.value;category.onchange=()=>{if(category.value!=='__new__')$('#category-select').value=category.value;};button.onclick=()=>{if(!working||!project.value)return;$('#category-select').value=category.value;switchProject(Number(project.value));};choose();window.pzUI?.searchable(customer);window.pzUI?.searchable(project);
   if(!active.length)picker.insertAdjacentHTML('beforeend','<p class="muted">Noch keine aktiven Projekte. Unter Projekte ein Projekt anlegen oder aktivieren.</p>');
 
-  $("#project-activity").innerHTML=d.projects.map(p=>`<label class="activity-row"><input type="checkbox" data-activity="${p.id}" ${p.active?'checked':''}>${esc(p.name)}</label>`).join('');
   fillSelect('#project-select',active,'Projekt wählen');
   $("#entry-table").innerHTML=d.entries.map(e=>`<tr><td><strong class="${e.is_idle?'idle-label':''}">${esc(e.project)}</strong><small class="entry-note">${esc(e.note)}</small></td><td>${esc(e.customer||'Ohne Kunde')}</td><td>${esc(e.category)}</td><td>${new Date(e.started_at).toLocaleString('de-DE')}<small class="entry-end">${e.ended_at?new Date(e.ended_at).toLocaleString('de-DE'):'Läuft'}</small></td><td>${duration(e.started_at,e.ended_at)}</td><td><button class="secondary subtle" data-edit="${e.id}">Bearbeiten</button></td></tr>`).join('')||'<tr><td colspan="6">Noch keine Stempelungen.</td></tr>';
 }
@@ -190,7 +189,6 @@ $('#work-begin').addEventListener('click',()=>workAction('/api/v1/work/begin'));
 $('#work-end').addEventListener('click',()=>workAction('/api/v1/work/end'));
 $('#project-pause').addEventListener('click',()=>workAction('/api/v1/timer/stop'));
 $('#quick-projects').addEventListener('click',event=>{const button=event.target.closest('[data-switch]');if(button)switchProject(+button.dataset.switch)});
-$('#project-activity').addEventListener('change',async event=>{try{await post('/api/v1/projects/active',{id:+event.target.dataset.activity,active:event.target.checked});await refresh()}catch(error){toast(error.message);await refresh()}});
 const localStamp=value=>{if(!value)return '';const d=new Date(value);return `${dateValue(d)}T${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`};
 $('#entry-table').addEventListener('click',event=>{
   const button=event.target.closest('[data-edit]');if(!button)return;

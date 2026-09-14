@@ -93,6 +93,18 @@ class InterfaceServicesTest(unittest.TestCase):
             status=provider_nav_runtime.provider_status(app,c,self.uid,'starface')
             self.assertEqual(status['reason'],'missing');self.assertFalse(status['connected'])
 
+    def test_removed_central_starface_secret_ignores_legacy_login(self):
+        with app.db() as c:
+            c.execute('CREATE TABLE IF NOT EXISTS starface_system_config(id INTEGER PRIMARY KEY,domain TEXT,client_secret TEXT)')
+            c.execute('INSERT INTO starface_system_config VALUES(1,?,?)',('https://pbx.invalid',''))
+            c.execute('INSERT INTO integrations(owner_id,provider,domain,username,secret,updated_at) VALUES(?,?,?,?,?,?)',
+                      (self.uid,'starface','https://pbx.invalid','old-client','old-encrypted-secret','2026-09-14T00:00:00Z'))
+            with patch.object(app.integrations,'config',return_value={'secret':'old-secret'}):
+                status=provider_nav_runtime.provider_status(app,c,self.uid,'starface')
+            self.assertEqual(status['reason'],'missing_client_secret')
+            self.assertFalse(status['client_secret_configured'])
+            self.assertFalse(status['connected'])
+
     def test_category_default_is_one_time_and_profile_keeps_last_login(self):
         with app.db() as c:
             role=acl._role(c,'user')['id'];c.execute("DELETE FROM role_permissions WHERE role_id=? AND permission_key='categories.create'",(role,))
