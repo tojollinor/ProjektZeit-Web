@@ -74,7 +74,7 @@
  async function renderTokensKeepOnce(kind,root,token){await renderTokens(kind,root);const body=q('[data-api-body]',root),once=q('[data-api-once]',body);if(once&&token){once.innerHTML=`<div class="api-token-once"><strong>Diesen Token jetzt kopieren. Er wird danach nicht mehr vollständig angezeigt.</strong><code>${escText(token)}</code><button type="button" class="secondary" data-copy-token>Kopieren</button></div>`;q('[data-copy-token]',once).onclick=()=>copyValue(token);}}
 
  function ensureUserApi(){
-  const settings=q('#view-settings');if(!settings||q('[data-user-api-settings]',settings))return;
+  const settings=q('#view-settings-api')||q('#view-settings');if(!settings||q('[data-user-api-settings]'))return;
   const details=document.createElement('details');details.className='panel settings-fold api-settings';details.dataset.userApiSettings='';
   details.innerHTML='<summary><span>API</span><span class="fold-status">ChatGPT & Automationen</span></summary><div class="fold-body" data-api-body></div>';
   settings.append(details);details.addEventListener('toggle',()=>{if(details.open)renderTokens('user',details);});
@@ -85,5 +85,5 @@
   const pane=document.createElement('div');pane.className='hidden';pane.dataset.adminPane='api';pane.innerHTML='<article class="panel api-admin-panel"><div class="panel-head"><div><p class="eyebrow">API · BETA</p><h3>Persönliche API-Tokens</h3></div></div><div data-api-body></div></article>';section.append(pane);
   button.onclick=()=>{qa('[data-admin-tab]',section).forEach(b=>b.className=b===button?'primary':'secondary');qa('[data-admin-pane]',section).forEach(p=>p.classList.toggle('hidden',p!==pane));renderTokens('user',pane);};
  }
- ensureUserApi();ensureAdminApi();new MutationObserver(()=>{ensureUserApi();ensureAdminApi();}).observe(document.body,{childList:true,subtree:true});
+ function ensure(){ensureUserApi();ensureAdminApi();}ensure();for(const event of ['pz-app-ready','pz-view-changed','pz-admin-context'])document.addEventListener(event,ensure);
 })();

@@ -51,17 +51,11 @@ def _last_log(c, uid, provider):
 
 
 def _starface_client_secret(app,c,uid):
+    # OAuth uses the company-wide client in feature_runtime. Legacy personal
+    # credentials must never override a missing or removed central secret.
     try:
         central=c.execute('SELECT client_secret FROM starface_system_config WHERE id=1').fetchone()
-        if central and central['client_secret']:return True
-    except Exception:
-        pass
-    try:
-        row=c.execute('SELECT domain,username FROM integrations WHERE owner_id=? AND provider=?',(uid,'starface')).fetchone()
-        if not row or not row['domain'] or not row['username']:
-            return False
-        config=app.integrations.config(c,uid,dict(provider='starface',domain=row['domain'],username=row['username'],secret=''),app.DATA_DIR)
-        return bool(str(config.get('secret') or '').strip())
+        return bool(central and str(central['client_secret'] or '').strip())
     except Exception:
         return False
 

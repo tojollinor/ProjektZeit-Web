@@ -34,9 +34,9 @@
   try{await load();let s=states.get('starface');
    if(s?.reason==='unknown'){try{const result=await post('/api/v1/integrations/test',{provider:'starface'});if(result.ok===true){s={connected:true};states.set('starface',{provider:'starface',connected:true,reason:'connected'});decorate();}else s={reason:'unavailable',detail:result.error||result.message||'Die Verbindungsprüfung war nicht erfolgreich.'};}catch(error){s={reason:'unavailable',detail:error.message};}}
    if(s?.connected===true){allowStarface=true;nav.click();return;}
-   pendingProvider='starface';const missing=s?.reason==='missing_client_secret',expired=['expired','missing'].includes(s?.reason);
+   pendingProvider='starface';const missing=s?.reason==='missing_client_secret'||s?.client_secret_configured===false,expired=!missing&&['expired','missing'].includes(s?.reason);
    q('[data-provider-connect-title]',dialog).textContent=missing?'STARFACE nicht eingerichtet':expired?'STARFACE-Anmeldung erforderlich':'STARFACE momentan nicht verfügbar';
-   q('[data-provider-connect-message]',dialog).textContent=missing?'Für STARFACE wurde kein Client Secret hinterlegt. Bitte informieren Sie einen Administrator, damit er die Zugangsdaten unter Einstellungen → Verbindungen ergänzt. Eine Anmeldung und das Öffnen von STARFACE sind momentan nicht möglich.':expired?'Die STARFACE-Anmeldung fehlt oder ist abgelaufen. Möchten Sie die Verbindungseinstellungen öffnen und sich erneut anmelden?':s?.detail||'Der Verbindungsstatus konnte noch nicht ermittelt werden. Bitte versuchen Sie es erneut oder prüfen Sie Einstellungen → Verbindungen.';
+   q('[data-provider-connect-message]',dialog).textContent=missing?'Für STARFACE wurde kein Client Secret hinterlegt. Bitte informieren Sie einen Administrator, damit er die Zugangsdaten unter Admin-Optionen → Integrationen ergänzt. Eine Anmeldung und das Öffnen von STARFACE sind momentan nicht möglich.':expired?'Die STARFACE-Anmeldung fehlt oder ist abgelaufen. Möchten Sie die Verbindungseinstellungen öffnen und sich erneut anmelden?':s?.detail||'Der Verbindungsstatus konnte noch nicht ermittelt werden. Bitte versuchen Sie es erneut oder prüfen Sie Einstellungen → Verbindungen.';
    yes.hidden=!expired;yes.textContent='Ja';no.textContent=expired?'Nein':'OK';dialog.showModal();
   }finally{checking=false;nav.removeAttribute('aria-busy');}
  },true);
