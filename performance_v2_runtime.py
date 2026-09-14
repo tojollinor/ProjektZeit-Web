@@ -55,18 +55,24 @@ def _fast_enrich(final, c, uid, provider, result):
         key = str(row.get('external_key') or '')
         assignment = assignments.get(key)
         if assignment is None:
-            typ, value = final._provider_identifier(provider, row.get('raw') or {}, row.get('customer_hint') or {})
+            identifiers = final._provider_identifiers(provider, row.get('raw') or {}, row.get('customer_hint') or {})
+            typ, value = identifiers[0] if identifiers else ('', '')
             customer_id = None
-            link = links.get((typ, value)) if typ and value else None
-            if link:
+            link = None
+            for candidate_type, candidate_value in identifiers:
+                candidate = links.get((candidate_type, candidate_value))
+                if not candidate:
+                    continue
                 allowed = True
-                created = _parse(link.get('created_at'))
+                created = _parse(candidate.get('created_at'))
                 event = events.get(key) or {}
                 event_time = _parse(event.get('occurred_at')) or _parse(event.get('captured_at'))
                 if created and event_time and event_time < created:
                     allowed = False
                 if allowed:
-                    customer_id = link.get('customer_id')
+                    typ, value, link = candidate_type, candidate_value, candidate
+                    customer_id = candidate.get('customer_id')
+                    break
             assignment = {
                 'owner_id': uid, 'provider': provider, 'external_key': key,
                 'customer_id': customer_id, 'project_id': None,
@@ -81,6 +87,10 @@ def _fast_enrich(final, c, uid, provider, result):
                 )
                 assignments[key] = assignment
         row['assignment'] = dict(assignment)
+        row['assignment']['suggestions'] = [
+            {'type': kind, 'value': value}
+            for kind, value in final._provider_identifiers(provider, row.get('raw') or {}, row.get('customer_hint') or {})
+        ]
         customer_id = assignment.get('customer_id')
         project_id = assignment.get('project_id')
         if customer_id:

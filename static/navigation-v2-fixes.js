@@ -9,7 +9,7 @@
   }
  }
  function activeName(){return q('.view.active-view')?.id?.replace(/^view-/,'')||'';}
- function syncWorkPanel(name=activeName()){const panel=q('.work-panel');if(!panel)return;panel.hidden=name==='statistics'||name.startsWith('settings-')||name.startsWith('workshop-')||['admin-options','staff-settings','absence-approvals','logs','employee-billing','bookkeeping','notifications','account'].includes(name);}
+ function syncWorkPanel(name=activeName()){const panel=q('.work-panel');if(!panel)return;panel.hidden=name==='statistics'||name.startsWith('settings-')||name.startsWith('workshop-')||['admin-options','absence-approvals','logs','employee-billing','bookkeeping','notifications','account'].includes(name);}
  function textNode(button,text){if(!button)return;for(const n of button.childNodes){if(n.nodeType===3&&n.nodeValue.trim()){n.nodeValue=text;return;}}button.append(document.createTextNode(text));}
  function setIcon(button,icon){const span=q(':scope > span',button);if(span&&!span.querySelector('svg')&&span.textContent!==icon)span.textContent=icon;}
 

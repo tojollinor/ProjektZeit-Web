@@ -192,6 +192,15 @@ def _bool(value):
     return str(value or "").strip().lower() in ("1", "true", "yes", "ja", "y")
 
 
+def _call_display_name(value, number):
+    value, number = str(value or '').strip(), str(number or '').strip()
+    left, separator, right = value.partition(':')
+    digits = lambda text: ''.join(character for character in text if character.isdigit())
+    if separator and right.strip() and digits(left) and digits(left) == digits(number):
+        return right.strip()
+    return value
+
+
 def _missed_calls(c, uid):
     result = []
     for r in c.execute("""SELECT external_key,occurred_at,summary,raw_json,captured_at
@@ -206,11 +215,13 @@ def _missed_calls(c, uid):
         called_back = raw.get("calledBack", raw.get("calledback", raw.get("called_back", False)))
         if direction != "INBOUND" or status != "MISSED" or _bool(called_back):
             continue
+        number = str(raw.get("callerNumber") or "")
+        name = _call_display_name(raw.get("callDescription") or r["summary"] or "", number)
         result.append({
             "external_key": r["external_key"],
             "occurred_at": raw.get("startTime") or r["occurred_at"],
-            "number": str(raw.get("callerNumber") or ""),
-            "name": str(raw.get("callDescription") or r["summary"] or ""),
+            "number": number,
+            "name": name,
             "called_back": False,
             "called_back_by": str(raw.get("calledBackAuthor") or raw.get("calledbackauthor") or ""),
             "called_back_at": str(raw.get("calledBackModified") or raw.get("calledbackmodified") or ""),
@@ -312,7 +323,8 @@ def install(app):
                     if not (admin_controls.can(c, uid, "logs.view_own") or admin_controls.can(c, uid, "logs.view_team") or admin_controls.can(c, uid, "logs.view_all") or admin_controls.can(c, uid, "logs.view")):
                         raise PermissionError("Dafür fehlt die Berechtigung.")
                     pa = __import__("provider_archive")
-                    return self.send_json(200, {"logs": pa.list_logs(c, uid, str(body.get("category") or ""), str(body.get("level") or ""), body.get("limit", 300))})
+                    category, level = str(body.get("category") or ""), str(body.get("level") or "")
+                    return self.send_json(200, {"logs": pa.list_logs(c, uid, category, level, body.get("limit", 25)), "total": pa.count_logs(c, uid, category, level)})
                 if path == "/api/v1/next/context":
                     return self.send_json(200, {
                         "permissions": sorted(admin_controls.permissions_for_user(c, uid)),

@@ -6,7 +6,6 @@ import json
 import secrets
 import struct
 import time
-from datetime import datetime, timedelta, timezone
 from urllib.parse import quote, urlencode
 import admin_controls as acl
 import integrations
@@ -29,11 +28,19 @@ def totp(secret, counter):
 
 def required(c, user, clock=None):
     policy = acl.policy_values(c)
-    if not (policy['two_factor_mode'] == 'required' or (policy['two_factor_admin_required'] and user['role'] == 'admin')):
+    mode = policy.get('two_factor_mode', 'optional')
+    if mode == 'required':
+        return True
+    if mode != 'roles':
         return False
-    row = c.execute("SELECT updated_at FROM system_settings WHERE setting_key='policy.two_factor_mode'").fetchone()
-    since = datetime.fromisoformat(row['updated_at']).astimezone(timezone.utc)
-    return datetime.fromtimestamp(time.time() if clock is None else clock, timezone.utc) >= since + timedelta(days=int(policy['two_factor_grace_days']))
+    required_roles = {str(value) for value in policy.get('two_factor_required_roles', [])}
+    if not required_roles:
+        return False
+    assigned = {str(row['role_key']) for row in c.execute(
+        '''SELECT d.role_key FROM role_definitions d
+           JOIN user_role_links l ON l.role_id=d.id WHERE l.user_id=?''', (user['id'],)
+    )}
+    return bool(required_roles & assigned)
 
 
 def begin(c, user, root):

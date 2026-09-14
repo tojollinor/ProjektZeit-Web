@@ -225,12 +225,36 @@ def install(app):
                     admin_controls.require_permission(c,uid,'security.policies.edit')
                     values=body.get('policies') if isinstance(body.get('policies'),dict) else {}
                     previous=admin_controls.policy_values(c)
-                    if values.get('two_factor_mode',previous['two_factor_mode']) not in ('optional','required'):raise ValueError('Ungültiger 2FA-Modus.')
-                    if not 0<=int(values.get('two_factor_grace_days',previous['two_factor_grace_days']))<=365:raise ValueError('Einrichtungsfrist muss 0 bis 365 Tage betragen.')
+                    mode=values.get('two_factor_mode',previous['two_factor_mode'])
+                    if mode not in ('optional','required','roles'):raise ValueError('Ungültiger 2FA-Modus.')
+                    if 'email_mfa_code_length' in values:
+                        values['email_mfa_code_length']=int(values['email_mfa_code_length'])
+                        if not 6<=values['email_mfa_code_length']<=12:raise ValueError('E-Mail-Codes müssen 6 bis 12 Zeichen lang sein.')
+                    if values.get('email_mfa_code_kind',previous['email_mfa_code_kind']) not in ('numeric','alphanumeric'):
+                        raise ValueError('Ungültige Zeichenart für E-Mail-Codes.')
+                    if 'two_factor_required_roles' in values:
+                        if not isinstance(values['two_factor_required_roles'],list):raise ValueError('Bitte gültige Rollen für die 2FA-Pflicht auswählen.')
+                        existing={r['role_key'] for r in c.execute('SELECT role_key FROM role_definitions')}
+                        values['two_factor_required_roles']=sorted({str(key) for key in values['two_factor_required_roles']} & existing)
+                    if mode=='roles' and not values.get('two_factor_required_roles',previous['two_factor_required_roles']):
+                        raise ValueError('Bitte mindestens eine Rolle für die 2FA-Pflicht auswählen.')
+                    email_keys={'email_mfa_code_length','email_mfa_code_kind','email_password_reset_allowed','email_verify_required','notify_password_change','notify_email_change','notify_two_factor_change'}
+                    email_service=__import__('email_runtime')
+                    if any(key in values and values[key]!=previous[key] for key in email_keys) and not email_service.smtp_configured(c):
+                        raise ValueError('E-Mail ist nicht eingerichtet.')
+                    link_keys={'email_password_reset_allowed','email_verify_required'}
+                    if any(key in values and bool(values[key]) and values[key]!=previous[key] for key in link_keys) and not email_service.link_features_configured(c):
+                        raise ValueError('Für E-Mail-Links fehlt die öffentliche ProjektZeit-Adresse (APP_PUBLIC_URL).')
+                    if values.get('email_verify_required',previous['email_verify_required']) and not previous['email_verify_required']:
+                        missing=c.execute("""SELECT u.username FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id
+                                             WHERE u.active=1 AND (p.email IS NULL OR TRIM(p.email)='') ORDER BY u.id LIMIT 1""").fetchone()
+                        if missing:raise ValueError('Vor der verpflichtenden E-Mail-Bestätigung braucht jeder aktive Benutzer eine E-Mail-Adresse (fehlt bei: '+missing['username']+').')
                     for key,default in admin_controls.POLICY_DEFAULTS.items():
                         if key in values and values[key]!=previous[key]:admin_controls.set_setting(c,'policy.'+key,values[key])
-                    if values.get('two_factor_mode')=='required' and previous['two_factor_mode']!='required':
-                        c.execute('DELETE FROM native_sessions');c.execute('DELETE FROM sessions')
+                    roles_changed=values.get('two_factor_required_roles',previous['two_factor_required_roles'])!=previous['two_factor_required_roles']
+                    if mode!=previous['two_factor_mode'] or roles_changed:
+                        c.execute("UPDATE session_activity SET ended_at=?,end_reason='2FA-Richtlinie geändert' WHERE ended_at=''",(app.now_iso(),))
+                        c.execute('DELETE FROM session_mfa');c.execute('DELETE FROM native_sessions');c.execute('DELETE FROM sessions')
                     return self.send_json(200,{'ok':True,'policies':admin_controls.policy_values(c)})
             if path=='/api/v1/admin/user/mfa-reset':
                 with app.db() as c:
@@ -245,6 +269,8 @@ def install(app):
                     c.execute('DELETE FROM native_sessions WHERE token_hash IN (SELECT token_hash FROM sessions WHERE user_id=?)',(target,))
                     c.execute('DELETE FROM sessions WHERE user_id=?',(target,))
                     c.execute('DELETE FROM user_mfa WHERE user_id=?',(target,))
+                    __import__('email_runtime').reset_email_mfa(c,target)
+                    __import__('email_runtime').two_factor_changed(c,app.DATA_DIR,target,False)
                     __import__('system_features').audit(c,uid,uid,'user',target,'mfa_reset',{})
                 return self.send_json(200,{'ok':True})
             if path=='/api/v1/admin/super/settings':
@@ -277,7 +303,9 @@ def install(app):
             if path=='/api/v1/archive/status':
                 with app.db() as c:return self.send_json(200,{'states':provider_archive.sync_states(c,uid)})
             if path=='/api/v1/logs/list':
-                with app.db() as c:return self.send_json(200,{'logs':provider_archive.list_logs(c,uid,str(body.get('category') or ''),str(body.get('level') or ''),body.get('limit',300))})
+                with app.db() as c:
+                    category,level=str(body.get('category') or ''),str(body.get('level') or '')
+                    return self.send_json(200,{'logs':provider_archive.list_logs(c,uid,category,level,body.get('limit',25)),'total':provider_archive.count_logs(c,uid,category,level)})
             if path=='/api/v1/debug/raw':
                 provider=str(body.get('provider') or '').lower()
                 if provider not in provider_archive.PROVIDERS:raise ValueError('Unbekannter Debug-Dienst.')

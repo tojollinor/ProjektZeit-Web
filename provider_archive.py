@@ -65,7 +65,8 @@ def add_log(c, uid, category, level, action, message, details=None):
 
 
 def list_logs(c, uid, category='', level='', limit=300):
-    limit = max(1, min(int(limit or 300), 1000))
+    unlimited = str(limit or '').strip().lower() == 'all'
+    limit = None if unlimited else max(1, min(int(limit or 300), 1000))
     rows = c.execute('SELECT id,category,level,action,message,details_json,created_at FROM operation_logs WHERE owner_id=? ORDER BY id DESC', (uid,))
     out=[]
     for row in rows:
@@ -74,8 +75,20 @@ def list_logs(c, uid, category='', level='', limit=300):
         try: details=json.loads(row['details_json'])
         except Exception: details={}
         out.append(dict(id=row['id'], category=row['category'], level=row['level'], action=row['action'], message=row['message'], details=details, created_at=row['created_at']))
-        if len(out) >= limit: break
+        if limit is not None and len(out) >= limit: break
     return out
+
+
+def count_logs(c, uid, category='', level=''):
+    query = 'SELECT COUNT(*) n FROM operation_logs WHERE owner_id=?'
+    params = [uid]
+    if category:
+        query += ' AND category=?'
+        params.append(category)
+    if level:
+        query += ' AND level=?'
+        params.append(level)
+    return int(c.execute(query, tuple(params)).fetchone()['n'])
 
 
 def _keys(result):

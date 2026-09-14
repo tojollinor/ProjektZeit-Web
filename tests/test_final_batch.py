@@ -19,6 +19,28 @@ class FinalBatchTests(unittest.TestCase):
         self.assertEqual(final._provider_identifier('starface',{'direction':'INBOUND','callerNumber':'+49123','calledNumber':'22'}),('phone','+49123'))
         self.assertEqual(final._provider_identifier('starface',{'direction':'OUTBOUND','callerNumber':'22','calledNumber':'+49456'}),('phone','+49456'))
         self.assertEqual(final._provider_identifier('zammad',{'customer':{'email':'TEST@EXAMPLE.DE'}}),('email','test@example.de'))
+        self.assertEqual(final._provider_identifiers('zammad',{
+            'customer':{'id':42,'email':'TEST@EXAMPLE.DE'},
+            'organization':{'id':9},
+        }),[('email','test@example.de'),('zammad_customer_id','42'),('zammad_organization_id','9')])
+
+    def test_grouped_callback_marks_every_call_once(self):
+        c=sqlite3.connect(':memory:')
+        c.row_factory=sqlite3.Row
+        c.executescript('''
+          CREATE TABLE provider_events(owner_id INTEGER,provider TEXT,external_key TEXT);
+          CREATE TABLE starface_manual_callbacks(owner_id INTEGER,external_key TEXT,marked_by INTEGER,marked_at TEXT,
+            PRIMARY KEY(owner_id,external_key));
+          INSERT INTO provider_events VALUES(7,'starface','call-1');
+          INSERT INTO provider_events VALUES(7,'starface','call-2');
+          INSERT INTO provider_events VALUES(8,'starface','call-3');
+        ''')
+        keys=final.mark_manual_callbacks(c,7,['call-1','call-2','call-1'])
+        self.assertEqual(keys,['call-1','call-2'])
+        self.assertEqual(c.execute('SELECT COUNT(*) n FROM starface_manual_callbacks WHERE owner_id=7').fetchone()['n'],2)
+        with self.assertRaisesRegex(ValueError,'nicht gefunden'):
+            final.mark_manual_callbacks(c,7,['call-1','call-3'])
+        self.assertEqual(c.execute('SELECT COUNT(*) n FROM starface_manual_callbacks WHERE owner_id=7').fetchone()['n'],2)
 
     def test_worktime_totals_are_derived_and_persisted(self):
         c=sqlite3.connect(':memory:')

@@ -8,7 +8,7 @@
  function draw(){
   const bell=q('#notification-bell');if(!bell)return;
   if(!data){bell.textContent='…';bell.setAttribute('aria-busy','true');bell.title='Benachrichtigungen werden geprüft';return;}bell.removeAttribute('aria-busy');
-  bell.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2a6 6 0 0 0-6 6v5l-2 3v2h16v-2l-2-3V8a6 6 0 0 0-6-6M9 20a3 3 0 0 0 6 0z"/></svg><span>'+data.action_count+' offen · '+data.unread+' neu'+'</span>';
+  bell.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2a6 6 0 0 0-6 6v5l-2 3v2h16v-2l-2-3V8a6 6 0 0 0-6-6M9 20a3 3 0 0 0 6 0z"/></svg><span class="notification-count">'+data.action_count+'</span><i class="notification-unread-dot" '+(data.unread?'':'hidden')+' aria-hidden="true"></i>';
   bell.title=data.action_count+' zu bestätigen · '+data.unread+' ungelesen';bell.setAttribute('aria-label','Benachrichtigungen: '+bell.title);
   const root=q('#view-notifications');if(!root?.classList.contains('active-view'))return;
   root.innerHTML='<article class="panel"><div class="panel-head"><h3>Benachrichtigungen</h3><button class="primary" data-inbox-refresh>Aktualisieren</button></div><div class="panel-actions" role="tablist" aria-label="Benachrichtigungen">'+[['action','Zu bestätigen ('+data.action_count+')'],['unread','Ungelesen ('+data.unread+')'],['all','Alle']].map(([key,label])=>'<button role="tab" aria-selected="'+(mode===key)+'" class="'+(mode===key?'primary':'secondary')+'" data-inbox-mode="'+key+'">'+label+'</button>').join('')+'</div><p>Entscheidungen und Nachrichten für dein Konto. Als gelesen markieren verändert keine Genehmigung.</p><div data-inbox-list role="tabpanel"></div></article>';

@@ -147,25 +147,48 @@ def _audit(c,uid,entity_type,entity_id,action,changes=None):
     system_features.audit(c,uid,uid,entity_type,entity_id,action,changes or {})
 
 
-def _provider_identifier(provider,raw,hint=None):
+def _provider_identifiers(provider,raw,hint=None):
     hint=hint or {}
+    found=[]
+    def add(kind,value):
+        value=str(value or '').strip()
+        if kind=='email':value=value.casefold()
+        item=(kind,value)
+        if value and item not in found:found.append(item)
     if provider=='teamviewer':
-        value=raw.get('deviceid') or raw.get('device_id') or hint.get('device_id');return ('teamviewer_id',str(value).strip()) if value not in (None,'') else ('','')
+        add('teamviewer_id',raw.get('deviceid') or raw.get('device_id') or hint.get('device_id'))
     if provider=='starface':
-        direction=str(raw.get('direction') or '').upper();value=raw.get('callerNumber') if direction=='INBOUND' else raw.get('calledNumber');return ('phone',str(value or '').strip())
+        direction=str(raw.get('direction') or '').upper();add('phone',raw.get('callerNumber') if direction=='INBOUND' else raw.get('calledNumber'))
     if provider=='zammad':
-        customer=raw.get('customer') if isinstance(raw.get('customer'),dict) else {};value=customer.get('email') or raw.get('customer_email') or hint.get('email');return ('email',str(value or '').strip().lower())
-    return ('','')
+        customer=raw.get('customer') if isinstance(raw.get('customer'),dict) else {}
+        raw_customer=raw.get('customer') if isinstance(raw.get('customer'),str) else ''
+        add('email',customer.get('email') or customer.get('login'))
+        add('email',raw_customer if '@' in raw_customer else '')
+        add('email',raw.get('customer_email'))
+        add('email',hint.get('email'))
+        add('zammad_customer_id',customer.get('id') or raw.get('customer_id'))
+        organization=raw.get('organization') if isinstance(raw.get('organization'),dict) else {}
+        add('zammad_organization_id',organization.get('id') or raw.get('organization_id'))
+    return found
+
+
+def _provider_identifier(provider,raw,hint=None):
+    values=_provider_identifiers(provider,raw,hint)
+    return values[0] if values else ('','')
 
 
 def _ensure_assignment(c,uid,provider,event):
     key=event.get('external_key') or ''
     current=c.execute('SELECT * FROM provider_assignments WHERE owner_id=? AND provider=? AND external_key=?',(uid,provider,key)).fetchone()
     if current:return dict(current)
-    typ,val=_provider_identifier(provider,event.get('raw') or {},event.get('customer_hint') or {})
+    identifiers=_provider_identifiers(provider,event.get('raw') or {},event.get('customer_hint') or {})
+    typ,val=identifiers[0] if identifiers else ('','')
     customer_id=None
-    if val:
-        link=c.execute('SELECT customer_id FROM customer_identity_links WHERE owner_id=? AND provider=? AND link_type=? AND link_value=?',(uid,provider,typ,val)).fetchone();customer_id=link['customer_id'] if link else None
+    for candidate_type,candidate_value in identifiers:
+        link=c.execute('SELECT customer_id FROM customer_identity_links WHERE owner_id=? AND provider=? AND link_type=? AND link_value=?',(uid,provider,candidate_type,candidate_value)).fetchone();customer_id=link['customer_id'] if link else None
+        if customer_id:
+            typ,val=candidate_type,candidate_value
+            break
     if customer_id:
         c.execute('INSERT INTO provider_assignments(owner_id,provider,external_key,customer_id,project_id,match_type,match_value,assigned_by,assigned_at) VALUES(?,?,?,?,NULL,?,?,NULL,?)',(uid,provider,key,customer_id,typ,val,now_iso()))
         return dict(c.execute('SELECT * FROM provider_assignments WHERE owner_id=? AND provider=? AND external_key=?',(uid,provider,key)).fetchone())
@@ -174,7 +197,9 @@ def _ensure_assignment(c,uid,provider,event):
 
 def enrich_rows(c,uid,provider,result):
     for row in result.get('rows') or []:
-        assignment=_ensure_assignment(c,uid,provider,row);row['assignment']=assignment
+        assignment=_ensure_assignment(c,uid,provider,row)
+        assignment['suggestions']=[{'type':kind,'value':value} for kind,value in _provider_identifiers(provider,row.get('raw') or {},row.get('customer_hint') or {})]
+        row['assignment']=assignment
         if provider=='teamviewer' and assignment.get('customer_id'):
             typ,val=_provider_identifier(provider,row.get('raw') or {},row.get('customer_hint') or {})
             name=str((row.get('raw') or {}).get('devicename') or (row.get('customer_hint') or {}).get('device_name') or '')[:500]
@@ -194,6 +219,19 @@ def _valid_customer(c,uid,cid):
     row=c.execute('SELECT id,name,archived FROM customers WHERE id=?',(int(cid),)).fetchone()
     if not row:raise ValueError('Kunde nicht gefunden.')
     return row
+
+
+def mark_manual_callbacks(c,uid,values):
+    keys=list(dict.fromkeys(str(value or '').strip() for value in values if str(value or '').strip()))
+    if not keys or len(keys)>100:raise ValueError('Bitte eine gültige Anrufgruppe auswählen.')
+    placeholders=','.join('?' for _ in keys)
+    found={r['external_key'] for r in c.execute("SELECT external_key FROM provider_events WHERE owner_id=? AND provider='starface' AND external_key IN ("+placeholders+")",(uid,*keys))}
+    if found!=set(keys):raise ValueError('Mindestens ein Anruf wurde nicht gefunden.')
+    stamp=now_iso()
+    for key in keys:
+        c.execute('DELETE FROM starface_manual_callbacks WHERE owner_id=? AND external_key=?',(uid,key))
+        c.execute('INSERT INTO starface_manual_callbacks(owner_id,external_key,marked_by,marked_at) VALUES(?,?,?,?)',(uid,key,uid,stamp))
+    return keys
 
 
 def install(app):
@@ -270,20 +308,20 @@ def install(app):
                 if path=='/api/v1/customers/link/candidates':
                     cid=int(body.get('customer_id'));_valid_customer(c,uid,cid);provider=str(body.get('provider') or '').lower();typ=str(body.get('link_type') or '').lower();val=str(body.get('link_value') or '').strip().lower() if typ=='email' else str(body.get('link_value') or '').strip();count=0
                     for event in c.execute('SELECT raw_json,hint_json FROM provider_events WHERE owner_id=? AND provider=?',(uid,provider)):
-                        try:et,ev=_provider_identifier(provider,json.loads(event['raw_json'] or '{}'),json.loads(event['hint_json'] or '{}'))
+                        try:identifiers=_provider_identifiers(provider,json.loads(event['raw_json'] or '{}'),json.loads(event['hint_json'] or '{}'))
                         except Exception:continue
-                        if et==typ and ev==val:count+=1
+                        if (typ,val) in identifiers:count+=1
                     return self.send_json(200,{'count':count,'provider':provider,'link_type':typ,'link_value':val})
                 if path=='/api/v1/customers/link/add':
                     admin_controls.require_permission(c,uid,'customers.edit');cid=int(body.get('customer_id'));_valid_customer(c,uid,cid);provider=str(body.get('provider') or '').lower();typ=str(body.get('link_type') or '').lower();val=str(body.get('link_value') or '').strip();display=str(body.get('display_name') or '')[:500]
-                    if provider not in ('zammad','starface','teamviewer') or typ not in ('email','phone','teamviewer_id') or not val:raise ValueError('Ungültige Verknüpfung.')
+                    if provider not in ('zammad','starface','teamviewer') or typ not in ('email','phone','teamviewer_id','zammad_customer_id','zammad_organization_id') or not val:raise ValueError('Ungültige Verknüpfung.')
                     if typ=='email':val=val.lower()
                     previous=c.execute('SELECT customer_id FROM customer_identity_links WHERE owner_id=? AND provider=? AND link_type=? AND link_value=?',(uid,provider,typ,val)).fetchone();c.execute('DELETE FROM customer_identity_links WHERE owner_id=? AND provider=? AND link_type=? AND link_value=?',(uid,provider,typ,val));cur=c.execute('INSERT INTO customer_identity_links(owner_id,customer_id,provider,link_type,link_value,display_name,created_by,created_at) VALUES(?,?,?,?,?,?,?,?)',(uid,cid,provider,typ,val,display,uid,now_iso()))
                     matched=0
                     for event in list(c.execute('SELECT external_key,raw_json,hint_json FROM provider_events WHERE owner_id=? AND provider=?',(uid,provider))):
-                        try:et,ev=_provider_identifier(provider,json.loads(event['raw_json'] or '{}'),json.loads(event['hint_json'] or '{}'))
+                        try:identifiers=_provider_identifiers(provider,json.loads(event['raw_json'] or '{}'),json.loads(event['hint_json'] or '{}'))
                         except Exception:continue
-                        if et==typ and ev==val:
+                        if (typ,val) in identifiers:
                             old=c.execute('SELECT project_id FROM provider_assignments WHERE owner_id=? AND provider=? AND external_key=?',(uid,provider,event['external_key'])).fetchone();pid=old['project_id'] if old else None
                             if old:continue
                             c.execute('DELETE FROM provider_assignments WHERE owner_id=? AND provider=? AND external_key=?',(uid,provider,event['external_key']));c.execute('INSERT INTO provider_assignments(owner_id,provider,external_key,customer_id,project_id,match_type,match_value,assigned_by,assigned_at) VALUES(?,?,?,?,?,?,?,?,?)',(uid,provider,event['external_key'],cid,pid,typ,val,uid,now_iso()));matched+=1
@@ -295,14 +333,17 @@ def install(app):
                 if path=='/api/v1/provider/assign/customer':
                     provider=str(body.get('provider') or '').lower();key=str(body.get('external_key') or '');cid=int(body.get('customer_id'));_valid_customer(c,uid,cid);ev=c.execute('SELECT raw_json,hint_json FROM provider_events WHERE owner_id=? AND provider=? AND external_key=?',(uid,provider,key)).fetchone()
                     if not ev:raise ValueError('Eintrag nicht gefunden.')
-                    raw=json.loads(ev['raw_json'] or '{}');hint=json.loads(ev['hint_json'] or '{}');typ,val=_provider_identifier(provider,raw,hint)
+                    raw=json.loads(ev['raw_json'] or '{}');hint=json.loads(ev['hint_json'] or '{}');identifiers=_provider_identifiers(provider,raw,hint)
+                    requested=(str(body.get('match_type') or ''),str(body.get('match_value') or '').strip())
+                    if requested[0]=='email':requested=(requested[0],requested[1].casefold())
+                    typ,val=requested if requested in identifiers else (identifiers[0] if identifiers else ('',''))
                     if not typ or not val:raise ValueError('Für diesen Eintrag wurde kein stabiles Zuordnungsmerkmal gefunden.')
                     display=str(raw.get('devicename') or hint.get('device_name') or '')[:500];c.execute('DELETE FROM customer_identity_links WHERE owner_id=? AND provider=? AND link_type=? AND link_value=?',(uid,provider,typ,val));c.execute('INSERT INTO customer_identity_links(owner_id,customer_id,provider,link_type,link_value,display_name,created_by,created_at) VALUES(?,?,?,?,?,?,?,?)',(uid,cid,provider,typ,val,display,uid,now_iso()))
                     matched=0
                     for event in list(c.execute('SELECT external_key,raw_json,hint_json FROM provider_events WHERE owner_id=? AND provider=?',(uid,provider))):
-                        try:et,evv=_provider_identifier(provider,json.loads(event['raw_json'] or '{}'),json.loads(event['hint_json'] or '{}'))
+                        try:other_identifiers=_provider_identifiers(provider,json.loads(event['raw_json'] or '{}'),json.loads(event['hint_json'] or '{}'))
                         except Exception:continue
-                        if et==typ and evv==val:
+                        if (typ,val) in other_identifiers:
                             old=c.execute('SELECT project_id FROM provider_assignments WHERE owner_id=? AND provider=? AND external_key=?',(uid,provider,event['external_key'])).fetchone();pid=old['project_id'] if old else None
                             if old:continue
                             c.execute('DELETE FROM provider_assignments WHERE owner_id=? AND provider=? AND external_key=?',(uid,provider,event['external_key']));c.execute('INSERT INTO provider_assignments(owner_id,provider,external_key,customer_id,project_id,match_type,match_value,assigned_by,assigned_at) VALUES(?,?,?,?,?,?,?,?,?)',(uid,provider,event['external_key'],cid,pid,typ,val,uid,now_iso()));matched+=1
@@ -314,9 +355,9 @@ def install(app):
                     result=time_workspace.assign(c,uid,{'project_id':pid,'items':[{'source':provider,'key':key}],'confirm_reassign':body.get('confirm_reassign') is True})
                     return self.send_json(200,result)
                 if path=='/api/v1/starface/callback/manual':
-                    key=str(body.get('external_key') or '')
-                    if not c.execute("SELECT 1 FROM provider_events WHERE owner_id=? AND provider='starface' AND external_key=?",(uid,key)).fetchone():raise ValueError('Anruf nicht gefunden.')
-                    c.execute('DELETE FROM starface_manual_callbacks WHERE owner_id=? AND external_key=?',(uid,key));c.execute('INSERT INTO starface_manual_callbacks(owner_id,external_key,marked_by,marked_at) VALUES(?,?,?,?)',(uid,key,uid,now_iso()));_audit(c,uid,'starface_call',key,'manually_called_back',{});return self.send_json(200,{'ok':True})
+                    supplied=body.get('external_keys') if isinstance(body.get('external_keys'),list) else [body.get('external_key')]
+                    keys=mark_manual_callbacks(c,uid,supplied)
+                    _audit(c,uid,'starface_call_group',keys[0],'manually_called_back',{'count':len(keys)});return self.send_json(200,{'ok':True,'marked':len(keys)})
                 if path=='/api/v1/customers/archive':
                     admin_controls.require_permission(c,uid,'customers.archive');cid=int(body.get('customer_id'));_valid_customer(c,uid,cid);state=1 if body.get('archived',True) else 0;c.execute('UPDATE customers SET archived=? WHERE id=?',(state,cid));_audit(c,uid,'customer',cid,'archived' if state else 'restored',{});return self.send_json(200,{'ok':True,'archived':bool(state)})
                 if path=='/api/v1/customers/delete':
