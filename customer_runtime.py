@@ -176,7 +176,7 @@ def install(app):
       '/api/v1/customers/contact-phone','/api/v1/customers/device','/api/v1/customers/workshop','/api/v1/customers/zammad-organization',
       '/api/v1/customers/timeline','/api/v1/customers/master','/api/v1/starface/users','/api/v1/starface/users/save','/api/v1/archive/sync','/api/v1/archive/status',
       '/api/v1/logs/list','/api/v1/debug/raw','/api/v1/zammad/organizations/refresh',
-      '/api/v1/admin/context','/api/v1/admin/role/save','/api/v1/admin/role/clone','/api/v1/admin/role/delete','/api/v1/admin/role/reset-user',
+      '/api/v1/admin/user/mfa-reset','/api/v1/admin/context','/api/v1/admin/role/save','/api/v1/admin/role/clone','/api/v1/admin/role/delete','/api/v1/admin/role/reset-user',
       '/api/v1/admin/user/profile','/api/v1/admin/user/roles','/api/v1/admin/policies/save','/api/v1/admin/super/settings',
       '/api/v1/admin/smtp/save','/api/v1/admin/smtp/test','/api/v1/admin/smtp/check','/api/v1/admin/user/create'
     }
@@ -221,10 +221,25 @@ def install(app):
                     if values.get('two_factor_mode')=='required' and previous['two_factor_mode']!='required':
                         c.execute('DELETE FROM native_sessions');c.execute('DELETE FROM sessions')
                     return self.send_json(200,{'ok':True,'policies':admin_controls.policy_values(c)})
+            if path=='/api/v1/admin/user/mfa-reset':
+                with app.db() as c:
+                    admin_controls.require_permission(c,uid,'security.2fa.reset_user')
+                    target=int(body.get('user_id') or 0)
+                    if target==uid:raise ValueError('Eigene 2FA nicht über die Benutzerverwaltung zurücksetzen. Bitte Wiederherstellungscode verwenden.')
+                    user=c.execute('SELECT role FROM users WHERE id=?',(target,)).fetchone()
+                    if not user:raise ValueError('Benutzer nicht gefunden.')
+                    if user['role']=='admin' or not admin_controls.setting(c,'security.admin_may_reset_2fa',True):
+                        admin_controls.require_permission(c,uid,'system.options.edit')
+                    c.execute('DELETE FROM session_mfa WHERE token_hash IN (SELECT token_hash FROM sessions WHERE user_id=?)',(target,))
+                    c.execute('DELETE FROM native_sessions WHERE token_hash IN (SELECT token_hash FROM sessions WHERE user_id=?)',(target,))
+                    c.execute('DELETE FROM sessions WHERE user_id=?',(target,))
+                    c.execute('DELETE FROM user_mfa WHERE user_id=?',(target,))
+                    __import__('system_features').audit(c,uid,target,'user',target,'mfa_reset',{})
+                return self.send_json(200,{'ok':True})
             if path=='/api/v1/admin/super/settings':
                 with app.db() as c:
-                    if not admin_controls.is_superadmin(c,uid):return self.send_json(404,{'error':'Nicht gefunden'})
-                    admin_controls.set_setting(c,'superadmin.admin_may_reset_2fa',bool(body.get('admin_may_reset_2fa')))
+                    admin_controls.require_permission(c,uid,'system.options.edit')
+                    admin_controls.set_setting(c,'security.admin_may_reset_2fa',bool(body.get('admin_may_reset_2fa')))
                     return self.send_json(200,{'ok':True})
             if path=='/api/v1/admin/smtp/save':
                 with app.db() as c:admin_controls.save_smtp(c,uid,body,app.DATA_DIR);return self.send_json(200,{'ok':True,'smtp':admin_controls.smtp_public(c)})

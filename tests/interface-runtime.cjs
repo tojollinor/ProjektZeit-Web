@@ -1,0 +1,57 @@
+// Real runtime + local DOM regression. No external provider or production account.
+const {JSDOM,VirtualConsole}=require('jsdom'),fs=require('node:fs'),assert=require('node:assert/strict'),os=require('node:os'),path=require('node:path'),{spawn}=require('node:child_process');
+const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pz-interface-'));
+const server=spawn('python',['-u','-c',`import runtime,json
+app=runtime.initialize()
+import zammad_cache_runtime as zc
+with app.db() as c:
+ uid=c.execute('SELECT id FROM users').fetchone()['id']
+ for i,state in enumerate(['open','closed','pending reminder'],1):
+  zc._upsert(c,uid,{'id':i,'number':str(i),'title':'Ticket '+str(i),'customer':{'email':'ticket'+str(i)+'@example.invalid'},'state':state,'updated_at':'2026-09-10T08:00:00Z'},'fixture')
+ import customer_data
+ customer_data.cache_rows(c,uid,'zammad',zc.cached_list(c,uid))
+server=app.ThreadingHTTPServer(('127.0.0.1',0),app.App)
+print(json.dumps({'port':server.server_port}),flush=True)
+server.serve_forever()`],{env:{...process.env,DATA_DIR:dir,DB_BACKEND:'sqlite',DEMO_MODE:'1',SEED_DEMO:'0',ADMIN_USER:'uitest',ADMIN_PASSWORD:'interface-test-password'}});
+let stderr='',page,done=false;server.stderr.on('data',b=>stderr+=b);
+const watchdog=setTimeout(()=>{console.error('Interface runtime timed out',stderr.slice(-2500));process.exitCode=1;cleanup();},30000);
+function cleanup(){done=true;clearTimeout(watchdog);if(page){page.window.setTimeout(()=>page.window.close(),300);}server.kill();fs.rmSync(dir,{recursive:true,force:true});}
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+async function until(check,label){for(let i=0;i<80;i++){if(check())return;await sleep(50);}throw new Error('Timed out: '+label+' '+page?.window.document.querySelector('dialog.ui-dialog [role=alert]')?.textContent);}
+(async()=>{const port=await new Promise((resolve,reject)=>{let text='';server.stdout.on('data',b=>{text+=b;for(const line of text.split('\n'))try{const x=JSON.parse(line);if(x.port)resolve(x.port);}catch{}});server.on('exit',()=>{if(!done)reject(new Error(stderr));});});const base='http://127.0.0.1:'+port;
+const login=await fetch(base+'/api/v1/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:'uitest',password:'interface-test-password'})});assert.equal(login.status,200);const cookie=login.headers.get('set-cookie').split(';')[0];const calls=[],errors=[];
+const me=await fetch(base+'/api/v1/me',{headers:{Cookie:cookie}}).then(r=>r.json());
+const api=async(route,body={})=>{const r=await fetch(base+route,{method:'POST',headers:{Cookie:cookie,'Content-Type':'application/json','X-CSRF-Token':me.csrf},body:JSON.stringify(body)});const data=await r.json();assert.equal(r.ok,true,route+': '+JSON.stringify(data));return data;};
+const customer=await api('/api/v1/customers/profile',{name:'DOM Kunde',email:'test@example.invalid',phones:[]});
+const project=await api('/api/v1/projects',{name:'DOM Projekt',customer_id:customer.customer_id});
+await api('/api/v1/provider/assign/customer',{provider:'zammad',external_key:'zammad:id:2',customer_id:customer.customer_id});const vc=new VirtualConsole();vc.on('jsdomError',e=>{if(!/Could not load|Not implemented: navigation/.test(e.message))errors.push(e.message);});
+page=await JSDOM.fromURL(base,{resources:'usable',runScripts:'dangerously',pretendToBeVisual:true,virtualConsole:vc,beforeParse(w){w.fetch=async(url,opts={})=>{calls.push({url:String(url),body:opts.body});const r=await fetch(new URL(url,base),{...opts,headers:{...Object.fromEntries(new Headers(opts.headers)),Cookie:cookie}});if(!r.ok)console.error(String(url),r.status,await r.clone().text());return r;};w.Headers=Headers;w.Response=Response;w.Request=Request;w.AbortController=AbortController;w.confirm=()=>true;w.prompt=()=>null;w.scrollTo=()=>{};w.HTMLElement.prototype.scrollIntoView=()=>{};w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};w.HTMLDialogElement.prototype.close=function(){this.open=false;this.dispatchEvent(new w.Event('close'));};w.addEventListener('error',e=>errors.push(e.error?.stack||e.message));w.addEventListener('unhandledrejection',e=>errors.push(String(e.reason)));}});
+const w=page.window,q=s=>w.document.querySelector(s);
+await until(()=>w.pzAdmin&&q('[data-dashboard-edit]'),'initial page');
+await w.pzAdmin.open('users');await until(()=>q('[data-user-select]'),'users initial load');assert.ok(q('[data-add-user]'));assert.equal(w.document.querySelectorAll('.role-card').length,1);
+q('[data-user-tab=work]').click();await until(()=>q('[data-user-pane=work]').textContent.includes('Urlaub'),'employee work tab');
+await w.pzAdmin.open('api');await until(()=>q('[data-admin-pane=api] [data-api-create]'),'API pane');assert.equal(q('[data-admin-pane=api]').classList.contains('hidden'),false);
+await w.pzAdmin.open('super');assert.match(q('[data-admin-pane=super]').textContent,/Systemzugang/);await sleep(400);assert.equal(q('[data-admin-pane=super]').classList.contains('hidden'),false);
+await w.pzAdmin.open('roles');assert.equal(w.document.querySelectorAll('.role-card').length,1);assert.ok(q('[data-add-role]'));
+await w.pzAdmin.open('users');q('[data-add-user]').click();const form=q('dialog.ui-dialog form');form.elements.username.value='NeuerTechniker';form.elements.password.value='new-interface-password';form.dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));await until(()=>[...q('[data-user-select]').options].some(o=>o.text==='NeuerTechniker'),'user persisted');
+const roleSearch=q('.role-picker input');roleSearch.focus();roleSearch.value='Benutzer';roleSearch.dispatchEvent(new w.Event('input',{bubbles:true}));assert.ok(q('.role-chip'));
+q('[data-dashboard-edit]').click();const height=q('[data-widget-height=stats]');height.value='600';height.dispatchEvent(new w.Event('input',{bubbles:true}));q('[data-widget-editor-save]').click();await until(()=>q('[data-dashboard-widget=stats]').style.getPropertyValue('--widget-height')==='600px','widget size saved');assert.equal(q('.dashboard-grid').children.length,4);
+await w.openCustomer(customer.customer_id);await until(()=>q('.customer-detail-dialog [data-tab=projects]'),'customer projects tab');q('.customer-detail-dialog [data-tab=projects]').click();await until(()=>q('.customer-detail-dialog').textContent.includes('DOM Projekt'),'linked active project');assert.ok(q('[data-customer-project-new]'));
+q('.customer-detail-dialog').close();w.showView('projects');await sleep(300);assert.equal(q('#customer-form'),null);assert.equal(q('#category-form'),null);
+q('.nav[data-view=zammad]').click();await until(()=>q('#view-zammad tbody').children.length===3,'cached ticket rows');await sleep(400);
+assert.equal(q('#view-zammad [data-range]'),null);const ticketRows=[...w.document.querySelectorAll('#view-zammad tbody tr')];assert.equal(ticketRows.find(r=>r._pzRow.ticket_id==='2').dataset.pzAssigned,'blue');for(const row of ticketRows){assert.equal(row.querySelectorAll('[data-pz-assign-button]').length,1);assert.ok(row.querySelector('.pz-assignment-dot'));}const requestCount=calls.filter(x=>x.url.includes('/integrations/list')).length;
+q('#view-zammad [data-filter=open]').click();await sleep(100);assert.equal(ticketRows.filter(r=>!r.hidden).length,1);assert.match(q('#view-zammad .list-status').textContent,/1 von 3/);assert.equal(calls.filter(x=>x.url.includes('/integrations/list')).length,requestCount);
+q('#view-zammad [data-filter=all]').click();q('#view-zammad input[type=search]').value='Ticket 2';q('#view-zammad input[type=search]').dispatchEvent(new w.Event('input',{bubbles:true}));await sleep(150);assert.equal(q('#view-zammad tbody tr')._pzRow.raw.title,'Ticket 2');
+q('.nav[data-view=starface]').click();await until(()=>q('.provider-connect-dialog').open,'STARFACE blocking dialog');assert.match(q('[data-provider-connect-message]').textContent,/Client Secret/);assert.equal(q('[data-provider-connect-yes]').hidden,true);
+const newUser=(await api('/api/v1/admin/context')).users.find(u=>u.username==='NeuerTechniker');await api('/api/v1/admin/user/mfa-reset',{user_id:newUser.id});
+// Mandatory enrollment is enforced through the complete runtime, including native login.
+await api('/api/v1/admin/policies/save',{policies:{two_factor_mode:'required',two_factor_grace_days:0}});
+assert.equal((await fetch(base+'/api/v1/me',{headers:{Cookie:cookie}})).status,401);
+const sign=body=>fetch(base+'/api/v1/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:'NeuerTechniker',password:'new-interface-password',...body})});
+const challengeResponse=await sign({}),challenge=await challengeResponse.json();assert.equal(challenge.enrollment_required,true);assert.equal(challengeResponse.headers.get('set-cookie'),null);
+const crypto=require('node:crypto'),alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';let bits='';for(const char of challenge.secret.replace(/=/g,''))bits+=alphabet.indexOf(char).toString(2).padStart(5,'0');const bytes=Buffer.from((bits.match(/.{8}/g)||[]).map(b=>parseInt(b,2))),counter=Buffer.alloc(8);counter.writeBigUInt64BE(BigInt(Math.floor(Date.now()/30000)));const hash=crypto.createHmac('sha1',bytes).update(counter).digest(),offset=hash[19]&15,otp=String((hash.readUInt32BE(offset)&0x7fffffff)%1000000).padStart(6,'0');
+const verified=await sign({otp}),verifiedBody=await verified.json();assert.equal(verifiedBody.ok,true);assert.equal(verifiedBody.recovery_codes.length,8);const verifiedCookie=verified.headers.get('set-cookie').split(';')[0];assert.equal((await fetch(base+'/api/v1/me',{headers:{Cookie:verifiedCookie}})).status,200);
+const native=await fetch(base+'/api/v1/auth/token',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:'NeuerTechniker',password:'new-interface-password'})});assert.equal((await native.json()).mfa_required,true);
+assert.equal((await sign({otp})).status,401,'OTP cannot be reused');
+assert.deepEqual(errors,[],JSON.stringify(errors));console.log('Interface runtime: first admin load, roles, employee work settings, API, Systemschutz, user creation, dashboard heights, customer projects STARFACE guard, local ticket filters and enforced web/native 2FA passed');
+})().catch(e=>{console.error(e);console.error(stderr.slice(-1800));process.exitCode=1;}).finally(cleanup);

@@ -52,4 +52,5 @@ def check(settings, password, recipient=None):
             try:
                 client.quit()
             except Exception:
-                client.close()
+                try:client.close()
+                except Exception:pass

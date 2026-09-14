@@ -424,5 +424,5 @@ def admin_context(c, uid):
         'users':list_users(c,uid) if (superuser or 'users.view' in perms) else [],
         'policies':policy_values(c) if (superuser or 'security.policies.view' in perms) else {},
         'smtp':smtp_public(c) if (superuser or 'smtp.view' in perms) else {},
-        'superadmin_settings':({'admin_may_reset_2fa':bool(setting(c,'superadmin.admin_may_reset_2fa',True))} if superuser else {}),
+        'superadmin_settings':({'admin_may_reset_2fa':bool(setting(c,'security.admin_may_reset_2fa',True))} if can(c,uid,'system.options.edit') else {}),
     }

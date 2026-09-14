@@ -52,6 +52,11 @@ def _last_log(c, uid, provider):
 
 def _starface_client_secret(app,c,uid):
     try:
+        central=c.execute('SELECT client_secret FROM starface_system_config WHERE id=1').fetchone()
+        if central and central['client_secret']:return True
+    except Exception:
+        pass
+    try:
         row=c.execute('SELECT domain,username FROM integrations WHERE owner_id=? AND provider=?',(uid,'starface')).fetchone()
         if not row or not row['domain'] or not row['username']:
             return False
@@ -105,10 +110,10 @@ def provider_status(app, c, uid, provider):
     elif connected:
         reason='connected';detail='Verbindung ist eingerichtet.'
     elif not configured_server or not credentials:
-        reason='interrupted' if ever else 'missing'
+        reason=('expired' if ever else 'missing') if provider=='starface' else ('interrupted' if ever else 'missing')
         detail='Verbindung wurde unterbrochen.' if ever else 'Verbindung wurde noch nicht eingerichtet.'
     else:
-        reason='interrupted';detail=access['message'] or (last.get('message') if last else '') or 'Verbindung wurde unterbrochen.'
+        reason=('expired' if access['state']=='invalid' else 'unavailable') if provider=='starface' else 'interrupted';detail=access['message'] or (last.get('message') if last else '') or 'Verbindung wurde unterbrochen.'
     result={'provider':provider,'connected':connected,'reason':reason,'label':'Verbunden' if connected else 'Nicht verbunden',
             'detail':detail,'configured':bool(configured_server and credentials),'ever_configured':ever,
             'checked_at':access['checked_at'] or (last.get('created_at') if last else '')}

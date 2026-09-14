@@ -8,6 +8,8 @@ import app
 import admin_controls as acl
 import auth_mfa
 import smtp_service
+import next_batch_runtime
+import provider_nav_runtime
 import test_workday as fixtures
 
 
@@ -64,6 +66,21 @@ class InterfaceServicesTest(unittest.TestCase):
             self.assertTrue(result['_mfa_verified'])
             c.execute('INSERT INTO session_mfa(token_hash) VALUES(?)',('verified-session',))
             self.assertTrue(auth_mfa.session_allowed(c,self.user,'verified-session'))
+
+    def test_dashboard_legacy_layout_and_height_bounds(self):
+        layout=next_batch_runtime.dashboard_layout(['stats','missed_calls'])
+        self.assertIn('timeline',layout['widgets']);self.assertIn('entries',layout['widgets'])
+        layout=next_batch_runtime.dashboard_layout({'widgets':['entries','invalid','entries'],'heights':{'entries':9000,'stats':-1,'timeline':None}})
+        self.assertEqual(layout['widgets'],['entries']);self.assertEqual(layout['heights']['entries'],1200);self.assertEqual(layout['heights']['stats'],240)
+        self.assertEqual(layout['heights']['timeline'],420)
+
+    def test_central_starface_secret_without_personal_login(self):
+        with app.db() as c:
+            c.execute('CREATE TABLE IF NOT EXISTS starface_system_config(id INTEGER PRIMARY KEY,domain TEXT,client_secret TEXT)')
+            c.execute('INSERT INTO starface_system_config VALUES(1,?,?)',('https://pbx.invalid','encrypted-secret'))
+            self.assertTrue(provider_nav_runtime._starface_client_secret(app,c,self.uid))
+            status=provider_nav_runtime.provider_status(app,c,self.uid,'starface')
+            self.assertEqual(status['reason'],'missing');self.assertFalse(status['connected'])
 
     def test_category_default_is_one_time_and_profile_keeps_last_login(self):
         with app.db() as c:

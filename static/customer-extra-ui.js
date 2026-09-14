@@ -7,10 +7,10 @@
  function callPhone(number){if(!number)return;if(confirm(`${number} jetzt anrufen?`))location.href='tel:'+String(number).replace(/[^+\d]/g,'');}
  function locationCard(x){return `<button type="button" class="customer-location-card" data-location-id="${x.id}"><strong>${h(x.name)}</strong><small>${address(x).map(h).join(' · ')||'Keine Adresse'}</small>${x.phone?`<span>☎ ${h(x.phone)}</span>`:''}</button>`;}
  async function renderExtra(id){
-  const root=q('.customer-detail-dialog [data-detail]');if(!root)return;
+  const root=q('.customer-detail-dialog [data-detail]');if(!root||root.dataset.customerId!==String(id))return;
   try{
-   const [detail,extra]=await Promise.all([post('/api/v1/customers/detail',{id}),post('/api/v1/customers/extended',{customer_id:id})]),c=detail.customer||{},m=c.master||{};
-   q('[data-customer-quick]',root)?.remove();q('[data-customer-extra-master]',root)?.remove();
+   const [detail,extra]=await Promise.all([loadCustomerDetail(id),post('/api/v1/customers/extended',{customer_id:id})]),c=detail.customer||{},m=c.master||{};
+   if(root.dataset.customerId!==String(id))return;q('[data-customer-quick]',root)?.remove();q('[data-customer-extra-master]',root)?.remove();
    const quick=document.createElement('section');quick.dataset.customerQuick='';quick.className='customer-quick-card';
    const companyAddress=address(m),fallback=(c.contacts||[]).find(x=>(x.phones||[]).length),phone=(c.phones||[])[0]||fallback?.phones?.[0];
    quick.innerHTML=`<div><p class="eyebrow">KUNDE</p><h3>${h(c.name||'')}</h3>${companyAddress.length?`<address>${companyAddress.map(h).join('<br>')}</address>`:''}</div>${phone?`<button class="customer-quick-phone" type="button" data-quick-phone="${a(phone.number)}">${!(c.phones||[]).length&&fallback?`<small>${h(fallback.name)}</small>`:''}<strong>${h(phone.number)}</strong></button>`:''}${(extra.locations||[]).length?`<div class="customer-location-strip"><small>Betriebsstätten</small><div>${extra.locations.map(locationCard).join('')}</div></div>`:''}`;
@@ -27,6 +27,6 @@
   }catch(e){notify(`Kundendetails konnten nicht erweitert werden: ${e.message}`,'error');}
  }
  if(typeof openCustomer==='function'){const old=openCustomer;openCustomer=async function(id){await old(id);await renderExtra(id);};}
- async function patchOverview(){let data;try{data=await post('/api/v1/customers/data',{});}catch(_){return;}const customers=data.customers||[];for(const el of qa('.muted,small,p,span')){if(!/keine firmenrufnummer/i.test((el.textContent||'').trim()))continue;const host=el.closest('[data-customer-id],article,section,li');let cid=Number(host?.dataset?.customerId||0),c=customers.find(x=>x.id===cid);if(!c&&host){const text=host.textContent||'';c=customers.find(x=>text.includes(x.name));}const contact=(c?.contacts||[]).find(x=>(x.phones||[]).length),phone=contact?.phones?.[0];if(!phone)continue;const box=document.createElement('button');box.type='button';box.className='customer-fallback-phone';box.innerHTML=`<small>${h(contact.name)}</small><strong>${h(phone.number)}</strong>`;box.onclick=()=>callPhone(phone.number);el.replaceWith(box);}}
- let scheduled=false;new MutationObserver(()=>{if(scheduled)return;scheduled=true;setTimeout(()=>{scheduled=false;patchOverview();},350);}).observe(document.body,{childList:true,subtree:true});setTimeout(patchOverview,700);
+ async function patchOverview(){let data;try{data=await loadCustomerCache();}catch(_){return;}const customers=data.customers||[];for(const el of qa('.muted,small,p,span',q('[data-customer-list]')||document.createElement('div'))){if(!/keine firmenrufnummer/i.test((el.textContent||'').trim()))continue;const host=el.closest('[data-customer-id],article,section,li');let cid=Number(host?.dataset?.customerId||0),c=customers.find(x=>x.id===cid);if(!c&&host){const text=host.textContent||'';c=customers.find(x=>text.includes(x.name));}const contact=(c?.contacts||[]).find(x=>(x.phones||[]).length),phone=contact?.phones?.[0];if(!phone)continue;const box=document.createElement('button');box.type='button';box.className='customer-fallback-phone';box.innerHTML=`<small>${h(contact.name)}</small><strong>${h(phone.number)}</strong>`;box.onclick=()=>callPhone(phone.number);el.replaceWith(box);}}
+ let scheduled=false;const overview=q('[data-customer-list]');if(overview)new MutationObserver(()=>{if(scheduled)return;scheduled=true;setTimeout(()=>{scheduled=false;patchOverview();},350);}).observe(overview,{childList:true});setTimeout(patchOverview,700);
 })();

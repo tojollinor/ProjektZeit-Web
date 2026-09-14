@@ -72,6 +72,24 @@ class StaffTimeTest(unittest.TestCase):
         rid=self.request('vacation','2026-09-07',approve=False)
         with app.db() as c:
             with self.assertRaisesRegex(PermissionError,'Eigengenehmigung'):st.decide(c,self.uid,dict(id=rid,version=1,approve=True))
+    def test_open_shift_never_appears_on_future_days(self):
+        with app.db() as c:
+            c.execute('INSERT INTO work_sessions(owner_id,started_at) VALUES(?,?)',(self.uid,'2026-09-11T06:00:00+00:00'))
+            r=st.tracking_report(c,self.uid,{'day':'2026-09-14','mode':'week'})
+            self.assertTrue(all(not d['work'] for d in r['days']))
+            self.assertTrue(all(d['posted_seconds']==0 for d in r['days']))
+            r=st.tracking_report(c,self.uid,{'day':'2026-09-13','mode':'day'})
+            self.assertEqual(len(r['days'][0]['work']),1)
+            self.assertEqual(r['days'][0]['work'][0]['start'],'2026-09-12T22:00:00+00:00')
+
+    def test_vacation_editor_reads_real_entitlement_and_enforces_permission(self):
+        with app.db() as c:
+            st.account(c,self.uid,{'user_id':self.uid,'year':2026,'days':28.5,'carry':2})
+            r=st.handle(c,self.uid,'account/read',{'year':2026})
+            self.assertEqual(r['days'],28.5);self.assertEqual(r['carry'],2)
+            other=admin_controls.create_user(c,self.uid,{'username':'normal','password':'long-enough-password'},app.hash_password)
+            with self.assertRaises(PermissionError):st.handle(c,other,'account/read',{'user_id':self.uid,'year':2026})
+
     def test_payout_cannot_exceed_booked_balance(self):
         with app.db() as c:
             with self.assertRaisesRegex(ValueError,'Nicht genügend'):st.movement(c,self.uid,dict(user_id=self.uid,day='2026-09-13',hours=100,kind='payout',note='Test'))

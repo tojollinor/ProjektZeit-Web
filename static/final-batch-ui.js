@@ -3,7 +3,6 @@
  const h=v=>typeof esc==='function'?esc(v):String(v??'');
  const a=v=>typeof attr==='function'?attr(v):h(v).replaceAll('"','&quot;');
  const notify=(m,l='info',t=5000)=>window.pzToast?window.pzToast(m,l,t):null;
- const providerRows={zammad:[],starface:[],teamviewer:[]};
  let context=null,customers=null,lastCustomerRetry=0;
 
  async function pzPost(path,body={}){
@@ -22,11 +21,7 @@
   const next=own?{...init,signal:controller.signal}:init;
   const timer=own?setTimeout(()=>controller.abort(),15000):null;
   const promise=nativeFetch(input,next);
-  promise.then(response=>{
-   if(/\/api\/v1\/integrations\/list/.test(url)){
-    try{const body=JSON.parse(init.body||'{}'),provider=body.provider;if(providerRows[provider])response.clone().json().then(data=>{if(Array.isArray(data.rows)){providerRows[provider]=data.rows;setTimeout(()=>decorateProvider(provider),0);}}).catch(()=>{});}catch(_){}
-   }
-  }).catch(()=>{}).finally(()=>{if(timer)clearTimeout(timer);});
+  promise.catch(()=>{}).finally(()=>{if(timer)clearTimeout(timer);});
   return promise;
  };
 
@@ -108,19 +103,20 @@
  async function openProviderDetail(provider,row){
   await getContext().catch(()=>{});q('[data-pz-detail-title]',detail).textContent=`${provider==='starface'?'STARFACE':provider==='teamviewer'?'TeamViewer':'Zammad'} · Details`;const body=q('[data-pz-detail-body]',detail),as=row.assignment||{};
   const customer=as.customer_name?`<div class="pz-assignment-fact"><small>Kunde</small>${can('customers.view_basic')?`<button type="button" class="pz-customer-link" data-open-customer="${as.customer_id}">${h(as.customer_name)}</button>`:`<strong>${h(as.customer_name)}</strong>`}${as.match_value?`<span>über ${h(as.match_value)}</span>`:''}</div>`:'';
-  body.innerHTML=`<div class="pz-detail-assignment"><span class="pz-assignment-dot ${assignmentState(row)}"></span>${customer}${as.project_name?`<div class="pz-assignment-fact"><small>Projekt</small><strong>${h(as.project_name)}</strong></div>`:''}<div class="panel-actions">${!as.customer_id?'<button class="primary" data-detail-customer>Kunden zuordnen</button>':''}<button class="secondary" data-detail-project>Projekt zuordnen</button></div></div><dl class="pz-raw-fields">${Object.entries(row.raw||{}).sort(([x],[y])=>x.localeCompare(y)).map(([k,v])=>`<dt>${h(k)}</dt><dd>${h(typeof v==='object'?JSON.stringify(v):v)}</dd>`).join('')}</dl>`;
+  body.innerHTML=`<div class="pz-detail-assignment"><span class="pz-assignment-dot ${assignmentState(row)}"></span>${customer}${as.project_name?`<div class="pz-assignment-fact"><small>Projekt</small><strong>${h(as.project_name)}</strong></div>`:''}<div class="panel-actions">${!as.customer_id?'<button class="primary" data-detail-customer>Kunden zuordnen</button>':''}<button class="secondary" data-detail-project>Projekt zuordnen</button></div></div><dl class="pz-raw-fields">${Object.entries(row.raw||{}).filter(([k])=>!/assigned|billing_state|user_id|token|secret/i.test(k)).sort(([x],[y])=>x.localeCompare(y)).map(([k,v])=>`<dt>${h(k)}</dt><dd>${h(typeof v==='object'?JSON.stringify(v):v)}</dd>`).join('')}</dl>`;
   q('[data-detail-customer]',body)?.addEventListener('click',()=>chooseCustomer(provider,row));q('[data-detail-project]',body)?.addEventListener('click',()=>chooseProject(provider,row));q('[data-open-customer]',body)?.addEventListener('click',e=>{detail.close();typeof openCustomer==='function'&&openCustomer(Number(e.currentTarget.dataset.openCustomer));});detail.showModal();
  }
  function decorateProvider(provider){
-  const sec=q(`#view-${provider}`),trs=qa('tbody tr',sec),rows=providerRows[provider]||[];if(!sec)return;
-  trs.forEach((tr,i)=>{const row=rows[i];if(!row)return;tr.dataset.pzAssigned=assignmentState(row);let dot=q('.pz-assignment-dot',tr);if(!dot){dot=document.createElement('span');dot.className='pz-assignment-dot';tr.firstElementChild?.prepend(dot);}dot.className=`pz-assignment-dot ${assignmentState(row)}`;
+  const sec=q(`#view-${provider}`);if(!sec)return;const trs=qa('tbody tr',sec);
+  trs.forEach((tr,i)=>{const row=tr._pzRow;if(!row)return;tr.dataset.pzAssigned=assignmentState(row);let dot=q('.pz-assignment-dot',tr);if(!dot){dot=document.createElement('span');dot.className='pz-assignment-dot';tr.firstElementChild?.prepend(dot);}dot.className=`pz-assignment-dot ${assignmentState(row)}`;
    if(!tr.dataset.pzDetail){tr.dataset.pzDetail='1';tr.addEventListener('click',e=>{if(e.target.closest('button,a,input,select,label'))return;if(provider!=='zammad')openProviderDetail(provider,row);});}
-   let actions=q('.provider-actions',tr)||tr.lastElementChild;if(actions&&!q('[data-pz-assign-button]',tr)){const b=document.createElement('button');b.type='button';b.dataset.pzAssignButton='';b.className='secondary subtle pz-assign-mini';b.textContent=row.assignment?.customer_id?'Projekt zuordnen':'Kunden zuordnen';b.onclick=e=>{e.stopPropagation();row.assignment?.customer_id?chooseProject(provider,row):chooseCustomer(provider,row);};actions.append(b);}
+   let actions=q('.provider-actions',tr)||tr.lastElementChild;if(actions&&!q('[data-pz-assign-button]',tr)){const b=q('[data-provider-assign]',actions)||document.createElement('button');b.type='button';b.dataset.pzAssignButton='';b.className='secondary subtle pz-assign-mini';b.textContent=row.assignment?.customer_id?'Projekt zuordnen':'Kunden zuordnen';b.onclick=e=>{e.stopPropagation();row.assignment?.customer_id?chooseProject(provider,row):chooseCustomer(provider,row);};actions.append(b);}
   });
-  assignmentFilter(sec);
+  assignmentFilter(sec);const filter=q('[data-pz-assignment-filter]',sec);for(const tr of trs){tr.dataset.assignmentHidden=filter&&filter.value!=='all'&&tr.dataset.pzAssigned!==filter.value?'1':'0';window.pzApplyRowVisibility?.(tr);}window.pzProviderCount?.(sec);
  }
- function assignmentFilter(sec){const toolbar=q('.provider-toolbar',sec);if(!toolbar||q('[data-pz-assignment-filter]',toolbar))return;const s=document.createElement('select');s.dataset.pzAssignmentFilter='';s.innerHTML='<option value="all">Alle Zuordnungen</option><option value="green">Projekt zugeordnet</option><option value="blue">Kunde, Projekt fehlt</option><option value="red">Kunde fehlt</option>';toolbar.append(s);s.onchange=()=>qa('tbody tr',sec).forEach(tr=>(tr.dataset.assignmentHidden=s.value!=='all'&&tr.dataset.pzAssigned!==s.value?'1':'0',window.pzApplyRowVisibility?.(tr)));}
+ function assignmentFilter(sec){const toolbar=q('.provider-toolbar',sec);if(!toolbar||q('[data-pz-assignment-filter]',toolbar))return;const s=document.createElement('select');s.dataset.pzAssignmentFilter='';s.innerHTML='<option value="all">Alle Zuordnungen</option><option value="green">Projekt zugeordnet</option><option value="blue">Kunde, Projekt fehlt</option><option value="red">Kunde fehlt</option>';toolbar.append(s);s.onchange=()=>{window.pzUI?.set('assignment-'+sec.id,s.value);qa('tbody tr',sec).forEach(tr=>(tr.dataset.assignmentHidden=s.value!=='all'&&tr.dataset.pzAssigned!==s.value?'1':'0',window.pzApplyRowVisibility?.(tr)));window.pzProviderCount?.(sec);};s.value=window.pzUI?.get('assignment-'+sec.id,'all')||'all';}
 
+ document.addEventListener('pz-provider-rendered',e=>decorateProvider(e.detail.provider));
  /* Customer detail: stable provider identity links, history, archive/delete. */
  const history=document.createElement('dialog');history.className='audit-dialog';history.innerHTML='<div class="audit-head"><strong>Historie</strong><button type="button" class="secondary">Schließen</button></div><div class="audit-list"></div>';document.body.append(history);q('button',history).onclick=()=>history.close();
  async function showHistory(type,id,title){q('.audit-head strong',history).textContent=title;q('.audit-list',history).innerHTML=spinner('Historie wird geladen');history.showModal();try{const d=await pzPost('/api/v1/history/object',{entity_type:type,entity_id:id});q('.audit-list',history).innerHTML=(d.history||[]).map(x=>`<article><strong>${h(new Date(x.created_at).toLocaleString('de-DE'))} · ${h(x.actor)}</strong><span>${h(x.action)}</span>${Object.keys(x.changes||{}).length?`<details><summary>Details</summary><pre>${h(JSON.stringify(x.changes,null,2))}</pre></details>`:''}</article>`).join('')||'<p class="muted">Noch keine Historieneinträge.</p>';}catch(e){q('.audit-list',history).innerHTML=`<p class="error">${h(e.message)}</p>`;}}
@@ -139,7 +135,7 @@
   if(typeof openCustomer==='function'&&!window.pzCustomerHistoryWrapped){const original=openCustomer;openCustomer=async function(id){await original(id);setTimeout(()=>augmentCustomer(id),0);};window.pzCustomerHistoryWrapped=true;}
 
  /* Manual STARFACE callback button. */
- function missedButtons(){for(const row of qa('.missed-call-row')){if(q('[data-pz-callback]',row))continue;const call=(providerRows.starface||[]).find(r=>{const raw=r.raw||{};return String(raw.callerNumber||'')===String(q('small',row)?.textContent||'').split(' · ')[0];});if(!call)continue;const b=document.createElement('button');b.type='button';b.className='secondary subtle pz-callback';b.dataset.pzCallback='';b.title='Als zurückgerufen markieren';b.setAttribute('aria-label','Zurückgerufen');b.textContent='↩☎';b.onclick=async()=>{try{await pzPost('/api/v1/starface/callback/manual',{external_key:call.external_key});row.remove();notify('Als zurückgerufen markiert','success');}catch(e){notify(e.message,'error');}};row.append(b);}}
+ function missedButtons(){for(const row of qa('.missed-call-row')){if(q('[data-pz-callback]',row))continue;const call=row.dataset.callKey?{external_key:row.dataset.callKey}:null;if(!call)continue;const b=document.createElement('button');b.type='button';b.className='secondary subtle pz-callback';b.dataset.pzCallback='';b.title='Als zurückgerufen markieren';b.setAttribute('aria-label','Zurückgerufen');b.textContent='↩☎';b.onclick=async()=>{try{await pzPost('/api/v1/starface/callback/manual',{external_key:call.external_key});row.remove();notify('Als zurückgerufen markiert','success');}catch(e){notify(e.message,'error');}};row.append(b);}}
 
  function whiteNames(){qa('.customer-card h3,.compact-customer strong,.compact-contact strong,#view-teamviewer tbody strong,#view-teamviewer .pz-mobile-summary strong').forEach(x=>x.classList.add('pz-primary-text'));}
  function settingsOrder(){const s=q('#view-settings');if(!s)return;const profile=q('[data-profile-settings]',s),cards=q('#integration-cards',s),win=[...s.children].find(x=>x.matches?.('article.panel')&&/Windows-Client/.test(x.textContent||'')),api=q('[data-user-api-settings]',s);if(profile)s.prepend(profile);if(cards){profile?.after(cards);if(win)cards.after(win);if(api)win?.after(api);}}

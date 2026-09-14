@@ -68,15 +68,18 @@ def verify(c, uid, code, root, enroll=False, clock=None):
     hashed = hashlib.sha256(code.encode()).hexdigest()
     if match is None and not enroll and hashed in recovery:
         recovery.remove(hashed)
-        c.execute('UPDATE user_mfa SET recovery_json=? WHERE user_id=?', (json.dumps(recovery), uid))
+        changed=c.execute('UPDATE user_mfa SET recovery_json=? WHERE user_id=? AND recovery_json=?', (json.dumps(recovery), uid, row['recovery_json']))
+        if changed.rowcount!=1:raise ValueError('Wiederherstellungscode bereits verwendet.')
         return {}
     if match is None:
         raise ValueError('2FA-Code ungültig oder bereits verwendet. Bitte den nächsten aktuellen Code eingeben.')
     if enroll:
         codes = [secrets.token_hex(6) for _ in range(8)]
-        c.execute("UPDATE user_mfa SET secret=pending_secret,pending_secret='',enabled=1,last_counter=?,recovery_json=?,pending_until=0 WHERE user_id=?", (match, json.dumps([hashlib.sha256(x.encode()).hexdigest() for x in codes]), uid))
+        changed=c.execute("UPDATE user_mfa SET secret=pending_secret,pending_secret='',enabled=1,last_counter=?,recovery_json=?,pending_until=0 WHERE user_id=? AND enabled=0 AND pending_secret=?", (match, json.dumps([hashlib.sha256(x.encode()).hexdigest() for x in codes]), uid, encrypted))
+        if changed.rowcount!=1:raise ValueError('2FA-Einrichtung wurde inzwischen geändert. Bitte erneut anmelden.')
         return {'recovery_codes': codes}
-    c.execute('UPDATE user_mfa SET last_counter=? WHERE user_id=? AND last_counter<?', (match, uid, match))
+    changed=c.execute('UPDATE user_mfa SET last_counter=? WHERE user_id=? AND last_counter<?', (match, uid, match))
+    if changed.rowcount!=1:raise ValueError('2FA-Code bereits verwendet.')
     return {}
 
 
