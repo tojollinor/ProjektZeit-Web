@@ -277,12 +277,14 @@ def install(app):
                         try:et,ev=_provider_identifier(provider,json.loads(event['raw_json'] or '{}'),json.loads(event['hint_json'] or '{}'))
                         except Exception:continue
                         if et==typ and ev==val:
-                            old=c.execute('SELECT project_id FROM provider_assignments WHERE owner_id=? AND provider=? AND external_key=?',(uid,provider,event['external_key'])).fetchone();pid=old['project_id'] if old else None;c.execute('DELETE FROM provider_assignments WHERE owner_id=? AND provider=? AND external_key=?',(uid,provider,event['external_key']));c.execute('INSERT INTO provider_assignments(owner_id,provider,external_key,customer_id,project_id,match_type,match_value,assigned_by,assigned_at) VALUES(?,?,?,?,?,?,?,?,?)',(uid,provider,event['external_key'],cid,pid,typ,val,uid,now_iso()));matched+=1
+                            old=c.execute('SELECT project_id FROM provider_assignments WHERE owner_id=? AND provider=? AND external_key=?',(uid,provider,event['external_key'])).fetchone();pid=old['project_id'] if old else None
+                            if old:continue
+                            c.execute('DELETE FROM provider_assignments WHERE owner_id=? AND provider=? AND external_key=?',(uid,provider,event['external_key']));c.execute('INSERT INTO provider_assignments(owner_id,provider,external_key,customer_id,project_id,match_type,match_value,assigned_by,assigned_at) VALUES(?,?,?,?,?,?,?,?,?)',(uid,provider,event['external_key'],cid,pid,typ,val,uid,now_iso()));matched+=1
                     _audit(c,uid,'customer',cid,'provider_link_added',{'provider':provider,'type':typ,'value':val,'matched':matched,'moved_from_customer':previous['customer_id'] if previous else None});return self.send_json(200,{'ok':True,'id':cur.lastrowid,'matched':matched})
                 if path=='/api/v1/customers/link/delete':
                     admin_controls.require_permission(c,uid,'customers.edit');lid=int(body.get('id'));row=c.execute('SELECT * FROM customer_identity_links WHERE id=? AND owner_id=?',(lid,uid)).fetchone()
                     if not row:raise ValueError('Verknüpfung nicht gefunden.')
-                    c.execute('DELETE FROM customer_identity_links WHERE id=?',(lid,));c.execute('UPDATE provider_assignments SET customer_id=NULL,project_id=NULL,assigned_by=?,assigned_at=? WHERE owner_id=? AND provider=? AND match_type=? AND match_value=?',(uid,now_iso(),uid,row['provider'],row['link_type'],row['link_value']));_audit(c,uid,'customer',row['customer_id'],'provider_link_removed',{'provider':row['provider'],'type':row['link_type'],'value':row['link_value']});return self.send_json(200,{'ok':True})
+                    c.execute('DELETE FROM customer_identity_links WHERE id=?',(lid,));_audit(c,uid,'customer',row['customer_id'],'provider_link_removed',{'provider':row['provider'],'type':row['link_type'],'value':row['link_value']});return self.send_json(200,{'ok':True})
                 if path=='/api/v1/provider/assign/customer':
                     provider=str(body.get('provider') or '').lower();key=str(body.get('external_key') or '');cid=int(body.get('customer_id'));_valid_customer(c,uid,cid);ev=c.execute('SELECT raw_json,hint_json FROM provider_events WHERE owner_id=? AND provider=? AND external_key=?',(uid,provider,key)).fetchone()
                     if not ev:raise ValueError('Eintrag nicht gefunden.')
@@ -294,15 +296,16 @@ def install(app):
                         try:et,evv=_provider_identifier(provider,json.loads(event['raw_json'] or '{}'),json.loads(event['hint_json'] or '{}'))
                         except Exception:continue
                         if et==typ and evv==val:
-                            old=c.execute('SELECT project_id FROM provider_assignments WHERE owner_id=? AND provider=? AND external_key=?',(uid,provider,event['external_key'])).fetchone();pid=old['project_id'] if old else None;c.execute('DELETE FROM provider_assignments WHERE owner_id=? AND provider=? AND external_key=?',(uid,provider,event['external_key']));c.execute('INSERT INTO provider_assignments(owner_id,provider,external_key,customer_id,project_id,match_type,match_value,assigned_by,assigned_at) VALUES(?,?,?,?,?,?,?,?,?)',(uid,provider,event['external_key'],cid,pid,typ,val,uid,now_iso()));matched+=1
+                            old=c.execute('SELECT project_id FROM provider_assignments WHERE owner_id=? AND provider=? AND external_key=?',(uid,provider,event['external_key'])).fetchone();pid=old['project_id'] if old else None
+                            if old:continue
+                            c.execute('DELETE FROM provider_assignments WHERE owner_id=? AND provider=? AND external_key=?',(uid,provider,event['external_key']));c.execute('INSERT INTO provider_assignments(owner_id,provider,external_key,customer_id,project_id,match_type,match_value,assigned_by,assigned_at) VALUES(?,?,?,?,?,?,?,?,?)',(uid,provider,event['external_key'],cid,pid,typ,val,uid,now_iso()));matched+=1
                     _audit(c,uid,'customer',cid,'provider_assigned',{'provider':provider,'type':typ,'value':val,'matched':matched});return self.send_json(200,{'ok':True,'matched':matched,'match_type':typ,'match_value':val})
                 if path=='/api/v1/provider/assign/project':
                     provider=str(body.get('provider') or '').lower();key=str(body.get('external_key') or '');pid=int(body.get('project_id'));project=c.execute('SELECT id,customer_id FROM projects WHERE id=? AND owner_id=? AND is_system=0',(pid,uid)).fetchone()
                     if not project:raise ValueError('Projekt nicht gefunden.')
-                    row=c.execute('SELECT * FROM provider_assignments WHERE owner_id=? AND provider=? AND external_key=?',(uid,provider,key)).fetchone()
-                    if not row or not row['customer_id']:raise ValueError('Bitte zuerst einen Kunden zuordnen.')
-                    if project['customer_id'] and project['customer_id']!=row['customer_id']:raise ValueError('Das Projekt gehört zu einem anderen Kunden.')
-                    c.execute('UPDATE provider_assignments SET project_id=?,assigned_by=?,assigned_at=? WHERE owner_id=? AND provider=? AND external_key=?',(pid,uid,now_iso(),uid,provider,key));_audit(c,uid,'project',pid,'provider_entry_assigned',{'provider':provider,'external_key':key});return self.send_json(200,{'ok':True})
+                    import time_workspace
+                    result=time_workspace.assign(c,uid,{'project_id':pid,'items':[{'source':provider,'key':key}],'confirm_reassign':body.get('confirm_reassign') is True})
+                    return self.send_json(200,result)
                 if path=='/api/v1/starface/callback/manual':
                     key=str(body.get('external_key') or '')
                     if not c.execute("SELECT 1 FROM provider_events WHERE owner_id=? AND provider='starface' AND external_key=?",(uid,key)).fetchone():raise ValueError('Anruf nicht gefunden.')

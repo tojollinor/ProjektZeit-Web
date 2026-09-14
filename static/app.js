@@ -191,8 +191,8 @@ $('#edit-cancel').addEventListener('click',()=>$('#entry-dialog').close());
 $('#edit-project').addEventListener('change',()=>{if(editingEntry?.is_idle&&editingEntry.ended_at){for(const id of ['#edit-category','#edit-start','#edit-end'])$(id).disabled=!$('#edit-project').value;}});
 $('#entry-edit-form').addEventListener('submit',async event=>{event.preventDefault();const e=editingEntry;try{
   const originalOrDate=(id,original)=>$(id).value===localStamp(original)?original:new Date($(id).value).toISOString();
-  await post('/api/v1/entries/edit',{id:e.id,original_start:e.started_at,original_end:e.ended_at,original_note:e.note,project_id:+$('#edit-project').value,category_id:+$('#edit-category').value,started_at:originalOrDate('#edit-start',e.started_at),ended_at:$('#edit-end').value?originalOrDate('#edit-end',e.ended_at):null,note:$('#edit-note').value});
-  $('#entry-dialog').close();await refresh();toast('Stempelung gespeichert');
+  const correctionResult=await post('/api/v1/entries/edit',{id:e.id,original_start:e.started_at,original_end:e.ended_at,original_note:e.note,project_id:+$('#edit-project').value,category_id:+$('#edit-category').value,started_at:originalOrDate('#edit-start',e.started_at),ended_at:$('#edit-end').value?originalOrDate('#edit-end',e.ended_at):null,note:$('#edit-note').value});
+  $('#entry-dialog').close();await refresh();toast(correctionResult.message||'Stempelung gespeichert');
 }catch(error){$('#edit-error').textContent=error.message}});
 const integrationInfo={
   teamviewer:{name:'TeamViewer',label:'API-Token',placeholder:'https://webapi.teamviewer.com',note:'Bitte einen Script-Token mit Leserechten für Verbindungsberichte verwenden.',docs:'https://www.teamviewer.com/en-us/global/support/knowledge-base/teamviewer-remote/for-developers/use-the-teamviewer-api/'},

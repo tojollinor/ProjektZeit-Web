@@ -95,6 +95,8 @@ def _customer_hint(description,item):
 
 class UciClient:
     def __init__(self, config):
+        import provider_budget
+        provider_budget.register(config.get('domain',''),'starface')
         origin = integrations.domain(config['domain'], 'starface')
         target = urlsplit(origin)
         self.host, self.port = target.hostname, target.port or 443

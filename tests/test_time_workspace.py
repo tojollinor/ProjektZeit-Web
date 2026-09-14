@@ -133,6 +133,13 @@ assert len(work_overview['models'])==1
 assert work_overview['models'][0]['target_seconds']==144000
 assert work_overview['day']['actual_seconds']==0
 assert work_overview['can_manage']
+company=post('/api/v1/company/context',{})
+assert 'staff.view' in company['permissions']
+tracking=post('/api/v1/company/tracking/report',{'day':model_context['today'],'mode':'week'})
+assert tracking['own'] and tracking['user_id']==uid and len(tracking['days'])==7
+assert tracking['days'][0]['work']==[]
+post('/api/v1/company/account/save',{'user_id':uid,'year':int(model_context['today'][:4]),'days':20})
+assert post('/api/v1/company/tracking/report',{'day':model_context['today']})['vacation']['entitlement']==20000000
 
 catalog=post('/api/v1/project-catalog/list',{})
 pid=catalog['projects'][0]['id']
