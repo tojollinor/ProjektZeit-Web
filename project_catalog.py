@@ -85,7 +85,7 @@ def clone(c, uid, body):
         raise ValueError('Ein Projekt mit diesem Namen existiert bereits.')
     if p['customer_id'] and not c.execute('SELECT 1 FROM customers WHERE id=? AND owner_id=?', (p['customer_id'], uid)).fetchone():
         raise PermissionError('Kunde nicht zugänglich.')
-    ident = c.execute("INSERT INTO projects(owner_id,customer_id,name,active,status,billing_state) VALUES(?,?,?,1,'active','')", (uid, p['customer_id'], name)).lastrowid
+    ident = c.execute("INSERT INTO projects(owner_id,customer_id,name,active,status,billing_state) VALUES(?,?,?,1,'open','')", (uid, p['customer_id'], name)).lastrowid
     c.execute('INSERT INTO project_origins VALUES(?,?,?)', (ident, p['id'], time_workspace.iso(datetime.now(timezone.utc))))
     c.execute('''INSERT INTO project_tag_links(project_id,tag_id)
       SELECT ?,t.id FROM project_tag_links l JOIN project_tags t ON t.id=l.tag_id
@@ -95,31 +95,31 @@ def clone(c, uid, body):
 
 
 def catalog(c, uid, body):
-    projects = [dict(r) for r in c.execute('''SELECT p.id,p.name,p.customer_id,p.status,p.billing_state,
+    projects = [dict(r) for r in c.execute('''SELECT p.id,p.name,p.owner_id,p.assigned_user_id,p.customer_id,p.status,p.billing_state,
       COALESCE(cu.name,'') customer,o.template_id FROM projects p
       LEFT JOIN customers cu ON cu.id=p.customer_id AND cu.owner_id=p.owner_id
       LEFT JOIN project_origins o ON o.project_id=p.id
-      WHERE p.owner_id=? AND p.is_system=0 ORDER BY p.name''', (uid,))]
+      WHERE (p.owner_id=? OR p.assigned_user_id=?) AND p.is_system=0 ORDER BY p.name''', (uid,uid))]
     tags = [dict(r) for r in c.execute('''SELECT t.*,COALESCE(cu.name,'') customer FROM project_tags t
       LEFT JOIN customers cu ON cu.id=t.customer_id AND cu.owner_id=t.owner_id
       WHERE t.owner_id=? ORDER BY t.name,t.id''', (uid,))]
     links = [dict(r) for r in c.execute('''SELECT l.project_id,l.tag_id FROM project_tag_links l
       JOIN projects p ON p.id=l.project_id JOIN project_tags t ON t.id=l.tag_id AND t.owner_id=p.owner_id
       WHERE p.owner_id=? AND p.is_system=0 AND t.customer_id IN (0,COALESCE(p.customer_id,0))''', (uid,))]
-    spans = defaultdict(list)
+    spans = defaultdict(lambda: defaultdict(list))
     # Two bulk queries, independent of project count. Completed intervals only;
-    # provider overlap with manually tracked work counts once within a project.
-    for r in c.execute('''SELECT e.project_id,e.started_at,e.ended_at FROM entries e
-      JOIN projects p ON p.id=e.project_id AND p.owner_id=e.owner_id
-      WHERE e.owner_id=? AND p.is_system=0 AND e.is_idle=0 AND e.ended_at IS NOT NULL''', (uid,)):
-        spans[r['project_id']].append({'start': r['started_at'], 'end': r['ended_at']})
-    for r in c.execute('''SELECT a.project_id,i.started_at,i.ended_at FROM event_intervals i
+    # Each employee counts separately; their provider/manual overlap counts once.
+    for r in c.execute('''SELECT e.project_id,e.owner_id,e.started_at,e.ended_at FROM entries e
+      JOIN projects p ON p.id=e.project_id
+      WHERE (p.owner_id=? OR p.assigned_user_id=?) AND p.is_system=0 AND e.is_idle=0 AND e.ended_at IS NOT NULL''', (uid,uid)):
+        spans[r['project_id']][r['owner_id']].append({'start': r['started_at'], 'end': r['ended_at']})
+    for r in c.execute('''SELECT a.project_id,i.owner_id,i.started_at,i.ended_at FROM event_intervals i
       JOIN provider_assignments a ON a.owner_id=i.owner_id AND a.provider=i.provider AND a.external_key=i.external_key
-      JOIN projects p ON p.id=a.project_id AND p.owner_id=i.owner_id
-      WHERE i.owner_id=? AND p.is_system=0 AND i.ended_at IS NOT NULL''', (uid,)):
-        spans[r['project_id']].append({'start': r['started_at'], 'end': r['ended_at']})
+      JOIN projects p ON p.id=a.project_id
+      WHERE (p.owner_id=? OR p.assigned_user_id=?) AND p.is_system=0 AND i.ended_at IS NOT NULL''', (uid,uid)):
+        spans[r['project_id']][r['owner_id']].append({'start': r['started_at'], 'end': r['ended_at']})
     for p in projects:
-        p['seconds'] = time_workspace.union_seconds(spans[p['id']])
+        p['seconds'] = sum(time_workspace.union_seconds(intervals) for intervals in spans[p['id']].values())
     customers = [dict(r) for r in c.execute('SELECT id,name FROM customers WHERE owner_id=? ORDER BY name', (uid,))]
     return {'projects': projects, 'tags': tags, 'links': links, 'customers': customers}
 

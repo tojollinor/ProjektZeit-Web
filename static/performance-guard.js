@@ -1,7 +1,7 @@
 (()=>{
  if(window.__pzPerformanceGuard)return;
  window.__pzPerformanceGuard=true;
- window.pzApplyRowVisibility=row=>{row.hidden=['statusHidden','dateHidden','assignmentHidden','searchHidden'].some(k=>row.dataset[k]==='1');};
+ window.pzApplyRowVisibility=row=>{row.hidden=['statusHidden','dateHidden','assignmentHidden','searchHidden','employeeHidden'].some(k=>row.dataset[k]==='1');};
  const safe=(value,depth=0)=>{if(depth>8)return '[begrenzt]';if(Array.isArray(value))return value.slice(0,1000).map(x=>safe(x,depth+1));if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).slice(0,100).map(([k,v])=>[k,/password|passwd|secret|token|authorization|cookie|api.?key|oauth.?code/i.test(k)?'[entfernt]':safe(v,depth+1)]));if(typeof value==='string')return value.replace(/(Bearer\s+)[^\s,;]+/gi,'$1[entfernt]').replace(/((?:password|client_secret|access_token|refresh_token|api_key|code)\s*[=:]\s*)[^\s&,;]+/gi,'$1[entfernt]').slice(0,2000);return value;};window.pzSanitize=safe;
  const ring=[];
  const MAX=400;

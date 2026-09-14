@@ -125,6 +125,7 @@
  }
  function assignmentFilter(sec){const toolbar=q('.provider-toolbar',sec);if(!toolbar||q('[data-pz-assignment-filter]',toolbar))return;const s=document.createElement('select');s.dataset.pzAssignmentFilter='';s.innerHTML='<option value="all">Alle Zuordnungen</option><option value="green">Projekt zugeordnet</option><option value="blue">Kunde, Projekt fehlt</option><option value="red">Kunde fehlt</option>';toolbar.append(s);s.onchange=()=>{window.pzUI?.set('assignment-'+sec.id,s.value);qa('tbody tr',sec).forEach(tr=>(tr.dataset.assignmentHidden=s.value!=='all'&&tr.dataset.pzAssigned!==s.value?'1':'0',window.pzApplyRowVisibility?.(tr)));window.pzProviderCount?.(sec);};s.value=window.pzUI?.get('assignment-'+sec.id,'all')||'all';}
 
+ document.addEventListener('pz-customers-rendered',()=>loading(q('#view-customers'),false));
  document.addEventListener('pz-provider-rendered',e=>decorateProvider(e.detail.provider));
  /* Customer detail: stable provider identity links, history, archive/delete. */
  const history=document.createElement('dialog');history.className='audit-dialog';history.innerHTML='<div class="audit-head"><strong>Historie</strong><button type="button" class="secondary">Schließen</button></div><div class="audit-list"></div>';document.body.append(history);q('button',history).onclick=()=>history.close();
@@ -143,10 +144,6 @@
   }
   if(typeof openCustomer==='function'&&!window.pzCustomerHistoryWrapped){const original=openCustomer;openCustomer=async function(id){await original(id);setTimeout(()=>augmentCustomer(id),0);};window.pzCustomerHistoryWrapped=true;}
 
- /* Manual STARFACE callback button. */
- function missedButtons(){for(const row of qa('.missed-call-row')){if(q('[data-pz-callback]',row))continue;const call=row.dataset.callKey?{external_key:row.dataset.callKey}:null;if(!call)continue;const b=document.createElement('button');b.type='button';b.className='secondary subtle pz-callback';b.dataset.pzCallback='';b.title='Als zurückgerufen markieren';b.setAttribute('aria-label','Zurückgerufen');b.textContent='↩☎';b.onclick=async()=>{try{await pzPost('/api/v1/starface/callback/manual',{external_key:call.external_key});row.remove();notify('Als zurückgerufen markiert','success');}catch(e){notify(e.message,'error');}};row.append(b);}}
-
- function whiteNames(){qa('.customer-card h3,.compact-customer strong,.compact-contact strong,#view-teamviewer tbody strong,#view-teamviewer .pz-mobile-summary strong').forEach(x=>x.classList.add('pz-primary-text'));}
  function settingsOrder(){const s=q('#view-settings');if(!s)return;const profile=q('[data-profile-settings]',s),cards=q('#integration-cards',s),win=[...s.children].find(x=>x.matches?.('article.panel')&&/Windows-Client/.test(x.textContent||'')),api=q('[data-user-api-settings]',s);if(profile&&s.firstElementChild!==profile)s.prepend(profile);if(cards){if(profile&&profile.nextElementSibling!==cards)profile.after(cards);if(win&&cards.nextElementSibling!==win)cards.after(win);if(api&&win&&win.nextElementSibling!==api)win.after(api);}}
 
  function autoLoad(){
@@ -155,7 +152,9 @@
   if(id==='settings'){loading(view,true,'Einstellungen werden geladen');providerStatus().finally(()=>loading(view,false));settingsOrder();}
   if(id==='admin-options'){fixAdminNav();permissionDependencies();}
  }
- const observer=new MutationObserver(()=>requestAnimationFrame(()=>{customerIcon();dashboardPencil();compactRefresh();whiteNames();fixAdminNav();permissionDependencies();missedButtons();settingsOrder();for(const p of ['zammad','starface','teamviewer'])decorateProvider(p);const sec=q('#view-customers');if(sec&&!customersStuck())loading(sec,false);}));observer.observe(document.body,{childList:true,subtree:true});
+ document.addEventListener('pz-provider-rendered',e=>decorateProvider(e.detail.provider));
+ document.addEventListener('pz-view-changed',()=>{customerIcon();dashboardPencil();compactRefresh(q('.active-view')||document);fixAdminNav();permissionDependencies();settingsOrder();});
+ document.addEventListener('pz-admin-context',()=>{fixAdminNav();permissionDependencies();});
  document.addEventListener('click',e=>{if(e.target.closest('[data-view],[data-go]'))setTimeout(autoLoad,80);},true);
- setTimeout(async()=>{try{context=await getContext();}catch(_){}customerIcon();dashboardPencil();compactRefresh();whiteNames();fixAdminNav();permissionDependencies();settingsOrder();providerStatus();autoLoad();},600);
+ setTimeout(async()=>{try{context=await getContext();}catch(_){}customerIcon();dashboardPencil();compactRefresh();fixAdminNav();permissionDependencies();settingsOrder();providerStatus();autoLoad();},600);
 })();

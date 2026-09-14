@@ -26,14 +26,6 @@
   if(email)setTimeout(()=>askLink(cid,'zammad','email',email,'Zammad-Tickets'),700);if(phone)setTimeout(()=>askLink(cid,'starface','phone',phone,'STARFACE-Anrufe'),700);
  },true);
 
- /* Manual callback buttons work even when the STARFACE history tab has never been opened. */
- let callbackBusy=false;
- async function callbacks(){
-  const list=q('[data-missed-list]');if(!list||callbackBusy)return;const rows=qa('.missed-call-row',list);if(!rows.length||rows.every(x=>q('[data-pz-callback]',x)))return;callbackBusy=true;
-  try{const d=await postJson('/api/v1/starface/missed',{}),calls=d.calls||[];rows.forEach((row,i)=>{if(q('[data-pz-callback]',row)||!calls[i])return;const b=document.createElement('button');b.type='button';b.className='secondary subtle pz-callback';b.dataset.pzCallback='';b.title='Als zurückgerufen markieren';b.setAttribute('aria-label','Zurückgerufen');b.textContent='↩☎';b.onclick=async()=>{b.disabled=true;try{await postJson('/api/v1/starface/callback/manual',{external_key:calls[i].external_key});row.remove();notify('Als zurückgerufen markiert','success');}catch(e){b.disabled=false;notify(e.message,'error');}};row.append(b);});}catch(_){}finally{callbackBusy=false;}
- }
- new MutationObserver(()=>setTimeout(callbacks,0)).observe(document.body,{childList:true,subtree:true});setTimeout(callbacks,900);
-
  /* Tag the currently open customer so save hooks know which stable customer ID they belong to. */
  if(typeof openCustomer==='function'&&!window.pzCustomerIdWrapped){const original=openCustomer;openCustomer=async function(id){const r=await original(id);const box=q('.customer-detail-dialog [data-detail]');if(box)box.dataset.pzCustomerId=String(id);return r;};window.pzCustomerIdWrapped=true;}
 })();

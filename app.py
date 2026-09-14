@@ -470,8 +470,8 @@ class App(SimpleHTTPRequestHandler):
     def dashboard(self, session):
         uid = session["id"]
         with db() as c:
-            customers = [dict(x) for x in c.execute("SELECT id,name FROM customers WHERE owner_id=? ORDER BY name", (uid,))]
-            projects = [dict(x) for x in c.execute("SELECT id,name,customer_id,active FROM projects WHERE owner_id=? AND is_system=0 ORDER BY name", (uid,))]
+            customers = [dict(x) for x in c.execute("SELECT id,name,owner_id FROM customers WHERE owner_id=? OR id IN (SELECT customer_id FROM projects WHERE assigned_user_id=?) ORDER BY name", (uid,uid))]
+            projects = [dict(x) for x in c.execute("SELECT id,name,customer_id,active FROM projects WHERE (owner_id=? OR assigned_user_id=?) AND is_system=0 ORDER BY name", (uid,uid))]
             categories = [dict(x) for x in c.execute("SELECT id,name FROM categories WHERE owner_id=? ORDER BY name", (uid,))]
             entries = [dict(x) for x in c.execute("""SELECT e.id,e.project_id,e.category_id,e.is_idle,e.work_session_id,e.started_at,e.ended_at,e.note,CASE WHEN e.is_idle=1 THEN 'unproduktiv' ELSE p.name END project,c.name customer,k.name category
                 FROM entries e JOIN projects p ON p.id=e.project_id LEFT JOIN customers c ON c.id=p.customer_id
@@ -591,7 +591,7 @@ class App(SimpleHTTPRequestHandler):
             if customer_id and not c.execute("SELECT 1 FROM customers WHERE id=? AND owner_id=?", (customer_id, session["id"])).fetchone():
                 return self.send_json(400, {"error": "Unbekannter Kunde"})
             try:
-                cursor = c.execute("INSERT INTO projects(owner_id,customer_id,name) VALUES(?,?,?)", (session["id"], customer_id, name))
+                cursor = c.execute("INSERT INTO projects(owner_id,customer_id,name,status) VALUES(?,?,?,'open')", (session["id"], customer_id, name))
             except sqlite3.IntegrityError:
                 return self.send_json(409, {"error": "Projekt ist bereits vorhanden"})
         return self.send_json(201, {"id": cursor.lastrowid, "name": name})

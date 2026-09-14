@@ -15,13 +15,8 @@ def now_iso():
     return datetime.now(timezone.utc).isoformat(timespec='seconds')
 
 
-def migrate(c):
+def migrate_audit(c):
     c.executescript('''
-    CREATE TABLE IF NOT EXISTS user_preferences (
-      user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-      theme TEXT NOT NULL DEFAULT 'system',
-      updated_at TEXT NOT NULL
-    );
     CREATE TABLE IF NOT EXISTS audit_events (
       id INTEGER PRIMARY KEY,
       owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -34,6 +29,17 @@ def migrate(c):
       created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_events(owner_id,entity_type,entity_id,id DESC);
+    ''')
+
+
+def migrate(c):
+    migrate_audit(c)
+    c.executescript('''
+    CREATE TABLE IF NOT EXISTS user_preferences (
+      user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      theme TEXT NOT NULL DEFAULT 'system',
+      updated_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS starface_system_config (
       id INTEGER PRIMARY KEY,
       domain TEXT NOT NULL DEFAULT '',

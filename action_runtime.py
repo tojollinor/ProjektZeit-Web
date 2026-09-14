@@ -8,7 +8,7 @@ import re
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
-MUTATION=re.compile(r'/(save|assign(?:/(?:customer|project))?|profile|phone|contact-phone|contact|device|delete|action|review|reopen|edit|update|add|archive|begin|end|start|stop|pause|resume|active|approve|reject|submit|cancel|pay|close|swap|settings|status|clone|merge|roles|preferences|reset-user)$')
+MUTATION=re.compile(r'/(save|assign(?:/(?:customer|project))?|profile|phone|contact-phone|contact|device|delete|action|review|reopen|edit|update|add|archive|begin|end|start|stop|pause|resume|active|approve|reject|submit|cancel|pay|close|swap|settings|status|clone|merge|roles|preferences|reset-user|reverse|manual)$')
 EXCLUDED=('/api/v1/auth/','/api/v1/integrations/','/api/v1/archive/','/api/v1/provider/refresh/','/api/v1/settings/','/api/v1/account/')
 
 def eligible(path):

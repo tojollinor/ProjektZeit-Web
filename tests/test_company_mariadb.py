@@ -25,6 +25,27 @@ with app.db() as c:
  assert len(report['days'])==7
  assert type(report['account']['balance_seconds']) is int
  json.dumps(report,allow_nan=False)
+with app.db() as c:
+ import company_projects as cp,time_workspace as tw
+ st.correction(c,1,{'day':'2026-09-07','start':'2026-09-07T08:00:00+02:00','end':'2026-09-07T17:00:00+02:00','note':'MariaDB Nachtrag','pauses':[{'started_at':'2026-09-07T12:00:00+02:00','ended_at':'2026-09-07T12:30:00+02:00'}]})
+ assert st.time_history(c,1,{'day':'2026-09-07'})['history'][0]['changes']['seconds_after']==30600
+ st.movement(c,1,{'user_id':1,'day':'2026-01-01','kind':'adjustment','hours':2,'note':'Start'})
+ st.movement(c,1,{'user_id':1,'day':'2026-01-01','kind':'payout','hours':1,'note':'Abrechnung'})
+ payout=st.movement_preview(c,1,{'user_id':1,'day':'2026-01-01'})['payouts'][0]
+ st.reverse_movement(c,1,{'id':payout['id'],'day':'2026-01-01','note':'Storno'})
+ assert not st.movement_preview(c,1,{'user_id':1,'day':'2026-01-01'})['payouts']
+ center=st.notifications(c,1,{})
+ assert center['unread']==3
+ st.notification_seen(c,1,{'id':center['notifications'][0]['id']})
+ assert st.notifications(c,1,{})['unread']==2
+ pid=c.execute("INSERT INTO projects(owner_id,name,status) VALUES(1,'CI Projekt','closed')").lastrowid
+ cid=c.execute("INSERT INTO categories(owner_id,name) VALUES(1,'CI')").lastrowid
+ entry=c.execute("INSERT INTO entries(owner_id,project_id,category_id,started_at,ended_at,note) VALUES(1,?,?,'2026-09-07T07:00:00+00:00','2026-09-07T09:00:00+00:00','')",(pid,cid)).lastrowid
+ tw.review(c,1,{'day':'2026-09-07','source':'manual','key':str(entry),'billable':True})
+ cp.billing_submit(c,1,{'project_id':pid,'descriptions':{'2026-09-07:1':'MariaDB Prüfung'}})
+ cp.migrate(c)
+ assert not cp.billing_preview(c,1,{'project_id':pid})['groups']
+ assert len(cp.billing_list(c,1,{})['descriptions'])==1
 budget.set_cap('teamviewer',3)
 def reserve(_):
  try:budget.reserve('teamviewer',100000);return True

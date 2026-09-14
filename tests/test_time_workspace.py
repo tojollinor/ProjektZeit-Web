@@ -73,7 +73,7 @@ class TimeWorkspaceTests(unittest.TestCase):
     def test_client_cannot_assign_other_users_event(self):
         with patch('admin_controls.require_permission'):
             with self.assertRaises(ValueError):tw.assign(self.c,1,{'project_id':1,'items':[{'source':'manual','key':'2'}]})
-            with self.assertRaises(ValueError):tw.assign(self.c,1,{'project_id':2,'items':[{'source':'manual','key':'1'}]})
+            with self.assertRaises(PermissionError):tw.assign(self.c,1,{'project_id':2,'items':[{'source':'manual','key':'1'}]})
 
     def test_exact_phone_suggestion_and_customer_history(self):
         self.c.execute("INSERT INTO customer_phones(owner_id,customer_id,number) VALUES(1,1,'+49-123')")
