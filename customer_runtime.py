@@ -234,7 +234,7 @@ def install(app):
                     c.execute('DELETE FROM native_sessions WHERE token_hash IN (SELECT token_hash FROM sessions WHERE user_id=?)',(target,))
                     c.execute('DELETE FROM sessions WHERE user_id=?',(target,))
                     c.execute('DELETE FROM user_mfa WHERE user_id=?',(target,))
-                    __import__('system_features').audit(c,uid,target,'user',target,'mfa_reset',{})
+                    __import__('system_features').audit(c,uid,uid,'user',target,'mfa_reset',{})
                 return self.send_json(200,{'ok':True})
             if path=='/api/v1/admin/super/settings':
                 with app.db() as c:

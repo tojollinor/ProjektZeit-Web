@@ -43,7 +43,7 @@ assert.equal(q('#view-zammad [data-range]'),null);const ticketRows=[...w.documen
 q('#view-zammad [data-filter=open]').click();await sleep(100);assert.equal(ticketRows.filter(r=>!r.hidden).length,1);assert.match(q('#view-zammad .list-status').textContent,/1 von 3/);assert.equal(calls.filter(x=>x.url.includes('/integrations/list')).length,requestCount);
 q('#view-zammad [data-filter=all]').click();q('#view-zammad input[type=search]').value='Ticket 2';q('#view-zammad input[type=search]').dispatchEvent(new w.Event('input',{bubbles:true}));await sleep(150);assert.equal(q('#view-zammad tbody tr')._pzRow.raw.title,'Ticket 2');
 q('.nav[data-view=starface]').click();await until(()=>q('.provider-connect-dialog').open,'STARFACE blocking dialog');assert.match(q('[data-provider-connect-message]').textContent,/Client Secret/);assert.equal(q('[data-provider-connect-yes]').hidden,true);
-const newUser=(await api('/api/v1/admin/context')).users.find(u=>u.username==='NeuerTechniker');await api('/api/v1/admin/user/mfa-reset',{user_id:newUser.id});
+const newUser=(await api('/api/v1/admin/context')).users.find(u=>u.username==='NeuerTechniker');await api('/api/v1/admin/user/mfa-reset',{user_id:newUser.id});const history=await api('/api/v1/history/object',{entity_type:'user',entity_id:newUser.id});assert.equal(history.history.find(e=>e.action==='mfa_reset').actor_id,me.user.id);
 // Mandatory enrollment is enforced through the complete runtime, including native login.
 await api('/api/v1/admin/policies/save',{policies:{two_factor_mode:'required',two_factor_grace_days:0}});
 assert.equal((await fetch(base+'/api/v1/me',{headers:{Cookie:cookie}})).status,401);
