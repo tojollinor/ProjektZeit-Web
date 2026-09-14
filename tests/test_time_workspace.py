@@ -125,6 +125,15 @@ with opener.open(base+'/api/v1/me') as response:csrf=json.load(response)['csrf']
 assert post('/api/v1/time-workspace/read',{'day':'2026-03-29'})['events']==[]
 assert post('/api/v1/time-workspace/statistics',{'day':'2026-03-29'})['total']==0
 assert post('/api/v1/customers/detail',{'id':cid})['customer']['name']=='Example'
+model_context=post('/api/v1/work-models/admin',{})
+assert any(u['id']==uid for u in model_context['users'])
+post('/api/v1/work-models/save',{'user_id':uid,'valid_from':model_context['today'],'mode':'weekly','hours':40,'weekdays':[0,1,2,3,4],'subdivision':'SH'})
+work_overview=post('/api/v1/work-models/overview',{'day':model_context['today']})
+assert len(work_overview['models'])==1
+assert work_overview['models'][0]['target_seconds']==144000
+assert work_overview['day']['actual_seconds']==0
+assert work_overview['can_manage']
+
 catalog=post('/api/v1/project-catalog/list',{})
 pid=catalog['projects'][0]['id']
 tag=post('/api/v1/project-catalog/tags/save',{'name':'HTTP tag','customer_id':cid})['id']

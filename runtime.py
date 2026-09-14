@@ -2,7 +2,7 @@
 import importlib
 import app
 
-RUNTIMES = ('customer_runtime', 'feature_runtime', 'contact_runtime', 'ux_runtime', 'provider_cache_runtime', 'api_runtime', 'zammad_cache_runtime', 'provider_nav_runtime', 'worktime_runtime', 'customer_extra_runtime', 'next_batch_runtime', 'frontend_update_runtime', 'final_batch_runtime', 'final_batch_fix_runtime', 'profile_avatar_runtime', 'performance_runtime', 'performance_v2_runtime', 'connections_runtime', 'project_catalog', 'action_runtime')
+RUNTIMES = ('customer_runtime', 'feature_runtime', 'contact_runtime', 'ux_runtime', 'provider_cache_runtime', 'api_runtime', 'zammad_cache_runtime', 'provider_nav_runtime', 'worktime_runtime', 'customer_extra_runtime', 'next_batch_runtime', 'frontend_update_runtime', 'final_batch_runtime', 'final_batch_fix_runtime', 'profile_avatar_runtime', 'performance_runtime', 'performance_v2_runtime', 'connections_runtime', 'project_catalog', 'work_models', 'action_runtime')
 _initialized=False
 
 def initialize(create_admin=True):
