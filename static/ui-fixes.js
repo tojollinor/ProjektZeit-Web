@@ -48,4 +48,5 @@
  stylesheet('/navigation-v2.css?v=0.8.0-1','navigationV2');script('/navigation-v2.js?v=0.8.0-1','navigationV2');script('/navigation-v2-fixes.js?v=0.8.0-1','navigationV2Fixes');
  stylesheet('/settings-session-polish.css?v=0.8.1-1','settingsSessionPolish');script('/settings-session-polish.js?v=0.8.1-1','settingsSessionPolish');
  stylesheet('/time-workspace.css','timeWorkspace');script('/time-workspace.js','timeWorkspace');
+ stylesheet('/company-ui.css','companyUi');script('/company-ui.js','companyUi');
 })();

@@ -229,6 +229,8 @@ def _event_time(provider, raw):
 def cache_rows(c, uid, provider, result):
     if provider not in PROVIDERS or not isinstance(result,dict): return
     now=datetime.now(timezone.utc).isoformat(timespec='seconds')
+    import time_workspace
+    identities=time_workspace.customer_identities(c,uid)
     for row in result.get('rows') or []:
         if not isinstance(row,dict) or not row.get('external_key'): continue
         raw=row.get('raw') if isinstance(row.get('raw'),dict) else {}
@@ -240,6 +242,8 @@ def cache_rows(c, uid, provider, result):
                   (uid,provider,key,_event_time(provider,raw),summary,json.dumps(raw,ensure_ascii=False,default=str),json.dumps(hint,ensure_ascii=False,default=str),now))
         import time_workspace
         time_workspace.index_event(c,uid,provider,key,raw,hint,_event_time(provider,raw),now)
+        kind,value=time_workspace.identifier(provider,raw,hint);matches=identities.get((provider,kind,value),set())
+        if len(matches)==1:c.execute('INSERT OR IGNORE INTO provider_assignments(owner_id,provider,external_key,customer_id,match_type,match_value,assigned_by,assigned_at) VALUES(?,?,?,?,?,?,?,?)',(uid,provider,key,next(iter(matches)),kind,value,uid,now))
 
 
 def activity(c, uid, customer_id, limit=200):

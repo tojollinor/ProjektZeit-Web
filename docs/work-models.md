@@ -22,9 +22,9 @@ Feiertage stammen aus der fest versionierten Python-Bibliothek `holidays` 0.104 
 
 ## Anzeige
 
-Unter **Zeiterfassung → Meine Arbeitszeit** Tag auswählen. Die Karten zeigen Tag, zugehörige vollständige Woche und Monat; die ausklappbare Tabelle zeigt die Tage des Monats. Das Soll ist jeweils das gesamte Periodensoll. Die Differenz berücksichtigt ausschließlich vergangene, vollständig gestempelte Tage, damit künftige Arbeitstage keine vorzeitigen Minusstunden erzeugen. Für heute wird angezeigt, wie viel noch bis zum Soll fehlt. Die aktuelle Tagesansicht aktualisiert sich bei Stempelaktionen und einmal pro Minute, solange sie sichtbar ist; versteckte Ansichten pollen nicht.
+Unter **Zeiterfassung** stehen die Reiter **Stempelungen** und **Konto** sowie **Tag / Woche / Monat** bereit. Administratoren und Rollen mit `staff.view` können andere Mitarbeiter über das Dropdown ansehen. Dabei sind eigene Stempel- und Urlaubsaktionen ausgeblendet; fremde Zeiten bleiben in dieser Ansicht schreibgeschützt. Die API prüft die Berechtigung unabhängig vom Dropdown.
 
-**Paketgrenze:** Urlaub, Krankheit, Überträge, Auszahlungen und verbindliche Monatsabschlüsse werden noch nicht berücksichtigt. Die Anzeige ist ausdrücklich noch kein abrechnungsfähiges Stundenkonto. Tage ohne Arbeit werden ohne Abwesenheitsgutschrift gegen das konfigurierte Soll gerechnet.
+Das Konto berücksichtigt abgeschlossene Tage, genehmigte bezahlte Abwesenheiten, Korrekturen und Auszahlungen. Zukünftige Tage werden nicht gebucht. Vergessene Arbeitsenden bleiben klärungsbedürftig. Details zur Einrichtung, Genehmigung und Monatsabschluss stehen in `company-time-management.md`.
 
 ## Abnahme
 

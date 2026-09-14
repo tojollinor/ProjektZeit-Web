@@ -324,7 +324,9 @@ def install(app):
                     old = str(row["status"] or ("active" if row["active"] else "closed"))
                     billing = str(row["billing_state"] or "")
                     if status == "closed" and _bool(body.get("send_to_billing")):
-                        billing = "pending"
+                        import company_projects
+                        result=company_projects.billing_submit(c,uid,{**body,'project_id':pid})
+                        return self.send_json(200,result)
                     c.execute("""UPDATE projects SET status=?,active=?,billing_state=?,status_updated_at=? WHERE id=? AND owner_id=?""",
                               (status, 1 if status == "active" else 0, billing, now_iso(), pid, uid))
                     system_features.audit(c, uid, uid, "project", pid, "Status geändert",
