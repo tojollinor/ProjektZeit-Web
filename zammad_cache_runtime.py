@@ -3,7 +3,7 @@ import base64
 import json
 import re
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from urllib.parse import urlencode, urlparse
 
 import integrations
@@ -149,8 +149,9 @@ def cached_list(c, uid):
             'rows':rows,'next_offset':None,'note':note,'cache_source':'local','last_sync_at':last_sync}
 
 
-def _full_refresh(app, uid):
+def _full_refresh(app, uid, incremental=False):
     config=_config(app,uid);client=integrations.Client(config['domain']);headers=_auth(config)
+    cutoff=datetime.now(timezone.utc)-timedelta(days=7)
     generation='z-'+__import__('secrets').token_urlsafe(12);received=0;pages=0;current_keys=set();page=1;page_size=50
     while True:
         path='/api/v1/tickets?'+urlencode({'expand':'true','page':page,'per_page':page_size,'sort_by':'updated_at','order_by':'desc'})
@@ -167,9 +168,12 @@ def _full_refresh(app, uid):
                 raw,hint=_normalize(ticket,config['secret']);key='zammad:id:'+tid;current_keys.add(key)
                 archive_rows.append({'raw':raw,'external_key':key,'customer_hint':hint})
             if archive_rows: provider_archive.cache_with_stats(c,uid,'zammad',{'rows':archive_rows})
+        if incremental and payload and all(provider_lists.stamp(t.get('updated_at')) and provider_lists.stamp(t.get('updated_at'))<cutoff for t in payload):break
         if len(payload)<page_size: break
         page+=1
         if page>10000: raise ValueError('Zammad lieferte unerwartet viele Seiten. Abbruch zum Schutz vor Endlosschleifen.')
+    if incremental:
+        return {'received':received,'pages':pages,'last_sync_at':now_iso(),'incremental':True}
     with app.db() as c:
         before=c.execute('SELECT COUNT(*) n FROM zammad_ticket_cache WHERE owner_id=?',(uid,)).fetchone()['n']
         c.execute('DELETE FROM zammad_ticket_cache WHERE owner_id=? AND sync_generation<>?',(uid,generation))

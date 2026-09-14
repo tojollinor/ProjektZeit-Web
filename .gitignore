@@ -6,3 +6,5 @@ __pycache__/
 *.db
 *.key
 .DS_Store
+
+node_modules/

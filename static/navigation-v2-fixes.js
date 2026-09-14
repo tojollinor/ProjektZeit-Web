@@ -9,7 +9,7 @@
   }
  }
  function activeName(){return q('.view.active-view')?.id?.replace(/^view-/,'')||'';}
- function syncWorkPanel(name=activeName()){const panel=q('.work-panel');if(!panel)return;panel.hidden=name==='statistics'||name==='projects'||name.startsWith('settings-')||name.startsWith('workshop-')||['admin-options','logs','bookkeeping','account'].includes(name);}
+ function syncWorkPanel(name=activeName()){const panel=q('.work-panel');if(!panel)return;panel.hidden=name==='statistics'||name.startsWith('settings-')||name.startsWith('workshop-')||['admin-options','staff-settings','absence-approvals','logs','bookkeeping','account'].includes(name);}
  function textNode(button,text){if(!button)return;for(const n of button.childNodes){if(n.nodeType===3&&n.nodeValue.trim()){n.nodeValue=text;return;}}button.append(document.createTextNode(text));}
  function setIcon(button,icon){const span=q(':scope > span',button);if(span&&!span.querySelector('svg')&&span.textContent!==icon)span.textContent=icon;}
 
@@ -57,7 +57,7 @@
   const stats=q('[data-pz-nav-target="statistics"]',nav);if(stats)setIcon(stats,'◔');
   const dashboard=q('[data-view="dashboard"]',nav);if(dashboard)textNode(dashboard,'Dashboard');
   const order=[
-   q('[data-view="dashboard"]',nav),q('[data-pz-nav-target="statistics"]',nav),q('[data-view="tracking"]',nav),q('[data-pz-nav-target="projects"]',nav),q('[data-view="bookkeeping"]',nav),q('[data-view="customers"]',nav),q('[data-view="zammad"]',nav),q('[data-view="starface"]',nav),q('[data-view="teamviewer"]',nav),q('[data-view="logs"]',nav),q('[data-pz-nav-group="settings"]',nav),q('.admin-nav-group',nav),q('[data-pz-nav-group="workshop"]',nav)
+   q('[data-view="dashboard"]',nav),q('[data-pz-nav-target="statistics"]',nav),q('[data-view="tracking"]',nav),q('[data-company-nav="calendar"]',nav),q('[data-pz-nav-target="projects"]',nav),q('[data-view="bookkeeping"]',nav),q('[data-company-nav="absence-approvals"]',nav),q('[data-view="customers"]',nav),q('[data-view="zammad"]',nav),q('[data-view="starface"]',nav),q('[data-view="teamviewer"]',nav),q('[data-view="logs"]',nav),q('[data-pz-nav-group="settings"]',nav),q('.admin-nav-group',nav),q('[data-pz-nav-group="workshop"]',nav)
   ].filter(Boolean);
   applyIcons(nav);
   const current=[...nav.children].filter(n=>order.includes(n));if(order.some((n,i)=>current[i]!==n))for(const item of order)nav.append(item);

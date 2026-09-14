@@ -103,6 +103,8 @@ def config(c, uid, body, data_dir):
             raise ValueError('Gespeicherte Zugangsdaten konnten nicht entschlüsselt werden. Schlüssel prüfen oder neu eingeben.') from None
     if provider=='teamviewer' and any(ord(ch)<33 for ch in secret):
         raise ValueError('Der API-Token darf keine Leerzeichen oder Zeilenumbrüche enthalten.')
+    import provider_budget
+    provider_budget.register(origin,provider)
     return dict(provider=provider,domain=origin,username=username,secret=secret)
 
 

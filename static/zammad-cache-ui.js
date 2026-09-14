@@ -16,7 +16,7 @@
   toolbar.insertAdjacentElement('afterend',wrap);qa('[data-filter]',wrap).forEach(b=>b.onclick=()=>{statusFilter=b.dataset.filter;applyFilter();});
  }
  function loader(on){const panel=q(':scope > article.panel',view);if(!panel)return;let el=q('.zammad-list-loader',panel);if(!el){el=document.createElement('span');el.className='zammad-list-loader';el.innerHTML='<i></i><span>Aktualisierung</span>';q('.panel-head',panel)?.append(el);}el.classList.toggle('active',!!on);}
- function syncRows(){controls();const tbody=q('tbody',view);if(!tbody||false)return;lastBody=tbody;tbody.dataset.pzZammadSeen=String(tbody.childElementCount);applyFilter();}
+ function syncRows(){controls();const tbody=q('tbody',view);if(!tbody)return;lastBody=tbody;tbody.dataset.pzZammadSeen=String(tbody.childElementCount);applyFilter();}
  const status=q('.list-status',view);if(status)new MutationObserver(()=>{const text=status.textContent||'';loader(/geladen|aktualisiert|abgleich|läuft/i.test(text)&&!/einträge/i.test(text));queueMicrotask(syncRows);}).observe(status,{childList:true,characterData:true,subtree:true});
  const tbody=q('tbody',view);if(tbody)new MutationObserver(()=>requestAnimationFrame(syncRows)).observe(tbody,{childList:true});
  async function repaint(){try{if(typeof providerLoaders!=='undefined'&&providerLoaders.zammad)await providerLoaders.zammad(false);}catch(_){}syncRows();}

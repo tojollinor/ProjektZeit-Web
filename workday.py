@@ -1,6 +1,8 @@
 """Transactional workday tracking, pauses and non-overlapping entry corrections."""
 from datetime import datetime, timezone
 
+entry_context_hook=None
+
 
 def stamp(value):
     return datetime.fromisoformat(value).astimezone(timezone.utc)
@@ -153,12 +155,13 @@ def transition(c, uid, action, body, now):
     c.execute('UPDATE entries SET ended_at=? WHERE owner_id=? AND is_idle=0 AND ended_at IS NULL',(t,uid))
     if action=='end':c.execute('UPDATE work_sessions SET ended_at=? WHERE id=?',(t,current['id']))
     elif action=='switch':
-        overlap(c,uid,now,None);c.execute('INSERT INTO entries(owner_id,project_id,category_id,started_at,note,work_session_id) VALUES(?,?,?,?,?,?)',(uid,pid,cid,t,str(body.get('note',''))[:2000],current['id']))
+        overlap(c,uid,now,None);created=c.execute('INSERT INTO entries(owner_id,project_id,category_id,started_at,note,work_session_id) VALUES(?,?,?,?,?,?)',(uid,pid,cid,t,str(body.get('note',''))[:2000],current['id']))
+        if entry_context_hook:entry_context_hook(c,uid,created.lastrowid,cid)
     reconcile(c,uid)
 
 
 def edit(c, uid, body, now):
-    c.execute('BEGIN IMMEDIATE')
+    if not getattr(c,'in_transaction',False):c.execute('BEGIN IMMEDIATE')
     row=c.execute('SELECT * FROM entries WHERE id=? AND owner_id=?',(body.get('id'),uid)).fetchone()
     if not row:raise ValueError('Stempelung nicht gefunden.')
     if body.get('original_start')!=row['started_at'] or body.get('original_end')!=row['ended_at'] or body.get('original_note')!=row['note']:raise ValueError('Die Stempelung wurde inzwischen geändert. Bitte neu öffnen.')

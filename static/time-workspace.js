@@ -37,6 +37,7 @@
    const actions=q('[data-tw-actions]',article);
    if(e.owner_id===state.user.id&&e.project_id&&e.end&&!e.running&&!e.reviewed){for(const [label,billable] of [['Ohne Abrechnung prüfen',false],['Abrechenbar freigeben',true]]){const b=document.createElement('button');b.className='secondary';b.textContent=label;b.onclick=()=>mutate('review',{source:e.source,key:e.key,billable});actions.append(b);}}
    if(e.owner_id===state.user.id){
+    const place=document.createElement('button');place.className='secondary';place.textContent='Einsatzort / Notdienst';place.onclick=()=>window.pzCompany?.eventDialog(e);actions.append(place);
     if(e.reviewed){const b=document.createElement('button');b.className='secondary';b.textContent='Prüfung wieder öffnen';b.onclick=()=>mutate('reopen',{source:e.source,key:e.key});actions.append(b);}
     for(const p of e.suggestions||[]){const b=document.createElement('button');b.className='secondary';b.textContent='Vorschlag übernehmen: '+p.name;b.onclick=()=>mutate('assign',{items:[{source:e.source,key:e.key}],project_id:p.id});actions.append(b);}
    }
@@ -63,7 +64,7 @@
   const instance={panel,load,invalidate:()=>{loaded=false;if(!saving&&visible())load();},stop:()=>{controller?.abort();generation++;},isLoaded:()=>loaded};instances.add(instance);load();return instance;
  }
  function sync(){for(const x of instances){if(!x.panel.isConnected){x.stop();instances.delete(x);}else if(!x.panel.getBoundingClientRect().height||document.hidden)x.stop();else if(!x.isLoaded())x.load();}
-  const view=q('.view.active-view');if(!view)return;if(view.id==='view-tracking')mount(view);if(view.id==='view-projects')mount(view,{projectView:true});if(view.id==='view-bookkeeping')mount(view);}
+  const view=q('.view.active-view');if(!view)return;if(view.id==='view-projects')mount(view,{projectView:true});if(view.id==='view-bookkeeping')mount(view);}
  function attachCustomer(box,id){if(q('[data-tab="timeline"]',box))return;const b=document.createElement('button');b.className='secondary';b.dataset.tab='timeline';b.textContent='Zeitstrahl';q('.customer-tabs',box)?.append(b);const pane=document.createElement('section');pane.dataset.pane='timeline';pane.className='hidden';box.append(pane);b.onclick=()=>{qa('[data-pane]',box).forEach(p=>p.classList.toggle('hidden',p!==pane));qa('[data-tab]',box).forEach(t=>t.classList.toggle('primary',t===b));mount(pane,{customer_id:id});};}
  window.pzTimeWorkspace={mount,attachCustomer};
  document.addEventListener('pz-view-changed',()=>requestAnimationFrame(sync));document.addEventListener('visibilitychange',sync);

@@ -193,7 +193,9 @@ def workspace(c,uid,body,allow_team=False):
         e['overlap']=(e['source'],e['key'],e['owner_id']) in overlaps
         matches=identities.get((e['source'],e.get('match_type'),e.get('match_value')),set())
         if e.get('customer_id'):matches={e['customer_id']}
-        e['suggestions']=[p for p in projects if p['customer_id'] in matches] if not e['project_id'] and e['owner_id']==uid else []
+        a=parse(e['start']);b=parse(e['end']) or a
+        concurrent={x['project_id'] for x in rows if x['source']=='manual' and x['owner_id']==uid and parse(x['start']) and parse(x['end']) and a and b and parse(x['start'])<=b and parse(x['end'])>=a}
+        e['suggestions']=[p for p in projects if p['customer_id'] in matches and p['id'] in concurrent] if not e['project_id'] and e['owner_id']==uid else []
     return {'events':rows,'work':work,'pauses':pauses,'truncated':truncated,'start':iso(start),'end':iso(end),
             'summary':{'unassigned':sum(not e['project_id'] for e in rows),'unreviewed':sum(not e['reviewed'] for e in rows),
                        'overlaps':len(overlaps),'running':sum(e['running'] for e in rows)+sum(not w['ended_at'] for w in work),
@@ -218,6 +220,8 @@ def assign(c,uid,body):
             c.execute('UPDATE entries SET project_id=? WHERE owner_id=? AND id=?',(pid,uid,key))
         else:
             if not c.execute('SELECT 1 FROM provider_events WHERE owner_id=? AND provider=? AND external_key=?',(uid,source,key)).fetchone():raise ValueError('Providerereignis nicht gefunden.')
+            previous=c.execute('SELECT customer_id FROM provider_assignments WHERE owner_id=? AND provider=? AND external_key=?',(uid,source,key)).fetchone()
+            if previous and previous['customer_id'] and previous['customer_id']!=project['customer_id'] and body.get('confirm_reassign') is not True:raise ValueError('Das Projekt gehört zu einem anderen Kunden. Kundenzuordnung ausdrücklich bestätigen.')
             c.execute('DELETE FROM provider_assignments WHERE owner_id=? AND provider=? AND external_key=?',(uid,source,key))
             c.execute('INSERT INTO provider_assignments(owner_id,provider,external_key,customer_id,project_id,match_type,match_value,assigned_by,assigned_at) VALUES(?,?,?,?,?,?,?,?,?)',(uid,source,key,project['customer_id'],pid,'manual','',uid,iso(datetime.now(timezone.utc))))
         c.execute('DELETE FROM time_reviews WHERE owner_id=? AND source=? AND source_key=?',(uid,source,key))

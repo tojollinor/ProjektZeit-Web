@@ -87,6 +87,8 @@
   </div>
   <dialog id="entry-dialog" aria-labelledby="edit-title"><form id="entry-edit-form"><h2 id="edit-title">Stempelung bearbeiten</h2><p id="edit-hint" class="muted"></p><label>Projekt<select id="edit-project"></select></label><label>Zeitkategorie<select id="edit-category"></select></label><div class="field-grid"><label>Start<input id="edit-start" type="datetime-local" step="1" required></label><label>Ende<input id="edit-end" type="datetime-local" step="1"></label></div><label>Bemerkung<textarea id="edit-note" rows="4" maxlength="2000"></textarea></label><p id="edit-error" class="error" role="alert"></p><div class="panel-actions"><button id="edit-cancel" type="button" class="secondary subtle">Abbrechen</button><button type="submit" class="primary">Speichern</button></div></form></dialog>
   <dialog id="timeline-detail" aria-labelledby="detail-title"><h2 id="detail-title">Stempelung</h2><dl id="detail-fields"></dl><p id="detail-conflict" class="timeline-conflict"></p><div class="panel-actions"><button id="detail-close" type="button" class="secondary">Schließen</button></div></dialog>
+  <link rel="stylesheet" href="/action-feedback.css">
+  <script src="/action-feedback.js" defer></script>
   <script src="/starface-connect.js?v=0.7.0-3" defer></script>
   <script src="/app.js?v=0.7.0-5" defer></script>
   <script src="/portal.js?v=0.7.0-11" defer></script>
