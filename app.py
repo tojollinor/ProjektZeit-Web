@@ -220,6 +220,9 @@ class App(SimpleHTTPRequestHandler):
             row = c.execute("""SELECT s.token_hash,s.csrf,u.id,u.username,u.role,u.active
                                FROM sessions s JOIN users u ON u.id=s.user_id
                                WHERE s.token_hash=? AND s.expires_at>?""", (token_hash, int(time.time()))).fetchone()
+            if row and row['active'] and globals().get('MFA_ENABLED',False):
+                import auth_mfa
+                if not auth_mfa.session_allowed(c,dict(row),token_hash):return None
         return dict(row, bearer=bearer) if row and row["active"] else None
 
     def require(self, csrf=False, admin=False):
@@ -429,17 +432,27 @@ class App(SimpleHTTPRequestHandler):
                     LOGIN_ATTEMPTS.setdefault(client, []).append(time.time())
                 time.sleep(0.25)
                 return self.send_json(401, {"error": "Benutzername oder Passwort ist falsch"})
+            factor={}
+            if globals().get('MFA_ENABLED',False):
+                import auth_mfa
+                try:factor=auth_mfa.login(c,dict(row),body,DATA_DIR)
+                except ValueError as error:
+                    with LOGIN_LOCK:LOGIN_ATTEMPTS.setdefault(client,[]).append(time.time())
+                    return self.send_json(401,{'error':str(error),'mfa_required':True})
+                if factor.get('mfa_required'):return self.send_json(200,factor)
             token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(24)
             c.execute("INSERT INTO sessions(token_hash,user_id,csrf,expires_at) VALUES(?,?,?,?)",
                       (hashlib.sha256(token.encode()).hexdigest(), row["id"], csrf, int(time.time()) + SESSION_TTL))
+            if factor.pop('_mfa_verified',False):
+                c.execute('INSERT INTO session_mfa(token_hash) VALUES(?)',(hashlib.sha256(token.encode()).hexdigest(),))
             if native:
                 c.execute('INSERT INTO native_sessions VALUES(?,?)', (hashlib.sha256(token.encode()).hexdigest(), str(body.get('client_name', 'Client'))[:120]))
         with LOGIN_LOCK:
             LOGIN_ATTEMPTS.pop(client, None)
         if native:
-            return self.send_json(200, {'access_token': token, 'token_type': 'Bearer', 'expires_in': SESSION_TTL})
+            return self.send_json(200, {'access_token': token, 'token_type': 'Bearer', 'expires_in': SESSION_TTL, **factor})
         cookie = "pz_session=%s; Path=/; HttpOnly; SameSite=Lax; Max-Age=%d%s" % (token, SESSION_TTL, "; Secure" if COOKIE_SECURE else "")
-        return self.send_json(200, {"ok": True}, {"Set-Cookie": cookie})
+        return self.send_json(200, {"ok": True, **factor}, {"Set-Cookie": cookie})
 
     def logout(self, session, body):
         with db() as c:

@@ -18,7 +18,7 @@
   const toggle=event.target.closest('.pz-nav-toggle,.admin-nav-toggle');
   if(toggle){event.preventDefault();event.stopImmediatePropagation();const group=toggle.closest('.pz-nav-group,.admin-nav-group'),submenu=group?.querySelector('.pz-nav-submenu,.admin-nav-submenu');if(!submenu)return;const open=submenu.hidden;submenu.hidden=!open;toggle.setAttribute('aria-expanded',String(open));scheduleApply();return;}
   const adminSub=event.target.closest('.admin-subnav[data-admin-open]');
-  if(adminSub){event.preventDefault();event.stopImmediatePropagation();if(typeof showView==='function')showView('admin-options');q('#page-title')&&(q('#page-title').textContent='Admin-Optionen');setTimeout(()=>q(`[data-admin-tab="${adminSub.dataset.adminOpen}"]`)?.click(),30);setTimeout(()=>window.pzSyncNavigation?.(),70);setTimeout(scheduleApply,90);return;}
+  if(adminSub){event.preventDefault();event.stopImmediatePropagation();window.pzAdmin?.open(adminSub.dataset.adminOpen);return;}
   const custom=event.target.closest('[data-pz-nav-target]');
   if(custom){event.preventDefault();event.stopImmediatePropagation();window.pzOpenNavTarget?.(custom.dataset.pzNavTarget,custom.dataset.pzNavTitle||'');setTimeout(scheduleApply,50);return;}
   const hard=event.target.closest('[data-pz-hard-reload]');

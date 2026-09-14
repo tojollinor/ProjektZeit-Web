@@ -49,13 +49,13 @@
   const group=document.createElement('div');group.className='admin-nav-group';admin.before(group);group.append(admin);admin.classList.add('admin-nav-toggle');admin.setAttribute('aria-expanded','false');
   const submenu=document.createElement('div');submenu.className='admin-nav-submenu';submenu.hidden=true;
   const items=[
-   ['users','Benutzer',false,'users.view'],['work-models','Arbeitszeitmodelle',false,'staff.models.manage'],['roles','Rollen & Rechte',true,'roles.view'],['policies','Richtlinien',false,'security.policies.view'],
-   ['smtp','E-Mail / SMTP',true,'smtp.view'],['notifications','Benachrichtigungen',true,'notifications.edit'],['integrations','Integrationen',true,'integrations.view'],['api','API',false,'admin.options.view'],['super','Systemschutz',true,'system.options.edit']
+   ['users','Benutzer',false,'users.view'],['roles','Rollen & Rechte',true,'roles.view'],['policies','Richtlinien',false,'security.policies.view'],
+   ['smtp','E-Mail / SMTP',true,'smtp.view'],['notifications','Benachrichtigungen',true,'notifications.edit'],['integrations','Integrationen',true,'integrations.view'],['api','API',true,'admin.options.view'],['super','Systemschutz',true,'system.options.edit']
   ];
   for(const [tab,label,beta,permission] of items){
    if(!can(permission))continue;const b=document.createElement('button');b.type='button';b.className='admin-subnav';b.dataset.adminOpen=tab;
    b.innerHTML=`<span>${h(label)}</span>${beta?'<small class="beta-tag">Beta</small>':''}`;submenu.append(b);
-   b.onclick=e=>{e.stopPropagation();showView('admin-options');q('#page-title').textContent='Admin-Optionen';setTimeout(()=>q(`[data-admin-tab="${tab}"]`)?.click(),80);};
+   b.onclick=e=>{e.stopPropagation();window.pzAdmin?.open(tab);};
   }
   group.append(submenu);admin.addEventListener('click',e=>{e.preventDefault();e.stopImmediatePropagation();const open=submenu.hidden;submenu.hidden=!open;admin.setAttribute('aria-expanded',String(open));},true);
  }

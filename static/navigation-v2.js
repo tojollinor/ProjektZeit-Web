@@ -15,11 +15,11 @@
  function closeMenu(){sidebar?.classList.remove('open');q('.sidebar-scrim')?.classList.remove('open');}
  function currentView(){return q('.view.active-view')?.id?.replace(/^view-/,'')||'';}
  function createView(name){let section=q(`#view-${name}`);if(section)return section;section=document.createElement('section');section.id=`view-${name}`;section.className='view pz-split-view';main.insertBefore(section,q('#toast'));return section;}
- function makeSub(label,target,titleText=label){const b=document.createElement('button');b.type='button';b.className='admin-subnav pz-subnav';b.dataset.pzNavTarget=target;b.dataset.pzNavTitle=titleText;b.textContent=label;return b;}
+ function makeSub(label,target,titleText=label){const b=document.createElement('button');b.type='button';b.className='pz-subnav';b.dataset.pzNavTarget=target;b.dataset.pzNavTitle=titleText;b.textContent=label;return b;}
  function makeGroup(button,kind){
   const group=document.createElement('div');group.className='pz-nav-group';group.dataset.pzNavGroup=kind;
   button.before(group);group.append(button);button.classList.add('pz-nav-toggle');button.setAttribute('aria-expanded','false');button.removeAttribute('data-view');
-  const submenu=document.createElement('div');submenu.className='pz-nav-submenu admin-nav-submenu';submenu.hidden=true;group.append(submenu);return {group,button,submenu};
+  const submenu=document.createElement('div');submenu.className='pz-nav-submenu';submenu.hidden=true;group.append(submenu);return {group,button,submenu};
  }
  function setGroup(group,open){if(!group)return;const submenu=q('.pz-nav-submenu,.admin-nav-submenu',group),toggle=q('.pz-nav-toggle,.admin-nav-toggle',group);if(!submenu||!toggle)return;submenu.hidden=!open;toggle.setAttribute('aria-expanded',String(open));}
 
@@ -44,7 +44,7 @@
   const workshop=q('[data-pz-nav-group="workshop"]');if(workshop)setGroup(workshop,active.startsWith('workshop-'));
   qa('[data-pz-nav-target]').forEach(b=>b.classList.toggle('active',b.dataset.pzNavTarget===active));
   if(active==='admin-options'){
-   qa('.admin-subnav[data-admin-open]').forEach(b=>b.classList.toggle('active',q(`[data-admin-tab="${b.dataset.adminOpen}"]`)?.classList.contains('primary')));
+   qa('.admin-subnav[data-admin-open]').forEach(b=>b.classList.toggle('active',Boolean(q(`[data-admin-tab="${b.dataset.adminOpen}"]`)?.classList.contains('primary'))));
   }
  };
 
@@ -80,7 +80,7 @@
   if(settings)nav.insertBefore(button,settings);else nav.append(button);
   const {submenu}=makeGroup(button,'workshop');
   submenu.append(makeSub('Status','workshop-status','Werkstatt'));
-  const reload=document.createElement('button');reload.type='button';reload.className='admin-subnav pz-subnav';reload.dataset.pzHardReload='';reload.textContent='Hard Reload';submenu.append(reload);
+  const reload=document.createElement('button');reload.type='button';reload.className='pz-subnav';reload.dataset.pzHardReload='';reload.textContent='Hard Reload';submenu.append(reload);
   createView('workshop-status');
  }
  function renderWorkshopStatus(){

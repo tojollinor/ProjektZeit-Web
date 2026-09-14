@@ -64,16 +64,7 @@
  });
  document.addEventListener('visibilitychange',()=>{if(!document.hidden&&customersStuck())setTimeout(()=>triggerCustomerReload('resume'),350);});
 
- /* Strong admin accordion state, no obsolete horizontal/super-admin navigation. */
- const adminViews=new Set(['admin-options']);
- function fixAdminNav(){
-  const section=q('#view-admin-options');if(section){q('.admin-tabs',section)?.classList.add('pz-obsolete-admin-tabs');qa('[data-admin-tab="super"],[data-admin-pane="super"],[data-admin-tab="api"],[data-admin-pane="api"]',section).forEach(x=>x.remove());}
-  const group=q('.admin-nav-group'),toggle=q('.admin-nav-toggle'),submenu=q('.admin-nav-submenu');if(!group||!toggle||!submenu)return;
-  const active=q('.view.active-view')?.id?.replace('view-','')||'';const onAdmin=adminViews.has(active);
-  if(onAdmin){submenu.hidden=false;toggle.setAttribute('aria-expanded','true');}
-  qa('.admin-subnav',submenu).forEach(b=>b.classList.toggle('active',onAdmin&&q(`[data-admin-tab="${b.dataset.adminOpen}"]`)?.classList.contains('primary')));
- }
- document.addEventListener('click',e=>{const nav=e.target.closest('[data-view],[data-go]');if(nav&&!(nav.dataset.view||nav.dataset.go||'').startsWith('admin'))setTimeout(()=>{const s=q('.admin-nav-submenu'),t=q('.admin-nav-toggle');if(s){s.hidden=true;t?.setAttribute('aria-expanded','false');}},0);setTimeout(fixAdminNav,100);},true);
+ function fixAdminNav(){window.pzSyncNavigation?.();}
 
  const deps={
   'users.create':['users.view','admin.options.view'],'users.edit':['users.view','admin.options.view'],'users.disable':['users.view','admin.options.view'],'users.roles.assign':['users.view','roles.view','admin.options.view'],

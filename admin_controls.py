@@ -30,6 +30,7 @@ PERMISSION_CATEGORIES = {
         ('roles.delete', 'Eigene Rollen löschen'),
         ('roles.reset_user', 'Rolle Benutzer auf Standard zurücksetzen'),
     ],
+    'Zeitkategorien': [('categories.create','Zeitkategorien anlegen')],
     'Kunden': [
         ('customers.view', 'Kunden ansehen'),
         ('customers.create', 'Kunden anlegen'),
@@ -64,7 +65,7 @@ PERMISSION_CATEGORIES = {
 ALL_PERMISSIONS = {key for values in PERMISSION_CATEGORIES.values() for key, _ in values}
 DEFAULT_USER_PERMISSIONS = {
     'customers.view', 'customers.create', 'customers.edit', 'customers.links',
-    'integrations.view',
+    'integrations.view', 'categories.create',
 }
 DEFAULT_ADMIN_PERMISSIONS = ALL_PERMISSIONS - {'system.options.edit'}
 
@@ -148,6 +149,9 @@ def migrate(c):
         if not c.execute('SELECT 1 FROM system_settings WHERE setting_key=?', ('policy.'+key,)).fetchone():
             c.execute('INSERT INTO system_settings(setting_key,value_json,updated_at) VALUES(?,?,?)',
                       ('policy.'+key, json.dumps(value), now_iso()))
+    if not setting(c,'migration.categories-create-v1',False):
+        c.execute('INSERT OR IGNORE INTO role_permissions(role_id,permission_key) VALUES(?,?)',(_role(c,'user')['id'],'categories.create'))
+        set_setting(c,'migration.categories-create-v1',True)
     if not c.execute('SELECT 1 FROM system_settings WHERE setting_key=?', ('superadmin.admin_may_reset_2fa',)).fetchone():
         c.execute('INSERT INTO system_settings(setting_key,value_json,updated_at) VALUES(?,?,?)',
                   ('superadmin.admin_may_reset_2fa', json.dumps(True), now_iso()))
@@ -306,7 +310,7 @@ def assign_roles(c, actor_uid, user_id, role_ids):
     user_id=int(user_id)
     if is_superadmin(c,user_id) and not is_superadmin(c,actor_uid): raise PermissionError('Dieser Benutzer kann nicht verwaltet werden.')
     valid=[]
-    for value in role_ids or []:
+    for value in dict.fromkeys(role_ids or []):
         role=c.execute('SELECT * FROM role_definitions WHERE id=?',(int(value),)).fetchone()
         if not role: continue
         if role['role_key']=='superadmin' and not is_superadmin(c,actor_uid): continue
@@ -316,6 +320,7 @@ def assign_roles(c, actor_uid, user_id, role_ids):
         raise ValueError('Der Bootstrap-Super-Admin kann nicht degradiert werden.')
     c.execute('DELETE FROM user_role_links WHERE user_id=?',(user_id,))
     for role in valid:c.execute('INSERT INTO user_role_links(user_id,role_id) VALUES(?,?)',(user_id,role['id']))
+    c.execute('UPDATE users SET role=? WHERE id=?',('admin' if any(r['role_key'] in ('admin','superadmin') for r in valid) else 'user',user_id))
 
 
 def update_user_profile(c, actor_uid, body):
@@ -324,9 +329,8 @@ def update_user_profile(c, actor_uid, body):
     if is_superadmin(c,user_id) and not is_superadmin(c,actor_uid): raise PermissionError('Dieser Benutzer kann nicht verwaltet werden.')
     if not c.execute('SELECT 1 FROM users WHERE id=?',(user_id,)).fetchone(): raise ValueError('Benutzer nicht gefunden.')
     values=[str(body.get(k) or '').strip() for k in ('first_name','last_name','email','phone','note')]
-    c.execute('DELETE FROM user_profiles WHERE user_id=?',(user_id,))
-    c.execute('INSERT INTO user_profiles(user_id,first_name,last_name,email,phone,note,last_login_at) VALUES(?,?,?,?,?,?,?)',
-              (user_id,*values,str(body.get('last_login_at') or '')))
+    c.execute('UPDATE user_profiles SET first_name=?,last_name=?,email=?,phone=?,note=? WHERE user_id=?',(*values,user_id))
+
 
 
 def mark_login(c, user_id):
@@ -371,19 +375,26 @@ def _smtp_credentials(c, data_dir):
 def test_smtp(c, actor_uid, recipient, data_dir):
     require_permission(c,actor_uid,'smtp.test')
     row,password=_smtp_credentials(c,data_dir)
-    recipient=str(recipient or '').strip()[:250]
-    if not recipient: raise ValueError('Bitte eine Empfängeradresse für die Testmail eingeben.')
-    msg=EmailMessage();msg['Subject']='ProjektZeit SMTP-Test';msg['From']=('%s <%s>'%(row['sender_name'],row['sender_email'])) if row['sender_name'] else row['sender_email'];msg['To']=recipient
-    msg.set_content('Diese Testmail wurde erfolgreich von ProjektZeit versendet.')
-    context=ssl.create_default_context()
-    if row['security_mode']=='ssl':client=smtplib.SMTP_SSL(row['host'],row['port'],timeout=10,context=context)
-    else:
-        client=smtplib.SMTP(row['host'],row['port'],timeout=10)
-        if row['security_mode']=='starttls':client.starttls(context=context)
-    try:
-        if row['username']:client.login(row['username'],password)
-        client.send_message(msg)
-    finally:client.quit()
+    import smtp_service
+    return smtp_service.check(dict(row),password,recipient=str(recipient or ''))
+
+
+def create_user(c, actor, body, hash_password):
+    require_permission(c,actor,'users.create')
+    name=str(body.get('username') or '').strip()
+    password=str(body.get('password') or '')
+    policy=policy_values(c)
+    if not name or len(name)>80:raise ValueError('Benutzername muss 1 bis 80 Zeichen enthalten.')
+    if not max(12,int(policy['password_min_length']))<=len(password)<=1024:raise ValueError('Passwort entspricht nicht der festgelegten Mindestlänge.')
+    for key,valid in [('upper',any(x.isupper() for x in password)),('lower',any(x.islower() for x in password)),('number',any(x.isdigit() for x in password)),('special',any(not x.isalnum() for x in password))]:
+        if policy['password_require_'+key] and not valid:raise ValueError('Passwort erfüllt die hinterlegten Zeichenanforderungen nicht.')
+    if c.execute('SELECT 1 FROM users WHERE username=?',(name,)).fetchone():raise ValueError('Dieser Benutzername ist bereits vergeben.')
+    salt,digest=hash_password(password)
+    uid=c.execute("INSERT INTO users(username,password_salt,password_hash,role,active,created_at) VALUES(?,?,?,'user',1,?)",(name,salt,digest,now_iso())).lastrowid
+    c.execute('INSERT INTO user_profiles(user_id,first_name,last_name,email,phone) VALUES(?,?,?,?,?)',(uid,*[str(body.get(k) or '').strip()[:250] for k in ('first_name','last_name','email','phone')]))
+    c.execute('INSERT INTO user_role_links(user_id,role_id) VALUES(?,?)',(uid,_role(c,'user')['id']))
+    c.execute('INSERT INTO categories(owner_id,name) VALUES(?,?)',(uid,'Allgemein'))
+    return uid
 
 
 def customer_master(c, uid, customer_id):

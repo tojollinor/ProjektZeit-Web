@@ -9,7 +9,7 @@ import company_diagnostics
 import provider_budget
 import work_models
 
-READ_ACTIONS={'context','report','inbox','calendar','list','statistics','preview','status'}
+READ_ACTIONS={'read','context','report','inbox','calendar','list','statistics','preview','status'}
 
 def install(app):
     staff_time.register()
@@ -37,6 +37,12 @@ def install(app):
             c.execute('CREATE TABLE IF NOT EXISTS company_write_lock(id INTEGER PRIMARY KEY)');c.execute('INSERT OR IGNORE INTO company_write_lock VALUES(1)');staff_time.migrate(c);company_projects.migrate(c);duty_plan.migrate(c);company_sync.migrate(c);company_diagnostics.migrate(c)
         provider_budget.initialize(app.DATA_DIR);provider_budget.install_transport()
     app.init_db=init
+    original_category=app.App.add_category
+    def add_category(self,session,body):
+        with app.db(read_only=True) as c:
+            if not __import__('admin_controls').can(c,session['id'],'categories.create'):return self.send_json(403,{'error':'Keine Berechtigung zum Anlegen von Zeitkategorien.'})
+        return original_category(self,session,body)
+    app.App.add_category=add_category
     previous=app.App.do_POST
     def post(self):
         path=urlparse(self.path).path
