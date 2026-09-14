@@ -45,15 +45,19 @@ def install(app):
         key=event.get('external_key') or ''
         current=c.execute('SELECT * FROM provider_assignments WHERE owner_id=? AND provider=? AND external_key=?',(uid,provider,key)).fetchone()
         if current:return dict(current)
-        typ,val=final._provider_identifier(provider,event.get('raw') or {},event.get('customer_hint') or {})
+        identifiers=final._provider_identifiers(provider,event.get('raw') or {},event.get('customer_hint') or {})
+        typ,val=identifiers[0] if identifiers else ('','')
         if not typ or not val:return {'owner_id':uid,'provider':provider,'external_key':key,'customer_id':None,'project_id':None,'match_type':typ,'match_value':val}
-        link=c.execute('SELECT customer_id,created_at FROM customer_identity_links WHERE owner_id=? AND provider=? AND link_type=? AND link_value=?',(uid,provider,typ,val)).fetchone()
-        if not link:return {'owner_id':uid,'provider':provider,'external_key':key,'customer_id':None,'project_id':None,'match_type':typ,'match_value':val}
         event_row=c.execute('SELECT occurred_at,captured_at FROM provider_events WHERE owner_id=? AND provider=? AND external_key=?',(uid,provider,key)).fetchone()
         event_time=_parse(event_row['occurred_at'] if event_row else '') or _parse(event_row['captured_at'] if event_row else '')
-        created=_parse(link['created_at'])
-        if created and event_time and event_time<created:
-            return {'owner_id':uid,'provider':provider,'external_key':key,'customer_id':None,'project_id':None,'match_type':typ,'match_value':val}
+        link=None
+        for candidate_type,candidate_value in identifiers:
+            candidate=c.execute('SELECT customer_id,created_at FROM customer_identity_links WHERE owner_id=? AND provider=? AND link_type=? AND link_value=?',(uid,provider,candidate_type,candidate_value)).fetchone()
+            if not candidate:continue
+            created=_parse(candidate['created_at'])
+            if created and event_time and event_time<created:continue
+            typ,val,link=candidate_type,candidate_value,candidate;break
+        if not link:return {'owner_id':uid,'provider':provider,'external_key':key,'customer_id':None,'project_id':None,'match_type':typ,'match_value':val}
         c.execute('INSERT INTO provider_assignments(owner_id,provider,external_key,customer_id,project_id,match_type,match_value,assigned_by,assigned_at) VALUES(?,?,?,?,NULL,?,?,NULL,?)',(uid,provider,key,link['customer_id'],typ,val,final.now_iso()))
         return dict(c.execute('SELECT * FROM provider_assignments WHERE owner_id=? AND provider=? AND external_key=?',(uid,provider,key)).fetchone())
     final._ensure_assignment=ensure_assignment
@@ -81,7 +85,10 @@ def install(app):
                     provider=str(body.get('provider') or '').lower();key=str(body.get('external_key') or '');cid=int(body.get('customer_id'));final._valid_customer(c,uid,cid)
                     ev=c.execute('SELECT raw_json,hint_json FROM provider_events WHERE owner_id=? AND provider=? AND external_key=?',(uid,provider,key)).fetchone()
                     if not ev:raise ValueError('Eintrag nicht gefunden.')
-                    raw=json.loads(ev['raw_json'] or '{}');hint=json.loads(ev['hint_json'] or '{}');typ,val=final._provider_identifier(provider,raw,hint)
+                    raw=json.loads(ev['raw_json'] or '{}');hint=json.loads(ev['hint_json'] or '{}');identifiers=final._provider_identifiers(provider,raw,hint)
+                    requested=(str(body.get('match_type') or ''),str(body.get('match_value') or '').strip())
+                    if requested[0]=='email':requested=(requested[0],requested[1].casefold())
+                    typ,val=requested if requested in identifiers else (identifiers[0] if identifiers else ('',''))
                     if not typ or not val:raise ValueError('Für diesen Eintrag wurde kein stabiles Zuordnungsmerkmal gefunden.')
                     display=str(raw.get('devicename') or hint.get('device_name') or '')[:500]
                     c.execute('DELETE FROM customer_identity_links WHERE owner_id=? AND provider=? AND link_type=? AND link_value=?',(uid,provider,typ,val))
@@ -89,9 +96,9 @@ def install(app):
                     matched=0
                     events=list(c.execute('SELECT external_key,raw_json,hint_json FROM provider_events WHERE owner_id=? AND provider=?',(uid,provider))) if bulk else [dict(external_key=key,raw_json=ev['raw_json'],hint_json=ev['hint_json'])]
                     for event in events:
-                        try:et,evv=final._provider_identifier(provider,json.loads(event['raw_json'] or '{}'),json.loads(event['hint_json'] or '{}'))
+                        try:event_identifiers=final._provider_identifiers(provider,json.loads(event['raw_json'] or '{}'),json.loads(event['hint_json'] or '{}'))
                         except Exception:continue
-                        if et==typ and evv==val:
+                        if (typ,val) in event_identifiers:
                             old=c.execute('SELECT project_id FROM provider_assignments WHERE owner_id=? AND provider=? AND external_key=?',(uid,provider,event['external_key'])).fetchone();pid=old['project_id'] if old else None
                             c.execute('DELETE FROM provider_assignments WHERE owner_id=? AND provider=? AND external_key=?',(uid,provider,event['external_key']))
                             c.execute('INSERT INTO provider_assignments(owner_id,provider,external_key,customer_id,project_id,match_type,match_value,assigned_by,assigned_at) VALUES(?,?,?,?,?,?,?,?,?)',(uid,provider,event['external_key'],cid,pid,typ,val,uid,final.now_iso()));matched+=1
@@ -100,16 +107,16 @@ def install(app):
                 import admin_controls
                 admin_controls.require_permission(c,uid,'customers.edit');cid=int(body.get('customer_id'));final._valid_customer(c,uid,cid)
                 provider=str(body.get('provider') or '').lower();typ=str(body.get('link_type') or '').lower();val=str(body.get('link_value') or '').strip();display=str(body.get('display_name') or '')[:500]
-                if provider not in ('zammad','starface','teamviewer') or typ not in ('email','phone','teamviewer_id') or not val:raise ValueError('Ungültige Verknüpfung.')
+                if provider not in ('zammad','starface','teamviewer') or typ not in ('email','phone','teamviewer_id','zammad_customer_id','zammad_organization_id') or not val:raise ValueError('Ungültige Verknüpfung.')
                 if typ=='email':val=val.lower()
                 previous_link=c.execute('SELECT customer_id FROM customer_identity_links WHERE owner_id=? AND provider=? AND link_type=? AND link_value=?',(uid,provider,typ,val)).fetchone()
                 c.execute('DELETE FROM customer_identity_links WHERE owner_id=? AND provider=? AND link_type=? AND link_value=?',(uid,provider,typ,val));cur=c.execute('INSERT INTO customer_identity_links(owner_id,customer_id,provider,link_type,link_value,display_name,created_by,created_at) VALUES(?,?,?,?,?,?,?,?)',(uid,cid,provider,typ,val,display,uid,final.now_iso()))
                 matched=0
                 if bulk:
                     for event in list(c.execute('SELECT external_key,raw_json,hint_json FROM provider_events WHERE owner_id=? AND provider=?',(uid,provider))):
-                        try:et,evv=final._provider_identifier(provider,json.loads(event['raw_json'] or '{}'),json.loads(event['hint_json'] or '{}'))
+                        try:event_identifiers=final._provider_identifiers(provider,json.loads(event['raw_json'] or '{}'),json.loads(event['hint_json'] or '{}'))
                         except Exception:continue
-                        if et==typ and evv==val:
+                        if (typ,val) in event_identifiers:
                             old=c.execute('SELECT project_id FROM provider_assignments WHERE owner_id=? AND provider=? AND external_key=?',(uid,provider,event['external_key'])).fetchone();pid=old['project_id'] if old else None
                             c.execute('DELETE FROM provider_assignments WHERE owner_id=? AND provider=? AND external_key=?',(uid,provider,event['external_key']))
                             c.execute('INSERT INTO provider_assignments(owner_id,provider,external_key,customer_id,project_id,match_type,match_value,assigned_by,assigned_at) VALUES(?,?,?,?,?,?,?,?,?)',(uid,provider,event['external_key'],cid,pid,typ,val,uid,final.now_iso()));matched+=1

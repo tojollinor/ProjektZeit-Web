@@ -77,15 +77,15 @@ POLICY_DEFAULTS = {
     'password_require_special': False,
     'password_history': 0,
     'password_expiry_days': 0,
-    'password_change_first_login': False,
     'login_max_attempts': 8,
     'login_lock_minutes': 10,
     'session_idle_minutes': 0,
     'session_max_hours': 12,
     'remember_login_allowed': True,
     'two_factor_mode': 'optional',
-    'two_factor_admin_required': False,
-    'two_factor_grace_days': 0,
+    'two_factor_required_roles': [],
+    'email_mfa_code_length': 6,
+    'email_mfa_code_kind': 'numeric',
     'email_password_reset_allowed': True,
     'email_verify_required': False,
     'notify_password_change': True,
@@ -132,6 +132,10 @@ def migrate(c):
       id INTEGER PRIMARY KEY, sender_name TEXT NOT NULL DEFAULT '', sender_email TEXT NOT NULL DEFAULT '',
       host TEXT NOT NULL DEFAULT '', port INTEGER NOT NULL DEFAULT 587, security_mode TEXT NOT NULL DEFAULT 'starttls',
       username TEXT NOT NULL DEFAULT '', password_secret TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS user_security_state (
+      user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      must_change_password INTEGER NOT NULL DEFAULT 0
     );
     CREATE TABLE IF NOT EXISTS customer_master_fields (
       owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -239,6 +243,23 @@ def policy_values(c):
     return {key: setting(c, 'policy.'+key, default) for key, default in POLICY_DEFAULTS.items()}
 
 
+def validate_password(c, password):
+    password = str(password or '')
+    policy = policy_values(c)
+    if not max(12, int(policy['password_min_length'])) <= len(password) <= 1024:
+        raise ValueError('Passwort entspricht nicht der festgelegten Mindestlänge.')
+    checks = (
+        ('upper', any(x.isupper() for x in password)),
+        ('lower', any(x.islower() for x in password)),
+        ('number', any(x.isdigit() for x in password)),
+        ('special', any(not x.isalnum() for x in password)),
+    )
+    for key, valid in checks:
+        if policy['password_require_' + key] and not valid:
+            raise ValueError('Passwort erfüllt die hinterlegten Zeichenanforderungen nicht.')
+    return password
+
+
 def list_roles(c, viewer_uid):
     superuser = is_superadmin(c, viewer_uid)
     rows = c.execute('SELECT * FROM role_definitions ORDER BY is_system DESC,name')
@@ -255,8 +276,10 @@ def list_roles(c, viewer_uid):
 def list_users(c, viewer_uid):
     superuser=is_superadmin(c,viewer_uid)
     out=[]
-    for row in c.execute('''SELECT u.id,u.username,u.role,u.active,u.created_at,p.first_name,p.last_name,p.email,p.phone,p.note,p.last_login_at
-                            FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id ORDER BY u.username'''):
+    for row in c.execute('''SELECT u.id,u.username,u.role,u.active,u.created_at,p.first_name,p.last_name,p.email,p.phone,p.note,p.last_login_at,
+                                   COALESCE(s.must_change_password,0) must_change_password
+                            FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id
+                            LEFT JOIN user_security_state s ON s.user_id=u.id ORDER BY u.username'''):
         target_super=is_superadmin(c,row['id'])
         if target_super and not superuser: continue
         roles=[dict(id=r['id'],key=r['role_key'],name=r['name']) for r in c.execute('''SELECT d.id,d.role_key,d.name FROM role_definitions d
@@ -386,17 +409,16 @@ def create_user(c, actor, body, hash_password):
     require_permission(c,actor,'users.create')
     name=str(body.get('username') or '').strip()
     password=str(body.get('password') or '')
-    policy=policy_values(c)
     if not name or len(name)>80:raise ValueError('Benutzername muss 1 bis 80 Zeichen enthalten.')
-    if not max(12,int(policy['password_min_length']))<=len(password)<=1024:raise ValueError('Passwort entspricht nicht der festgelegten Mindestlänge.')
-    for key,valid in [('upper',any(x.isupper() for x in password)),('lower',any(x.islower() for x in password)),('number',any(x.isdigit() for x in password)),('special',any(not x.isalnum() for x in password))]:
-        if policy['password_require_'+key] and not valid:raise ValueError('Passwort erfüllt die hinterlegten Zeichenanforderungen nicht.')
+    validate_password(c,password)
     if c.execute('SELECT 1 FROM users WHERE username=?',(name,)).fetchone():raise ValueError('Dieser Benutzername ist bereits vergeben.')
     salt,digest=hash_password(password)
     uid=c.execute("INSERT INTO users(username,password_salt,password_hash,role,active,created_at) VALUES(?,?,?,'user',1,?)",(name,salt,digest,now_iso())).lastrowid
     c.execute('INSERT INTO user_profiles(user_id,first_name,last_name,email,phone) VALUES(?,?,?,?,?)',(uid,*[str(body.get(k) or '').strip()[:250] for k in ('first_name','last_name','email','phone')]))
     c.execute('INSERT INTO user_role_links(user_id,role_id) VALUES(?,?)',(uid,_role(c,'user')['id']))
     c.execute('INSERT INTO categories(owner_id,name) VALUES(?,?)',(uid,'Allgemein'))
+    c.execute('INSERT INTO user_security_state(user_id,must_change_password) VALUES(?,?)',
+              (uid, int(body.get('must_change_password') is True)))
     return uid
 
 
@@ -419,7 +441,7 @@ def save_customer_master(c, uid, customer_id, body):
 def admin_context(c, uid):
     superuser=is_superadmin(c,uid)
     perms=sorted(permissions_for_user(c,uid))
-    return {
+    result={
         'is_superadmin':superuser,
         'permissions':perms,
         'company':__import__('company_master').read(c) if can(c,uid,'system.options.edit') else {},
@@ -433,6 +455,12 @@ def admin_context(c, uid):
         'smtp':smtp_public(c) if (superuser or 'smtp.view' in perms) else {},
         'superadmin_settings':({'admin_may_reset_2fa':bool(setting(c,'security.admin_may_reset_2fa',True))} if can(c,uid,'system.options.edit') else {}),
     }
+    if can(c,uid,'staff.policy'):
+        staff=__import__('staff_time')
+        result['staff_policy']=staff.policy(c)
+        result['staff_policy_today']=str(staff.now().astimezone(staff.TZ).date())
+        result['absence_kinds']=[dict(row) for row in c.execute('SELECT code,name,rule,vacation,color,active FROM absence_kinds ORDER BY name')]
+    return result
 
 
 def set_user_active(c, actor, body):

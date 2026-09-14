@@ -10,7 +10,7 @@
 
   window.renderStarfaceCard = row => {
     const configured=!!row.username;
-    return '<article class="panel integration-card" data-provider="starface">' + `<div class="panel-head"><h3>STARFACE</h3><span class="badge">${row.has_secret?'Verbunden':configured?'Konfiguriert':'Nicht eingerichtet'}</span></div>
+    return '<article class="panel integration-card" data-provider="starface">' + `<div class="panel-head"><h3>STARFACE <span class="beta-tag">Beta</span></h3><span class="badge">${row.has_secret?'Verbunden':configured?'Konfiguriert':'Nicht eingerichtet'}</span></div>
         <p class="integration-note">Adresse und OAuth-Client werden zentral auf dem ProjektZeit-Server gespeichert. Der Windows-Client wird nur für Browser-Anmeldung und lokalen STARFACE-Rücksprung benötigt. Danach kann er beendet werden.</p>
         <div class="integration-fields">
           <label>STARFACE-Adresse<input data-field="domain" value="${attr(row.domain)}" placeholder="https://telefon.firma.de" autocomplete="off" spellcheck="false"></label>

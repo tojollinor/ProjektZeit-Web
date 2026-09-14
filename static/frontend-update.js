@@ -45,15 +45,16 @@
   const host=q('.sidebar-bottom .user-chip');if(!host||q('[data-release-info]'))return;
   const info=document.createElement('div');info.dataset.releaseInfo='';info.className='release-info';
   const release=q('meta[name="pz-release-version"]')?.content||'',build=q('meta[name="pz-build-revision"]')?.content||'';
-  info.innerHTML='<small data-release-label></small><button type="button" class="release-check">Auf Aktualisierungen prüfen</button><small data-release-status role="status" hidden></small>';
-  q('[data-release-label]',info).textContent=(release?'Version '+release:'Build')+' · '+(build||loadedVersion).slice(0,8);host.after(info);
-  const button=q('button',info),status=q('[data-release-status]',info);
-  button.onclick=async()=>{if(button.disabled)return;button.disabled=true;button.setAttribute('aria-busy','true');status.hidden=false;status.textContent='Aktualisierungen werden geprüft …';status.dataset.state='checking';
+  info.innerHTML='<button type="button" class="release-check" data-release-status role="status">Aktuellste Version</button>';
+  host.after(info);
+  const button=q('button',info);
+  async function updateStatus(){if(button.disabled)return;button.disabled=true;button.setAttribute('aria-busy','true');
    const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),8000);
-   try{const response=await fetch('/api/v1/system/update',{credentials:'same-origin',cache:'no-store',signal:controller.signal});if(!response.ok)throw new Error('Prüfung nicht verfügbar');const data=await response.json();status.textContent=data.message;status.dataset.state=data.state;}
-   catch(_){status.textContent='Aktualisierungsprüfung momentan nicht möglich. Bitte später erneut versuchen.';status.dataset.state='error';}
+   try{const response=await fetch('/api/v1/system/update',{credentials:'same-origin',cache:'no-store',signal:controller.signal});if(!response.ok)throw new Error('Prüfung nicht verfügbar');const data=await response.json();button.textContent=data.state==='available'?'Update verfügbar':'Aktuellste Version';button.dataset.state=data.state==='available'?'available':'current';button.title=data.message||button.textContent;}
+   catch(_){button.textContent='Aktuellste Version';button.dataset.state='current';button.title='Aktualisierungsprüfung momentan nicht möglich.';}
    finally{clearTimeout(timeout);button.disabled=false;button.removeAttribute('aria-busy');}
-  };
+  }
+  button.onclick=updateStatus;updateStatus();
  }
  releaseFooter();
  cleanReloadMarker();banner();

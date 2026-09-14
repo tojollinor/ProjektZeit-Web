@@ -41,9 +41,8 @@
  window.pzSyncNavigation=()=>{
   const active=currentView();
   const changed=previousNavView!==active;previousNavView=active;
-  const admin=q('.admin-nav-group');if(admin&&changed)setGroup(admin,['admin-options','staff-settings'].includes(active));
+  const admin=q('.admin-nav-group');if(admin&&changed)setGroup(admin,active==='admin-options');
   const bookkeeping=q('[data-pz-nav-group=bookkeeping]');if(bookkeeping&&changed)setGroup(bookkeeping,['bookkeeping','absence-approvals','employee-billing'].includes(active));
-  qa('[data-company-nav=staff-settings]').forEach(b=>b.classList.toggle('active',active==='staff-settings'));
   const settings=q('[data-pz-nav-group="settings"]');if(settings&&changed)setGroup(settings,active.startsWith('settings-'));
   const workshop=q('[data-pz-nav-group="workshop"]');if(workshop&&changed)setGroup(workshop,active.startsWith('workshop-'));
   qa('[data-pz-nav-target]').forEach(b=>b.classList.toggle('active',b.dataset.pzNavTarget===active));
@@ -52,7 +51,7 @@
   }
  };
 
- function setupBookkeeping(){const button=q('[data-view="bookkeeping"]',nav);if(!button)return;const existing=q('[data-pz-nav-group="bookkeeping"] .pz-nav-submenu');if(existing){for(const name of ['employee-billing','absence-approvals']){const child=q('[data-company-nav="'+name+'"]');if(child){child.className='pz-subnav';if(child.parentElement!==existing)existing.append(child);}}return;}const open=button.onclick;const {submenu}=makeGroup(button,'bookkeeping');button.dataset.bookkeepingToggle='';const overview=makeSub('Projektabrechnung','bookkeeping');overview.onclick=open;submenu.append(overview);const payroll=q('[data-company-nav="employee-billing"]');if(payroll){payroll.className='pz-subnav';submenu.append(payroll);}const absence=q('[data-company-nav="absence-approvals"]');if(absence){absence.className='pz-subnav';submenu.append(absence);}button.onclick=e=>{e.stopPropagation();setGroup(button.parentElement,button.getAttribute('aria-expanded')!=='true');};}
+ function setupBookkeeping(){const button=q('[data-view="bookkeeping"]',nav)||q('[data-pz-nav-group="bookkeeping"] .pz-nav-toggle',nav);if(!button)return;let submenu=q('[data-pz-nav-group="bookkeeping"] .pz-nav-submenu');if(!submenu){const open=button.onclick;({submenu}=makeGroup(button,'bookkeeping'));button.dataset.bookkeepingToggle='';const overview=makeSub('Projektabrechnung','bookkeeping');overview.onclick=open;submenu.append(overview);button.onclick=e=>{e.stopPropagation();setGroup(button.parentElement,button.getAttribute('aria-expanded')!=='true');};}for(const name of ['employee-billing','absence-approvals']){const child=q('[data-company-nav="'+name+'"]');if(child){child.className='pz-subnav';if(child.parentElement!==submenu)submenu.append(child);}}}
  document.addEventListener('pz-company-ready',()=>{setupBookkeeping();previousNavView=null;window.pzSyncNavigation();});
  function setupSettings(){
   if(q('[data-pz-nav-group="settings"]'))return true;

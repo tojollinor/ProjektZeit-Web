@@ -142,7 +142,7 @@ def seed_demo(c, user_id):
 
 
 class App(SimpleHTTPRequestHandler):
-    server_version = "ProjektZeit/0.7.0"
+    server_version = "ProjektZeit/0.7.5"
 
     def log_message(self, fmt, *args):
         if urlparse(self.path).path in ('/health', starface_oauth.CALLBACK):
@@ -253,11 +253,11 @@ class App(SimpleHTTPRequestHandler):
             try:
                 with db() as c:
                     c.execute('SELECT 1')
-                return self.send_json(200, {"status": "ok", "version": "0.7.0"})
+                return self.send_json(200, {"status": "ok", "version": "0.7.5"})
             except Exception:
                 return self.send_json(503, {'status': 'database_unavailable'})
         if path == '/api/v1/capabilities':
-            return self.send_json(200, {'api_version': 'v1', 'server_version': '0.7.0',
+            return self.send_json(200, {'api_version': 'v1', 'server_version': '0.7.5',
                 'authentication': ['session_cookie', 'bearer'], 'token_endpoint': '/api/v1/auth/token',
                 'token_lifetime_seconds': SESSION_TTL, 'refresh_tokens': False,
                 'features': ['workday', 'project_switch', 'entries_edit', 'csv', 'integration_previews']})
@@ -457,7 +457,14 @@ class App(SimpleHTTPRequestHandler):
             LOGIN_ATTEMPTS.pop(client, None)
         if native:
             return self.send_json(200, {'access_token': token, 'token_type': 'Bearer', 'expires_in': SESSION_TTL, **factor})
-        cookie = "pz_session=%s; Path=/; HttpOnly; SameSite=Lax; Max-Age=%d%s" % (token, SESSION_TTL, "; Secure" if COOKIE_SECURE else "")
+        remember = False
+        try:
+            with db(read_only=True) as policy_c:
+                remember = bool(body.get('remember')) and bool(__import__('admin_controls').setting(policy_c, 'policy.remember_login_allowed', True))
+        except Exception:
+            remember = False
+        persistence = '; Max-Age=%d' % SESSION_TTL if remember else ''
+        cookie = "pz_session=%s; Path=/; HttpOnly; SameSite=Lax%s%s" % (token, persistence, "; Secure" if COOKIE_SECURE else "")
         return self.send_json(200, {"ok": True, **factor}, {"Set-Cookie": cookie})
 
     def logout(self, session, body):

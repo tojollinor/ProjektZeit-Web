@@ -77,7 +77,7 @@ class CollectedUpdateTests(unittest.TestCase):
         keys = {r[0] for r in self.c.execute('SELECT DISTINCT permission_key FROM role_permissions')}
         for key in keys:
             self.assertGreater(len(permission_help.permission(key)), 100, key)
-        self.assertFalse(set(acl.POLICY_DEFAULTS) - {'two_factor_admin_required'} - permission_help.POLICIES.keys())
+        self.assertFalse(set(acl.POLICY_DEFAULTS) - permission_help.POLICIES.keys())
 
 
 if __name__ == '__main__':

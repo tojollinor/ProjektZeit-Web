@@ -11,17 +11,17 @@
   function setWidth(key,width){read();preference.widths={...preference.widths,[key]:clamp(width)};write();}
   function open(){
    const d=document.createElement('dialog');d.className='ui-dialog table-column-dialog';d.setAttribute('aria-label','Tabellenspalten bearbeiten');
-   d.innerHTML='<div class="panel-head"><h3>Spalten bearbeiten</h3><button type="button" class="secondary" data-close>Schließen</button></div><p>Spalten einblenden, ausblenden, verschieben und ihre Breite ändern. Gilt für dieses Benutzerkonto auf diesem Gerät.</p><div data-columns></div><button type="button" class="secondary" data-reset>Standard wiederherstellen</button>';
+   d.innerHTML='<div class="panel-head"><h3>Spalten bearbeiten</h3><button type="button" class="secondary" data-close>Schließen</button></div><p>Spalten einblenden, ausblenden und verschieben. Die Breite wird direkt an den Spaltengrenzen der Tabelle angepasst und dauerhaft für dieses Benutzerkonto auf diesem Gerät gespeichert.</p><div data-columns></div><button type="button" class="secondary" data-reset>Standard wiederherstellen</button>';
    document.body.append(d);d.querySelector('[data-close]').onclick=()=>d.close();d.addEventListener('close',()=>d.remove(),{once:true});
    function draw(){const host=d.querySelector('[data-columns]');host.replaceChildren();const list=all();list.forEach((column,index)=>{
     const row=document.createElement('div');row.className='table-column-editor-row';const label=document.createElement('label'),check=document.createElement('input');check.type='checkbox';check.checked=!!column.visible;label.append(check,document.createTextNode(column.label));
     check.onchange=()=>{if(!check.checked&&visible().length===1){check.checked=true;return;}preference.visible={...preference.visible,[column.key]:check.checked};write();};
-    const widthLabel=document.createElement('label');widthLabel.textContent='Breite (px)';const width=document.createElement('input');width.type='number';width.min='80';width.max='720';width.step='10';width.value=column.width;width.setAttribute('aria-label','Breite: '+column.label);width.onchange=()=>{setWidth(column.key,width.value);width.value=clamp(width.value);};widthLabel.append(width);row.append(label,widthLabel);
+    row.append(label);
     const actions=document.createElement('div');actions.className='panel-actions';for(const [offset,text] of [[-1,'↑'],[1,'↓']]){const button=document.createElement('button');button.type='button';button.className='secondary';button.textContent=text;button.setAttribute('aria-label',column.label+(offset<0?' nach oben':' nach unten'));button.disabled=index+offset<0||index+offset>=list.length;button.onclick=()=>{const order=list.map(c=>c.key);[order[index],order[index+offset]]=[order[index+offset],order[index]];preference.order=order;write();draw();};actions.append(button);}row.append(actions);host.append(row);
    });}
    d.querySelector('[data-reset]').onclick=()=>{preference={};write();draw();};draw();d.showModal();
   }
-  const button=document.createElement('button');button.type='button';button.className='secondary';button.textContent='Spalten';button.onclick=open;section.querySelector('.provider-toolbar').append(button);
+  const button=document.createElement('button');button.type='button';button.className='secondary';button.textContent='Spalten';button.onclick=open;const table=section.querySelector('.raw-provider-table'),bar=document.createElement('div');bar.className='table-column-toolbar';bar.append(button);table?.before(bar);
   function headerResize(th,column){
    th.style.width=column.width+'px';const handle=document.createElement('span');handle.className='table-column-resize';handle.tabIndex=0;handle.setAttribute('role','separator');handle.setAttribute('aria-orientation','vertical');handle.setAttribute('aria-label','Spaltenbreite: '+column.label);handle.setAttribute('aria-valuemin','80');handle.setAttribute('aria-valuemax','720');handle.setAttribute('aria-valuenow',column.width);
    handle.onkeydown=e=>{if(!['ArrowLeft','ArrowRight'].includes(e.key))return;e.preventDefault();setWidth(column.key,column.width+(e.key==='ArrowLeft'?-10:10));};

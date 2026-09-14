@@ -71,8 +71,16 @@ POLICIES = {
  'password_require_lower':'Verlangt bei neu angelegten Benutzerpasswörtern mindestens einen Kleinbuchstaben.',
  'password_require_number':'Verlangt bei neu angelegten Benutzerpasswörtern mindestens eine Ziffer.',
  'password_require_special':'Verlangt bei neu angelegten Benutzerpasswörtern mindestens ein nicht alphanumerisches Zeichen.',
- 'two_factor_mode':'Optional lässt freiwillige 2FA zu. Verpflichtend verlangt nach der Frist 2FA für alle Benutzer einschließlich Administratoren. Beim Aktivieren werden bestehende Sitzungen beendet.',
- 'two_factor_grace_days':'Tage ab Aktivierung der allgemeinen 2FA-Pflicht bis zur verpflichtenden Einrichtung. 0 bedeutet sofort. Bereits eingerichtete 2FA bleibt erforderlich.',
+ 'remember_login_allowed':'Blendet auf der Anmeldeseite „Angemeldet bleiben“ ein. Nur wenn der Benutzer die Option auswählt, bleibt das Sitzungscookie nach dem Schließen des Browsers erhalten.',
+ 'two_factor_mode':'Optional lässt freiwillige 2FA zu. Die Pflicht kann für alle oder nur für ausgewählte Rollen gelten. Änderungen beenden bestehende Sitzungen, damit die neue Vorgabe bei der nächsten Anmeldung geprüft wird.',
+ 'two_factor_required_roles':'Jeder Benutzer mit mindestens einer ausgewählten Rolle muss 2FA verwenden. Weitere zugewiesene Rollen heben die Pflicht nicht auf.',
+ 'email_mfa_code_length':'Bestimmt die Länge neu versendeter E-Mail-Anmeldecodes. Längere Codes sind schwerer zu erraten; gültig sind 6 bis 12 Zeichen.',
+ 'email_mfa_code_kind':'Legt fest, ob E-Mail-Anmeldecodes nur Ziffern oder gut unterscheidbare Großbuchstaben und Ziffern enthalten. Die Einstellung gilt für neu versendete Codes.',
+ 'email_password_reset_allowed':'Erlaubt auf der Anmeldeseite einen sicheren, zeitlich begrenzten Link zum Zurücksetzen des Passworts. Ohne eingerichteten Mailversand bleibt die Funktion gesperrt.',
+ 'email_verify_required':'Verlangt eine bestätigte E-Mail-Adresse vor der Anmeldung. Nach einer Adressänderung wird ein neuer Bestätigungslink benötigt.',
+ 'notify_password_change':'Sendet nach einer Passwortänderung einen Sicherheitshinweis an die hinterlegte E-Mail-Adresse.',
+ 'notify_email_change':'Sendet bei einer Adressänderung einen Sicherheitshinweis an die bisherige Adresse, sofern vorhanden.',
+ 'notify_two_factor_change':'Sendet einen Sicherheitshinweis, wenn 2FA eingerichtet, gewechselt oder zurückgesetzt wird.',
  'approval_paid':'Verlangt eine Genehmigung für bezahlte Abwesenheiten. Ohne Pflicht werden gültige Anträge nach den übrigen Regeln direkt wirksam.',
  'approval_unpaid':'Verlangt eine Genehmigung für unbezahlte Abwesenheiten und Freizeitausgleich. Bezahlter Urlaub hat eine eigene Regel.',
  'hourly_paid':'Erlaubt stundenweisen bezahlten Urlaub. Sonst ist bezahlter Urlaub nur ganztägig möglich.',
@@ -82,10 +90,8 @@ POLICIES = {
  'valid_from':'Neue Arbeitszeit- und Abwesenheitsregeln gelten ab diesem Datum. Bereits eingereichte Anträge behalten ihre beim Einreichen gespeicherten Regeln.',
 }
 PREPARED_POLICIES = {
- 'password_history','password_expiry_days','password_change_first_login','login_max_attempts',
- 'login_lock_minutes','session_idle_minutes','session_max_hours','remember_login_allowed',
- 'email_password_reset_allowed','email_verify_required','notify_password_change',
- 'notify_email_change','notify_two_factor_change',
+ 'password_history','password_expiry_days','login_max_attempts',
+ 'login_lock_minutes','session_idle_minutes','session_max_hours',
 }
 for key in PREPARED_POLICIES:
     POLICIES[key] = 'Noch nicht aktiv umgesetzt: Diese vorbereitete Einstellung wird derzeit nicht durchgesetzt. Ein gespeicherter Wert bietet deshalb noch keine entsprechende Funktion.'

@@ -1,4 +1,4 @@
-# ProjektZeit Web 0.7.0
+# ProjektZeit Web 0.7.5
 
 Webbasierte Zeiterfassung mit Kunden, Projekten, Zeitkategorien, bearbeitbaren Stempelungen und Tageszeitstrahl. Arbeitsbeginn/-ende begrenzen die Arbeitszeit; Lücken werden als „unproduktiv“ erfasst. Projektwechsel beendet den laufenden Timer atomar.
 
@@ -41,6 +41,12 @@ Der Workflow testet SQLite, MariaDB und den Zeitstrahl, bevor er AMD64-/ARM64-Im
 In Komodo den Inhalt von `compose.yaml` als Stack verwenden und die ENV-Werte separat eintragen. Der Stack benötigt keine Änderungen an den Platzhaltern. `APP_PUBLIC_URL` wird unter anderem für den sicheren `projektzeit://`-Startlink benötigt; DNS und HTTPS-Reverse-Proxy werden separat eingerichtet.
 
 Updates: `docker compose pull`, danach `docker compose up -d`. Stacknamen beibehalten, damit dieselben Volumes verwendet werden.
+
+## E-Mail und Kontosicherheit
+
+SMTP wird unter **Admin-Optionen → E-Mail / SMTP** eingerichtet. `APP_PUBLIC_URL` muss auf die öffentlich im Browser verwendete ProjektZeit-Adresse zeigen, damit Einmal-Links für E-Mail-Bestätigung und Passwort-Wiederherstellung erzeugt werden können. Danach lassen sich unter **Richtlinien** Sicherheitsmails, E-Mail-Verifizierung sowie numerische oder alphanumerische E-Mail-Codes als zweite Anmeldestufe konfigurieren. 2FA kann optional, für alle Benutzer oder nur für ausgewählte Rollen gelten.
+
+Administratoren vergeben bei neuen Benutzern ein vorläufiges Passwort und können einen verpflichtenden Wechsel bei der nächsten Anmeldung setzen. Passwörter werden nie per E-Mail versendet. E-Mail-Codes sind kurzlebig und nur einmal verwendbar; zur Prüfung liegt ausschließlich ihr Hash vor, während ausstehende Nachrichten bis zum Versand verschlüsselt im Datenvolume gespeichert werden.
 
 ## Entwicklung
 
