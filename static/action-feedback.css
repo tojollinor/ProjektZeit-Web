@@ -1,0 +1,5 @@
+button[data-action-phase],input[data-action-phase]{transition:background-color .15s;color:#fff!important;opacity:1!important}
+[data-action-phase="busy"],[data-action-phase="uncertain"]{background:#586272!important;cursor:wait}
+[data-action-phase="busy"]::before,[data-action-phase="uncertain"]::before{content:'';display:inline-block;width:12px;height:12px;margin-right:8px;border:2px solid #ffffff70;border-top-color:#fff;border-radius:50%;animation:pz-action-spin .8s linear infinite}
+[data-action-phase="success"]{background:#16834e!important}[data-action-phase="error"]{background:#b83243!important}[data-action-error]{color:#ff9199;white-space:normal;overflow-wrap:anywhere;font-size:.85rem}
+@keyframes pz-action-spin{to{transform:rotate(360deg)}}
