@@ -125,6 +125,24 @@ with opener.open(base+'/api/v1/me') as response:csrf=json.load(response)['csrf']
 assert post('/api/v1/time-workspace/read',{'day':'2026-03-29'})['events']==[]
 assert post('/api/v1/time-workspace/statistics',{'day':'2026-03-29'})['total']==0
 assert post('/api/v1/customers/detail',{'id':cid})['customer']['name']=='Example'
+catalog=post('/api/v1/project-catalog/list',{})
+pid=catalog['projects'][0]['id']
+tag=post('/api/v1/project-catalog/tags/save',{'name':'HTTP tag','customer_id':cid})['id']
+post('/api/v1/project-catalog/tags/assign',{'project_id':pid,'tags':[tag]})
+body={'project_id':pid,'name':'HTTP copy'}
+def copy_once():
+ request=urllib.request.Request(base+'/api/v1/project-catalog/clone',json.dumps(body).encode(),{'Content-Type':'application/json','X-CSRF-Token':csrf,'Idempotency-Key':'project-copy-http'})
+ with opener.open(request,timeout=5) as response:return json.load(response)
+first=copy_once();assert copy_once()==first
+catalog=post('/api/v1/project-catalog/list',{})
+assert len(catalog['projects'])==2
+assert {'project_id':first['project_id'],'tag_id':tag} in catalog['links']
+request=urllib.request.Request(base+'/api/v1/project-catalog/clone',json.dumps({'project_id':pid,'name':'No CSRF'}).encode(),{'Content-Type':'application/json'})
+try:
+ opener.open(request,timeout=5)
+ raise AssertionError('Missing CSRF accepted')
+except __import__('urllib.error',fromlist=['HTTPError']).HTTPError as error:assert error.code==403
+
 server.shutdown()
 '''
         with tempfile.TemporaryDirectory() as folder:

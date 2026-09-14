@@ -25,16 +25,7 @@
   }
  }
 
- async function renderProjectPage(){
-  const host=q('[data-project-page-list]');if(!host)return;host.innerHTML='<p class="muted">Projekte werden geladen …</p>';
-  try{
-   const d=await post('/api/v1/next/context',{}),groups={active:[],parked:[],closed:[]};
-   for(const p of d.projects||[])(groups[p.status||'active']||groups.active).push(p);
-   const labels={active:'Aktiv',parked:'Geparkt',closed:'Geschlossen'};
-   host.innerHTML=Object.entries(groups).map(([key,items])=>`<section class="panel pz-project-group"><div class="panel-head"><div><p class="eyebrow">${h(labels[key].toUpperCase())}</p><h3>${h(labels[key])}</h3></div><span class="badge">${items.length}</span></div>${items.length?items.map(p=>`<article class="pz-project-row"><div><strong>${h(p.name)}</strong><small>${h(p.customer||'Ohne Kunde')}</small></div><div class="pz-project-actions">${key!=='active'?`<button class="secondary subtle" data-pz-project="${p.id}" data-status="active">Aktivieren</button>`:''}${key!=='parked'?`<button class="secondary subtle" data-pz-project="${p.id}" data-status="parked">Parken</button>`:''}${key!=='closed'?`<button class="secondary subtle" data-pz-project="${p.id}" data-status="closed">Schließen</button>`:''}</div></article>`).join(''):'<p class="muted">Keine Projekte.</p>'}</section>`).join('');
-   qa('[data-pz-project]',host).forEach(b=>b.onclick=async()=>{try{await post('/api/v1/projects/status',{project_id:Number(b.dataset.pzProject),status:b.dataset.status,send_to_billing:false});if(typeof refresh==='function')await refresh();renderProjectPage();}catch(e){window.pzToast?.(e.message,'error');}});
-  }catch(e){host.innerHTML=`<p class="error">${h(e.message)}</p>`;}
- }
+ function renderProjectPage(){return window.pzProjects.render();}
  function ensureProjectPage(){
   const nav=q('.sidebar nav');if(!nav)return;
   let button=q('[data-pz-nav-target="projects"]',nav);if(!button){button=document.createElement('button');button.type='button';button.className='nav';button.dataset.pzNavTarget='projects';button.dataset.pzNavTitle='Projekte';button.innerHTML='<span>▣</span>Projekte';nav.append(button);}
