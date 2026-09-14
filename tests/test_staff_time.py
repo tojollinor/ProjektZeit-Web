@@ -19,7 +19,7 @@ class StaffTimeTest(unittest.TestCase):
     def setUp(self):
         fixtures.WorkdayTest.setUp(self)
         with app.db() as c:
-            admin_controls.migrate(c);system_features.migrate(c);workday.migrate(c);c.execute("CREATE TABLE IF NOT EXISTS user_notifications(id INTEGER PRIMARY KEY,user_id INTEGER,kind TEXT,message TEXT,created_at TEXT)");st.migrate(c);duty_plan.migrate(c);st.register()
+            admin_controls.migrate(c);system_features.migrate(c);workday.migrate(c);c.executescript("CREATE TABLE IF NOT EXISTS user_notifications(id INTEGER PRIMARY KEY,user_id INTEGER,kind TEXT,message TEXT,created_at TEXT)");st.migrate(c);duty_plan.migrate(c);st.register()
             self.uid=c.execute('SELECT id FROM users').fetchone()['id']
             c.execute('INSERT OR IGNORE INTO system_superadmins(user_id) VALUES(?)',(self.uid,))
             st.save_model(c,self.uid,dict(user_id=self.uid,valid_from='2026-01-01',mode='weekly',hours=40,weights=[1,1,1,1,1,0,0],subdivision='SH'))
