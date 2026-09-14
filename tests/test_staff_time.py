@@ -34,6 +34,21 @@ class StaffTimeTest(unittest.TestCase):
     def day(self,d):
         with app.db(read_only=True) as c:
             d=date.fromisoformat(d);return st.daily(st.dataset(c,self.uid,d,d+timedelta(days=1)),d)
+    def test_decimal_movement_sum_is_serializable(self):
+        from decimal import Decimal
+        from types import SimpleNamespace
+        with app.db(read_only=True) as c:
+            class MariaSum:
+                def execute(self, query, args=()):
+                    result=c.execute(query,args)
+                    if 'COALESCE(SUM(seconds),0) AS total FROM staff_movements' in query:
+                        row=dict(result.fetchone());row['total']=Decimal(row['total'])
+                        return SimpleNamespace(fetchone=lambda:row)
+                    return result
+            report=st.tracking_report(MariaSum(),self.uid,{'day':'2026-09-14'})
+            self.assertIs(type(report['account']['balance_seconds']),int)
+            json.dumps(report,allow_nan=False)
+
     def test_monthly_distribution_preserves_target_and_includes_holiday(self):
         model=dict(mode='monthly',target_seconds=173*3600,weights=[1,1,1,1,1,0,0])
         values=[st.daily_target(model,d) for d in st.days(date(2026,1,1),date(2026,2,1))]

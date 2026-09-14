@@ -488,7 +488,7 @@ def account_balance(c,uid,through=None):
             for d in days(first,last):
                 value=daily(data,d);total+=value['posted_seconds'];unresolved+=value['state']=='unresolved'
         cursor=next_month
-    total+=c.execute('SELECT COALESCE(SUM(seconds),0) AS total FROM staff_movements WHERE user_id=? AND day<=?',(uid,str(through))).fetchone()['total']
+    total+=int(c.execute('SELECT COALESCE(SUM(seconds),0) AS total FROM staff_movements WHERE user_id=? AND day<=?',(uid,str(through))).fetchone()['total'])
     return {'balance_seconds':total,'unresolved_days':unresolved,'configured':True}
 
 

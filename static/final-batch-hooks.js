@@ -5,7 +5,7 @@
 
  async function askLink(customerId,provider,type,value,label){
   value=String(value||'').trim();if(!value)return;
-  try{const c=await postJson('/api/v1/customers/link/candidates',{customer_id:customerId,provider,link_type:type,link_value:value});if(!c.count)return;const yes=confirm(`${c.count} ${label} zu ${value} gefunden. Sollen diese dem Kunden zugeordnet werden?`);await postJson('/api/v1/customers/link/add',{customer_id:customerId,provider,link_type:type,link_value:value,bulk:yes});notify(yes?`${c.count} Einträge zugeordnet`:'Verknüpfung für zukünftige Einträge gespeichert','success');}catch(e){notify(e.message,'warning');}
+  try{const c=await postJson('/api/v1/customers/link/candidates',{customer_id:customerId,provider,link_type:type,link_value:value});if(!c.count)return;const yes=await window.pzUI.confirm(`${c.count} ${label} zu ${value} gefunden. Sollen diese dem Kunden zugeordnet werden?`);await postJson('/api/v1/customers/link/add',{customer_id:customerId,provider,link_type:type,link_value:value,bulk:yes});notify(yes?`${c.count} Einträge zugeordnet`:'Verknüpfung für zukünftige Einträge gespeichert','success');}catch(e){notify(e.message,'warning');}
  }
 
  /* After customer profile save/create, offer to connect cached Zammad/STARFACE data. */

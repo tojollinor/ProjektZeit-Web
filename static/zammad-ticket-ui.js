@@ -12,5 +12,5 @@
   const external=q('a.ticket-open-zammad',box);if(external)external.textContent='In Zammad öffnen';
  }
  if(typeof openTicket==='function'){const original=openTicket;openTicket=async function(id){const root=dialog();if(root)delete root.dataset.collapseReady;const result=await original(id);requestAnimationFrame(()=>requestAnimationFrame(enhance));return result;};}
- const observer=new MutationObserver(()=>{const root=dialog();if(root&&q('.ticket-thread',root)&&root.dataset.collapseReady!=='1')requestAnimationFrame(enhance);});observer.observe(document.body,{childList:true,subtree:true});
+ const observer=new MutationObserver(()=>{const root=dialog();if(root&&q('.ticket-thread',root)&&root.dataset.collapseReady!=='1')requestAnimationFrame(enhance);});const ticketRoot=dialog();if(ticketRoot)observer.observe(ticketRoot,{childList:true,subtree:true});
 })();

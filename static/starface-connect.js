@@ -68,7 +68,6 @@
     event.preventDefault();event.stopImmediatePropagation();
     const action=button.dataset.starfaceAction,status=card.querySelector('.integration-status'),output=card.querySelector('.debug-output');
     const controls=[...card.querySelectorAll('button,input')];
-    if(action==='remove'&&!confirm('Gespeicherte STARFACE-Konfiguration und OAuth-Verknüpfung entfernen?'))return;
     controls.forEach(x=>x.disabled=true);status.className='integration-status';output.replaceChildren();output.classList.add('hidden');
     clearInterval(pollTimer);
     card.querySelector('.desktop-launch').replaceChildren();

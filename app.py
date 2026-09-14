@@ -183,7 +183,13 @@ class App(SimpleHTTPRequestHandler):
         return self._parsed_body
 
     def send_json(self, status, payload, extra_headers=None):
-        body = json.dumps(payload, ensure_ascii=False).encode()
+        try:
+            body = json.dumps(payload, ensure_ascii=False, allow_nan=False).encode()
+        except (TypeError, ValueError):
+            import logging
+            logging.exception('API response serialization failed')
+            status = 500
+            body = json.dumps({'error': 'Antwort konnte nicht verarbeitet werden. Bitte erneut laden.', 'action_state': 'uncertain'}).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         import request_metrics

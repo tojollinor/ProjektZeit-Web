@@ -1,5 +1,6 @@
 """Automatic frontend version detection and cache-safe index delivery."""
 import hashlib
+import release_updates
 import re
 from urllib.parse import urlparse
 
@@ -26,7 +27,7 @@ def _versioned_index(static_dir, version):
         count=1,
         flags=re.IGNORECASE,
     )
-    meta = f'<meta name="pz-frontend-version" content="{version}">'
+    meta = f'<meta name="pz-frontend-version" content="{version}"><meta name="pz-release-version" content="{release_updates.VERSION}"><meta name="pz-build-revision" content="{release_updates.revision()}">'
     if 'name="pz-frontend-version"' not in html:
         html = html.replace('</head>', f'  {meta}\n</head>', 1)
     if '/frontend-update.css' not in html:
@@ -62,7 +63,11 @@ def install(app):
     def do_GET(self):
         path = urlparse(self.path).path
         if path == '/api/v1/frontend/version':
-            return self.send_json(200, {'version': version})
+            return self.send_json(200, {'version': version, 'release': release_updates.VERSION, 'revision': release_updates.revision()})
+        if path == '/api/v1/system/update':
+            if not self.require():
+                return
+            return self.send_json(200, release_updates.check())
         if path in ('/', '/index.html'):
             self.send_response(200)
             self.send_header('Content-Type', 'text/html; charset=utf-8')

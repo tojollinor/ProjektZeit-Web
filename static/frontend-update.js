@@ -29,7 +29,7 @@
  }
 
  async function check(){
-  if(checking||!loadedVersion)return;checking=true;
+  if(checking||!loadedVersion||document.hidden)return;checking=true;
   try{const current=await getServerVersion();if(current&&current!==loadedVersion)showUpdate(current);}catch(_){/* Update checks must never disturb normal work. */}
   finally{checking=false;}
  }
@@ -41,15 +41,22 @@
  }
  window.pzHardReload=hardReload;
 
- function ensureWorkshopButton(){
-  const section=q('#view-workshop');if(!section||q('[data-pz-hard-reload-panel]',section))return;
-  const panel=document.createElement('article');panel.className='panel pz-hard-reload-panel';panel.dataset.pzHardReloadPanel='';
-  panel.innerHTML='<div class="panel-head"><div><p class="eyebrow">WEB-OBERFLÄCHE</p><h3>Oberfläche neu laden</h3></div></div><p class="muted">Falls neue Änderungen nicht erscheinen, lädt diese Funktion die Weboberfläche mit einer frischen Versionskennung neu. Die Anmeldung bleibt erhalten.</p><div class="panel-actions"><button type="button" class="secondary" data-pz-hard-reload>Weboberfläche hart neu laden</button></div>';
-  section.append(panel);q('[data-pz-hard-reload]',panel).onclick=()=>hardReload();
+ function releaseFooter(){
+  const host=q('.sidebar-bottom .user-chip');if(!host||q('[data-release-info]'))return;
+  const info=document.createElement('div');info.dataset.releaseInfo='';info.className='release-info';
+  const release=q('meta[name="pz-release-version"]')?.content||'',build=q('meta[name="pz-build-revision"]')?.content||'';
+  info.innerHTML='<small data-release-label></small><button type="button" class="release-check">Auf Aktualisierungen prüfen</button><small data-release-status role="status" hidden></small>';
+  q('[data-release-label]',info).textContent=(release?'Version '+release:'Build')+' · '+(build||loadedVersion).slice(0,8);host.after(info);
+  const button=q('button',info),status=q('[data-release-status]',info);
+  button.onclick=async()=>{if(button.disabled)return;button.disabled=true;button.setAttribute('aria-busy','true');status.hidden=false;status.textContent='Aktualisierungen werden geprüft …';status.dataset.state='checking';
+   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),8000);
+   try{const response=await fetch('/api/v1/system/update',{credentials:'same-origin',cache:'no-store',signal:controller.signal});if(!response.ok)throw new Error('Prüfung nicht verfügbar');const data=await response.json();status.textContent=data.message;status.dataset.state=data.state;}
+   catch(_){status.textContent='Aktualisierungsprüfung momentan nicht möglich. Bitte später erneut versuchen.';status.dataset.state='error';}
+   finally{clearTimeout(timeout);button.disabled=false;button.removeAttribute('aria-busy');}
+  };
  }
-
- cleanReloadMarker();banner();ensureWorkshopButton();
- new MutationObserver(ensureWorkshopButton).observe(document.body,{childList:true,subtree:true});
+ releaseFooter();
+ cleanReloadMarker();banner();
  document.addEventListener('visibilitychange',()=>{if(!document.hidden)check();});
  window.addEventListener('focus',check);window.addEventListener('online',check);
  setTimeout(check,4000);timer=setInterval(check,60000);

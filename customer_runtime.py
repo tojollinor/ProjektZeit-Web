@@ -176,7 +176,7 @@ def install(app):
       '/api/v1/customers/contact-phone','/api/v1/customers/device','/api/v1/customers/workshop','/api/v1/customers/zammad-organization',
       '/api/v1/customers/timeline','/api/v1/customers/master','/api/v1/starface/users','/api/v1/starface/users/save','/api/v1/archive/sync','/api/v1/archive/status',
       '/api/v1/logs/list','/api/v1/debug/raw','/api/v1/zammad/organizations/refresh',
-      '/api/v1/admin/user/mfa-reset','/api/v1/admin/context','/api/v1/admin/role/save','/api/v1/admin/role/clone','/api/v1/admin/role/delete','/api/v1/admin/role/reset-user',
+      '/api/v1/admin/user/active','/api/v1/admin/user/mfa-reset','/api/v1/admin/context','/api/v1/admin/role/save','/api/v1/admin/role/clone','/api/v1/admin/role/delete','/api/v1/admin/role/reset-user',
       '/api/v1/admin/user/profile','/api/v1/admin/user/roles','/api/v1/admin/policies/save','/api/v1/admin/super/settings',
       '/api/v1/admin/smtp/save','/api/v1/admin/smtp/test','/api/v1/admin/smtp/check','/api/v1/admin/user/create'
     }
@@ -192,6 +192,17 @@ def install(app):
         if not session:return
         uid=session['id']
         try:
+            if path=='/api/v1/admin/user/active':
+                with app.db() as c:
+                    target,active=admin_controls.set_user_active(c,uid,body)
+                    if not active:
+                        c.execute("UPDATE session_activity SET ended_at=?,end_reason='Benutzer deaktiviert' WHERE user_id=? AND ended_at=''",(app.now_iso(),target))
+                        c.execute('DELETE FROM session_mfa WHERE token_hash IN (SELECT token_hash FROM sessions WHERE user_id=?)',(target,))
+                        c.execute('DELETE FROM native_sessions WHERE token_hash IN (SELECT token_hash FROM sessions WHERE user_id=?)',(target,))
+                        c.execute('DELETE FROM sessions WHERE user_id=?',(target,))
+                        c.execute("UPDATE api_tokens SET revoked_at=? WHERE owner_id=? AND revoked_at=''",(app.now_iso(),target))
+                    __import__('system_features').audit(c,uid,uid,'user',target,'activated' if active else 'deactivated',{})
+                return self.send_json(200,{'ok':True,'active':active})
             if path=='/api/v1/admin/user/create':
                 with app.db() as c:ident=admin_controls.create_user(c,uid,body,app.hash_password)
                 return self.send_json(200,{'ok':True,'id':ident})

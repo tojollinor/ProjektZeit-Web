@@ -13,7 +13,7 @@ class CompanyMariaTest(unittest.TestCase):
         name='pz_company_'+uuid.uuid4().hex[:12]
         conn=pymysql.connect(host=os.environ['DB_HOST'],port=int(os.environ['DB_PORT']),user=os.environ['DB_USER'],password=os.environ['DB_PASSWORD'],autocommit=True)
         script='''
-import runtime,provider_budget as budget,staff_time as st
+import runtime,provider_budget as budget,staff_time as st,json
 from concurrent.futures import ThreadPoolExecutor
 app=runtime.initialize(False)
 with app.db() as c:
@@ -21,7 +21,10 @@ with app.db() as c:
  c.execute("INSERT INTO user_role_links(user_id,role_id) SELECT 1,id FROM role_definitions WHERE role_key='admin'")
  st.save_model(c,1,dict(user_id=1,valid_from='2026-01-01',mode='weekly',hours=40,weekdays=[0,1,2,3,4],subdivision='SH'))
  st.account(c,1,dict(user_id=1,year=2026,days=20))
- assert len(st.tracking_report(c,1,{'day':'2026-09-14'})['days'])==7
+ report=st.tracking_report(c,1,{'day':'2026-09-14'})
+ assert len(report['days'])==7
+ assert type(report['account']['balance_seconds']) is int
+ json.dumps(report,allow_nan=False)
 budget.set_cap('teamviewer',3)
 def reserve(_):
  try:budget.reserve('teamviewer',100000);return True
