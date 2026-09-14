@@ -1,0 +1,16 @@
+const {JSDOM}=require('jsdom'),fs=require('node:fs'),assert=require('node:assert/strict');
+const dom=new JSDOM('<div data-project-page-list></div>',{url:'https://project.test',runScripts:'outside-only'}),w=dom.window;
+w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};w.HTMLDialogElement.prototype.close=function(){this.open=false;this.dispatchEvent(new w.Event('close'));};
+const data={customers:[{id:1,name:'Kunde'}],projects:[{id:1,name:'Update <script>bad()</script>',customer_id:1,customer:'Kunde',status:'closed',seconds:3600},{id:2,name:'Anderes Projekt',status:'active',seconds:7200}],tags:[{id:1,name:'Update',active:1,customer_id:1,customer:'Kunde'}],links:[{project_id:1,tag_id:1}]};
+let calls=[],resolveSave;
+w.post=async(path,body)=>{calls.push({path,body});if(path.endsWith('/list'))return data;return new Promise(r=>resolveSave=r);};
+w.eval(fs.readFileSync('static/project-catalog-ui.js','utf8'));
+const tick=()=>new Promise(r=>setImmediate(r));
+(async()=>{
+ await w.pzProjects.render();assert.equal(w.document.querySelectorAll('.pz-project-row').length,2);assert.equal(w.document.querySelectorAll('script').length,0);
+ const filter=w.document.querySelector('[data-pc-tag]');filter.value='1';filter.dispatchEvent(new w.Event('change'));assert.equal(w.document.querySelectorAll('.pz-project-row').length,1);assert.equal(calls.length,1);assert.match(w.document.querySelector('[data-pc-total]').textContent,/1 Projekte · 1,00 h/);
+ w.document.querySelector('[data-pc-copy]').click();const form=w.document.querySelector('#pc-dialog form');form.querySelector('[name=name]').value='Update 2';form.querySelector('[type=submit]').click();assert.equal(form.querySelector('[type=submit]').disabled,true);form.dispatchEvent(new w.Event('submit',{cancelable:true}));assert.equal(calls.filter(x=>x.path.endsWith('/clone')).length,1);assert.deepEqual(calls.at(-1).body.name,'Update 2');resolveSave({ok:true,project_id:3});await tick();assert.match(form.querySelector('[data-pc-success]').textContent,/Erfolgreich/);assert.equal(form.querySelector('[type=submit]').disabled,true);
+ form.querySelector('[data-pc-close]').click();w.document.querySelector('[data-pc-assign]').click();assert.equal(w.document.querySelector('[name=tags]').checked,true);w.document.querySelector('[data-pc-close]').click();
+ w.document.querySelector('[data-pc-manage]').click();w.document.querySelector('[data-pc-new]').click();const f=w.document.querySelector('form');f.querySelector('[name=name]').value='Neu';w.post=async()=>{throw Error('Speichern fehlgeschlagen');};f.querySelector('[type=submit]').click();await tick();assert.equal(f.querySelector('[name=name]').value,'Neu');assert.match(f.querySelector('[data-pc-error]').textContent,/fehlgeschlagen/);assert.equal(f.querySelector('[type=submit]').disabled,false);
+ dom.window.close();console.log('Project UI: local filters, escaped names, clone locking, tag selection and error recovery passed');
+})().catch(e=>{console.error(e);dom.window.close();process.exitCode=1;});
