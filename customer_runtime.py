@@ -249,6 +249,15 @@ def install(app):
                         missing=c.execute("""SELECT u.username FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id
                                              WHERE u.active=1 AND (p.email IS NULL OR TRIM(p.email)='') ORDER BY u.id LIMIT 1""").fetchone()
                         if missing:raise ValueError('Vor der verpflichtenden E-Mail-Bestätigung braucht jeder aktive Benutzer eine E-Mail-Adresse (fehlt bei: '+missing['username']+').')
+                    numeric_limits={'password_min_length':(8,128),'password_history':(0,50),'password_expiry_days':(0,3650),'login_max_attempts':(1,100),'login_lock_minutes':(1,1440),'session_idle_minutes':(0,43200),'session_max_hours':(1,8760)}
+                    for key,(minimum,maximum) in numeric_limits.items():
+                        if key not in values:continue
+                        try:values[key]=int(values[key])
+                        except (TypeError,ValueError):raise ValueError('Ungültiger Zahlenwert für '+key+'.') from None
+                        if not minimum<=values[key]<=maximum:raise ValueError(f'{key} muss zwischen {minimum} und {maximum} liegen.')
+                    boolean_keys={'password_require_upper','password_require_lower','password_require_number','password_require_special','remember_login_allowed',*email_keys}
+                    for key in boolean_keys:
+                        if key in values and type(values[key]) is not bool:raise ValueError('Ungültiger Schalter für '+key+'.')
                     for key,default in admin_controls.POLICY_DEFAULTS.items():
                         if key in values and values[key]!=previous[key]:admin_controls.set_setting(c,'policy.'+key,values[key])
                     roles_changed=values.get('two_factor_required_roles',previous['two_factor_required_roles'])!=previous['two_factor_required_roles']

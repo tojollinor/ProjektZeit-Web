@@ -20,6 +20,24 @@ def now():
     return datetime.now(timezone.utc)
 
 
+def table_exists(c, name):
+    if getattr(c, 'dialect', '') == 'mariadb':
+        return bool(c.execute('SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?', (name,)).fetchone())
+    return bool(c.execute('SELECT 1 FROM sqlite_master WHERE type=\'table\' AND name=?', (name,)).fetchone())
+
+
+def closed_month_in_range(c, uid, start, end=None):
+    """Return the first frozen payroll month touched by an effective range."""
+    if not table_exists(c, 'staff_month_closures'):
+        return None
+    for row in c.execute('SELECT month FROM staff_month_closures WHERE user_id=? ORDER BY month', (uid,)):
+        month_start = date.fromisoformat(str(row['month']) + '-01')
+        month_end = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
+        if month_end > start and (end is None or month_start < end):
+            return row
+    return None
+
+
 def iso(value):
     return value.astimezone(timezone.utc).isoformat(timespec='seconds')
 
@@ -123,11 +141,22 @@ def save(c, actor, body):
     current = models(c, uid)
     ident = int(body.get('id') or 0)
     today = now().astimezone(TZ).date()
-    if current and valid < today:
-        raise ValueError('Weitere Änderungen dürfen frühestens ab heute gelten. Historische Modelle bleiben erhalten.')
+    requested_mode = body.get('effective_mode')
+    effective_mode = str(requested_mode or 'retroactive')
+    if effective_mode not in ('now','retroactive'):
+        raise ValueError('Bitte „Ab jetzt“ oder „Rückwirkend ab“ auswählen.')
+    if requested_mode == 'now':
+        valid = today
+    if current and valid < today and requested_mode is None:
+        raise ValueError('Für ein früheres Datum bitte „Rückwirkend ab“ auswählen.')
+    if current and valid < today and effective_mode != 'retroactive':
+        raise ValueError('Für ein früheres Datum bitte „Rückwirkend ab“ auswählen.')
     existing = next((m for m in current if m['id'] == ident), None) if ident else None
     if ident and (not existing or existing['valid_from'] < str(today)):
         raise ValueError('Nur heutige oder zukünftige Modelle können bearbeitet werden.')
+    next_valid=min((date.fromisoformat(m['valid_from']) for m in current if m['id']!=ident and m['valid_from']>str(valid)),default=None)
+    if closed_month_in_range(c,uid,valid,next_valid):
+        raise ValueError('Arbeitszeitmodelle dürfen keinen abgeschlossenen Abrechnungsmonat verändern. Bitte den Monat zuerst wieder öffnen.')
     duplicate = next((m for m in current if m['valid_from'] == str(valid) and m['id'] != ident), None)
     if duplicate:
         raise ValueError('Für dieses Datum besteht bereits ein Modell. Dieses bitte bearbeiten.')
@@ -141,7 +170,7 @@ def save(c, actor, body):
     else:
         ident = c.execute('''INSERT INTO work_models(user_id,valid_from,mode,target_seconds,weekdays_json,subdivision,created_by,created_at)
           VALUES(?,?,?,?,?,?,?,?)''', (uid,str(valid),mode,seconds,json.dumps(weekdays),subdivision,actor,iso(now()))).lastrowid
-    system_features.audit(c, uid, actor, 'work_model', ident, 'Arbeitszeitmodell gespeichert', {'before':existing,'after':{'valid_from':str(valid),'mode':mode,'target_seconds':seconds,'weekdays':weekdays,'subdivision':subdivision}})
+    system_features.audit(c, uid, actor, 'work_model', ident, 'Arbeitszeitmodell gespeichert', {'before':existing,'after':{'valid_from':str(valid),'effective_mode':effective_mode,'mode':mode,'target_seconds':seconds,'weekdays':weekdays,'subdivision':subdivision}})
     return {'ok':True, 'id':ident}
 
 

@@ -43,9 +43,9 @@
   const pane=q('[data-admin-pane="policies"]',section),p=ctx.policies||{};
   if(!can('security.policies.view')){pane.replaceChildren();renderStaffPolicyPanels(pane);if(!pane.children.length)pane.innerHTML='<p class="muted">Keine Berechtigung für Richtlinien.</p>';return;}
   const requiredRoles=new Set(p.two_factor_required_roles||[]),roles=(ctx.roles||[]).filter(r=>r.key!=='superadmin'||ctx.is_superadmin);
-  const roleChoices=roles.map(r=>`<label><input type="checkbox" data-two-factor-role value="${h(r.key)}" ${requiredRoles.has(r.key)?'checked':''}> ${h(r.name)}</label>`).join('');
-  pane.innerHTML=`<form class="panel policy-form">
+  pane.innerHTML=`<article class="panel policy-form">
    <div class="panel-head"><div><p class="eyebrow">SICHERHEIT</p><h3>Richtlinien</h3></div></div>
+   <form data-security-policy>
    <details open><summary>Passwortrichtlinien</summary><div class="settings-grid">
     <label>Mindestlänge<input type="number" min="8" max="128" name="password_min_length" value="${Number(p.password_min_length||12)}"></label>
     <label><input type="checkbox" name="password_require_upper" ${p.password_require_upper?'checked':''}> Großbuchstaben erforderlich</label>
@@ -64,7 +64,7 @@
    </div></details>
    <details><summary>Zwei-Faktor-Authentifizierung</summary><div class="settings-grid">
     <label>2FA-Modus<select name="two_factor_mode"><option value="optional" ${p.two_factor_mode==='optional'?'selected':''}>Optional</option><option value="required" ${p.two_factor_mode==='required'?'selected':''}>Für alle verpflichtend</option><option value="roles" ${p.two_factor_mode==='roles'?'selected':''}>Für ausgewählte Rollen verpflichtend</option></select></label>
-    <div class="span-all mfa-role-policy" data-mfa-role-policy><strong>Verpflichtende Rollen</strong><div class="permission-grid">${roleChoices}</div></div>
+    <div class="span-all mfa-role-policy" data-mfa-role-policy><strong>Verpflichtende Rollen</strong><div data-mfa-role-picker></div></div>
     <label data-email-setting>Zeichenart der E-Mail-Codes<select name="email_mfa_code_kind"><option value="numeric" ${p.email_mfa_code_kind==='numeric'?'selected':''}>Nur Ziffern</option><option value="alphanumeric" ${p.email_mfa_code_kind==='alphanumeric'?'selected':''}>Buchstaben und Ziffern</option></select></label>
     <label data-email-setting>Länge der E-Mail-Codes<input type="number" min="6" max="12" name="email_mfa_code_length" value="${Number(p.email_mfa_code_length||6)}"></label>
     <p class="muted span-all">Als zweiter Faktor stehen eine Authenticator-App und – bei eingerichtetem Mailversand – ein E-Mail-Code zur Wahl. Änderungen an der Pflicht beenden bestehende Sitzungen.</p>
@@ -76,9 +76,10 @@
     <label data-email-setting><input type="checkbox" name="notify_email_change" ${p.notify_email_change?'checked':''}> Mail bei E-Mail-Änderung</label>
     <label data-email-setting><input type="checkbox" name="notify_two_factor_change" ${p.notify_two_factor_change?'checked':''}> Mail bei 2FA-Änderung</label>
    </div></details>
-   ${can('security.policies.edit')?'<button class="primary">Richtlinien speichern</button>':''}
-  </form>`;
-  const f=q('form',pane),mode=f.elements.two_factor_mode,roleBox=q('[data-mfa-role-policy]',f);
+   ${can('security.policies.edit')?'<div class="policy-save-row"><button class="primary">Richtlinien speichern</button></div>':''}
+  </form></article>`;
+  const f=q('[data-security-policy]',pane),mode=f.elements.two_factor_mode,roleBox=q('[data-mfa-role-policy]',f),roleMap=new Map(roles.map(r=>[Number(r.id),r.key]));
+  const selectedRoleIds=roles.filter(r=>requiredRoles.has(r.key)).map(r=>Number(r.id)),getMfaRoleIds=window.pzUI.roleTags(q('[data-mfa-role-picker]',f),roles.map(r=>({id:Number(r.id),name:r.name})),selectedRoleIds);
   const showRoles=()=>roleBox.hidden=mode.value!=='roles';showRoles();mode.onchange=showRoles;
   for(const input of qa('input,select',f)){
    const prepared=(ctx.prepared_policies||[]).includes(input.name),emailSetting=!!input.closest('[data-email-setting]'),linkSetting=['email_password_reset_allowed','email_verify_required'].includes(input.name),linkMissing=linkSetting&&!ctx.email_link_features_configured;
@@ -89,7 +90,7 @@
   if(can('security.policies.edit'))f.onsubmit=async ev=>{
    ev.preventDefault();const out={};
    for(const [key] of Object.entries(p)){if(key==='two_factor_required_roles')continue;const el=f.elements[key];if(!el||el.disabled)continue;out[key]=el.type==='checkbox'?el.checked:el.type==='number'?Number(el.value):el.value;}
-   out.two_factor_required_roles=qa('[data-two-factor-role]:checked',f).map(x=>x.value);
+   out.two_factor_required_roles=getMfaRoleIds().map(id=>roleMap.get(Number(id))).filter(Boolean);
    const authChanged=out.two_factor_mode!==p.two_factor_mode||JSON.stringify([...out.two_factor_required_roles].sort())!==JSON.stringify([...(p.two_factor_required_roles||[])].sort());
    try{await post('/api/v1/admin/policies/save',{policies:out});window.pzUI.clean(f);if(authChanged){await window.pzUI.message('2FA-Richtlinie gespeichert','Die neue Vorgabe gilt sofort. Bestehende Sitzungen wurden beendet; bitte erneut anmelden.');location.reload();return;}notify('Richtlinien gespeichert');await load(true);}catch(e){notify(e.message,'error');}
   };
@@ -97,9 +98,8 @@
  }
  function renderStaffPolicyPanels(pane){
   if(!can('staff.policy')||!ctx.staff_policy)return;
-  const p=ctx.staff_policy,card=document.createElement('article');card.className='panel policy-form staff-policy-panels';
-  card.innerHTML=`<div class="panel-head"><div><p class="eyebrow">ARBEITSZEIT</p><h3>Weitere Richtlinien</h3></div></div>
-   <details><summary>Arbeitszeit & Abwesenheiten</summary><form data-staff-policy-form><div class="settings-grid">
+  const p=ctx.staff_policy,card=document.createElement('div');card.className='staff-policy-panels';
+  card.innerHTML=`<details><summary>Arbeitszeit & Abwesenheiten</summary><form data-staff-policy-form><div class="settings-grid">
     <label>Gültig ab<input type="date" name="valid_from" value="${h(ctx.staff_policy_today||'')}" required></label>
     <label>Bezahlte Abwesenheit genehmigen<select name="approval_paid"><option value="true" ${p.approval_paid?'selected':''}>Ja</option><option value="false" ${!p.approval_paid?'selected':''}>Nein</option></select></label>
     <label>Unbezahlte Abwesenheit genehmigen<select name="approval_unpaid"><option value="true" ${p.approval_unpaid?'selected':''}>Ja</option><option value="false" ${!p.approval_unpaid?'selected':''}>Nein</option></select></label>
@@ -116,7 +116,7 @@
     <label>Farbe<input class="policy-color-input" name="color" type="color" value="#62a5fa"></label>
    </div><button class="primary">Tagesart anlegen</button><div class="absence-kind-list">${(ctx.absence_kinds||[]).map(k=>`<span><i style="background:${h(k.color)}"></i>${h(k.name)}</span>`).join('')}</div></form></details>
    <details><summary>Zeitkategorien & Einsatzort</summary><div class="policy-category-panel"><p class="muted">Lege fest, ob Leistungen einer Zeitkategorie üblicherweise in der Firma oder außerhalb erbracht werden.</p><button type="button" class="secondary" data-time-category-policy>Zeitkategorien zuordnen</button></div></details>`;
-  pane.append(card);
+  (q('.policy-form',pane)||pane).append(card);
   for(const input of qa('input,select',card))window.pzHelp.attach(input.closest('label'),ctx.policy_help?.[input.name]);
   q('[data-staff-policy-form]',card).onsubmit=async e=>{e.preventDefault();const body=Object.fromEntries(new FormData(e.currentTarget));for(const key of ['approval_paid','approval_unpaid','hourly_paid','self_approval'])body[key]=body[key]==='true';try{await post('/api/v1/company/policy/save',body);notify('Arbeitszeitrichtlinien gespeichert');await load(true);}catch(error){notify(error.message,'error');}};
   q('[data-day-kind-form]',card).onsubmit=async e=>{e.preventDefault();const body=Object.fromEntries(new FormData(e.currentTarget));body.vacation=body.vacation==='true';try{await post('/api/v1/company/kind/save',body);notify('Tagesart angelegt');await load(true);}catch(error){notify(error.message,'error');}};

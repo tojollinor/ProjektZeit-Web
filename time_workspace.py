@@ -149,7 +149,7 @@ def events(c, uid, body, allow_team=False):
         where+=' AND (COALESCE(a.customer_id,l.customer_id)=? OR (a.customer_id IS NULL AND l.customer_id IS NULL AND ('+' OR '.join(clauses)+')))'
         args.extend([cid,*match_args])
     if pid: where += ' AND a.project_id=?'; args.append(pid)
-    rows = c.execute('''SELECT e.owner_id,e.provider,e.external_key,e.summary,i.started_at,i.ended_at,
+    rows = c.execute('''SELECT e.owner_id,e.provider,e.external_key,e.summary,e.raw_json,i.started_at,i.ended_at,
                         a.project_id,COALESCE(a.customer_id,l.customer_id) customer_id,u.username,i.match_type,i.match_value
                         FROM event_intervals i JOIN provider_events e
                         ON e.owner_id=i.owner_id AND e.provider=i.provider AND e.external_key=i.external_key
@@ -159,9 +159,20 @@ def events(c, uid, body, allow_team=False):
                         ON l.owner_id=e.owner_id AND l.provider=e.provider AND l.external_key=e.external_key
                         WHERE '''+where+' ORDER BY i.started_at,e.external_key LIMIT 1001',tuple(args))
     starface_connected=__import__('provider_nav_runtime').provider_status(None,c,uid,'starface')['connected']
+    zammad_identities={}
     for r in rows:
         if r['provider']=='starface' and not starface_connected:continue
-        result.append({'source':r['provider'],'key':r['external_key'],'owner_id':r['owner_id'],'employee':r['username'],
+        employee=r['username']
+        if r['provider']=='zammad':
+            try:raw=json.loads(r['raw_json'] or '{}')
+            except (TypeError,ValueError):raw={}
+            identities=zammad_identities.setdefault(r['owner_id'],__import__('zammad_cache_runtime').employee_identities(c,r['owner_id']))
+            ticket_owner=__import__('zammad_cache_runtime').ticket_employee(raw,identities)
+            # "Meine Tickets" means the actual Zammad assignee, not every ticket
+            # visible through the employee's connected Zammad account.
+            if not team and ticket_owner.get('employee_id')!=uid:continue
+            employee=ticket_owner.get('employee_username') or ticket_owner.get('employee_name') or employee
+        result.append({'source':r['provider'],'key':r['external_key'],'owner_id':r['owner_id'],'employee':employee,
                        'project_id':r['project_id'],'customer_id':r['customer_id'],'title':r['summary'] or r['provider'],
                        'start':r['started_at'],'end':r['ended_at'],'running':False,'match_type':r['match_type'],'match_value':r['match_value']})
     truncated = len(result)>LIMIT

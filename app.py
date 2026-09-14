@@ -142,7 +142,7 @@ def seed_demo(c, user_id):
 
 
 class App(SimpleHTTPRequestHandler):
-    server_version = "ProjektZeit/0.7.5"
+    server_version = "ProjektZeit/0.7.6"
 
     def log_message(self, fmt, *args):
         if urlparse(self.path).path in ('/health', starface_oauth.CALLBACK):
@@ -253,14 +253,21 @@ class App(SimpleHTTPRequestHandler):
             try:
                 with db() as c:
                     c.execute('SELECT 1')
-                return self.send_json(200, {"status": "ok", "version": "0.7.5"})
+                return self.send_json(200, {"status": "ok", "version": "0.7.6"})
             except Exception:
                 return self.send_json(503, {'status': 'database_unavailable'})
         if path == '/api/v1/capabilities':
-            return self.send_json(200, {'api_version': 'v1', 'server_version': '0.7.5',
+            token_lifetime = SESSION_TTL
+            try:
+                with db(read_only=True) as c:
+                    token_lifetime = max(3600, int(__import__('admin_controls').setting(c, 'policy.session_max_hours', 12)) * 3600)
+            except Exception:
+                pass
+            return self.send_json(200, {'api_version': 'v1', 'server_version': '0.7.6',
                 'authentication': ['session_cookie', 'bearer'], 'token_endpoint': '/api/v1/auth/token',
-                'token_lifetime_seconds': SESSION_TTL, 'refresh_tokens': False,
-                'features': ['workday', 'project_switch', 'entries_edit', 'csv', 'integration_previews']})
+                'token_lifetime_seconds': token_lifetime, 'refresh_tokens': False,
+                'features': ['workday', 'project_switch', 'entries_edit', 'csv', 'integration_previews',
+                             'time_workspace', 'totp', 'email_templates', 'employee_payroll']})
         if path == starface_oauth.CALLBACK:
             session = self.require(admin=True)
             if not session: return
@@ -424,10 +431,19 @@ class App(SimpleHTTPRequestHandler):
 
     def login(self, body, native=False):
         client = self.client_address[0]
+        max_attempts, lock_seconds, session_ttl = 8, 600, SESSION_TTL
+        try:
+            import admin_controls
+            with db(read_only=True) as policy_c:
+                max_attempts=max(1,int(admin_controls.setting(policy_c,'policy.login_max_attempts',8)))
+                lock_seconds=max(60,int(admin_controls.setting(policy_c,'policy.login_lock_minutes',10))*60)
+                session_ttl=max(3600,int(admin_controls.setting(policy_c,'policy.session_max_hours',12))*3600)
+        except Exception:
+            pass
         with LOGIN_LOCK:
-            recent = [stamp for stamp in LOGIN_ATTEMPTS.get(client, []) if time.time() - stamp < 600]
+            recent = [stamp for stamp in LOGIN_ATTEMPTS.get(client, []) if time.time() - stamp < lock_seconds]
             LOGIN_ATTEMPTS[client] = recent
-            if len(recent) >= 8:
+            if len(recent) >= max_attempts:
                 return self.send_json(429, {"error": "Zu viele Anmeldeversuche. Bitte später erneut versuchen."})
         username = str(body.get("username", "")).strip()
         password = str(body.get("password", ""))
@@ -447,8 +463,14 @@ class App(SimpleHTTPRequestHandler):
                     return self.send_json(401,{'error':str(error),'mfa_required':True})
                 if factor.get('mfa_required'):return self.send_json(200,factor)
             token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(24)
-            c.execute("INSERT INTO sessions(token_hash,user_id,csrf,expires_at) VALUES(?,?,?,?)",
-                      (hashlib.sha256(token.encode()).hexdigest(), row["id"], csrf, int(time.time()) + SESSION_TTL))
+            created=int(time.time())
+            try:
+                c.execute("INSERT INTO sessions(token_hash,user_id,csrf,expires_at,created_at) VALUES(?,?,?,?,?)",
+                          (hashlib.sha256(token.encode()).hexdigest(), row["id"], csrf, created + session_ttl, created))
+            except sqlite3.DatabaseError as error:
+                if 'created_at' not in str(error):raise
+                c.execute("INSERT INTO sessions(token_hash,user_id,csrf,expires_at) VALUES(?,?,?,?)",
+                          (hashlib.sha256(token.encode()).hexdigest(), row["id"], csrf, created + session_ttl))
             if factor.pop('_mfa_verified',False):
                 c.execute('INSERT INTO session_mfa(token_hash) VALUES(?)',(hashlib.sha256(token.encode()).hexdigest(),))
             if native:
@@ -456,14 +478,14 @@ class App(SimpleHTTPRequestHandler):
         with LOGIN_LOCK:
             LOGIN_ATTEMPTS.pop(client, None)
         if native:
-            return self.send_json(200, {'access_token': token, 'token_type': 'Bearer', 'expires_in': SESSION_TTL, **factor})
+            return self.send_json(200, {'access_token': token, 'token_type': 'Bearer', 'expires_in': session_ttl, **factor})
         remember = False
         try:
             with db(read_only=True) as policy_c:
                 remember = bool(body.get('remember')) and bool(__import__('admin_controls').setting(policy_c, 'policy.remember_login_allowed', True))
         except Exception:
             remember = False
-        persistence = '; Max-Age=%d' % SESSION_TTL if remember else ''
+        persistence = '; Max-Age=%d' % session_ttl if remember else ''
         cookie = "pz_session=%s; Path=/; HttpOnly; SameSite=Lax%s%s" % (token, persistence, "; Secure" if COOKIE_SECURE else "")
         return self.send_json(200, {"ok": True, **factor}, {"Set-Cookie": cookie})
 

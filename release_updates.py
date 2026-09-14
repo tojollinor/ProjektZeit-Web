@@ -6,7 +6,7 @@ import threading
 import time
 from urllib.request import Request, urlopen
 
-VERSION = '0.7.5'
+VERSION = '0.7.6'
 REPOSITORY = 'tojollinor/ProjektZeit-Web'
 API = 'https://api.github.com/repos/' + REPOSITORY
 _lock = threading.Lock()

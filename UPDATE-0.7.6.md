@@ -1,0 +1,27 @@
+# ProjektZeit 0.7.6 – Zeitstrahl, Zuordnungen und Mitarbeiterabrechnung
+
+Dieses Update bündelt die nach 0.7.5 gesammelten Funktions- und Oberflächenänderungen.
+
+- **Projekte und Zeitstrahl:** „Mein Arbeitstag“ liegt jetzt im Projektbereich statt in der Projektabrechnung. Der horizontal bedienbare Zeitstrahl enthält getrennte Zeilen für eigene Arbeitszeit, Projekte, Zammad-Tickets, STARFACE-Telefonate und TeamViewer-Verbindungen. Mausrad, Trackpad, Ziehen und Touch funktionieren horizontal, ohne das vertikale Seitenscrollen zu blockieren. Einheitliche Detailfenster zeigen Zeitraum, Dauer, Status, Kunde und Projekt.
+- **Direkte Zuordnung:** Tickets, Telefonate und Verbindungen lassen sich in Detailansicht und Zuordnungseingang unmittelbar einem Kunden oder einem dazu gefilterten Projekt zuweisen. Einzel- und Mehrfachauswahl, stabile Zuordnungsmerkmale und Projektvorschläge bleiben getrennt von der späteren Abrechnungsfreigabe. „Meine Tickets“ verwendet den tatsächlichen Zammad-Besitzer; besitzerlose oder nur über das Konto sichtbare fremde Tickets werden nicht als eigene ausgegeben.
+- **Provideroberflächen:** Neu laden sitzt oben rechts im jeweiligen Panel, „Filter zurücksetzen“ am rechten Ende der Filterzeile. Der frühere Spaltenbutton entfällt; ein Stiftsymbol am Ende der letzten Tabellenüberschrift öffnet den Spalteneditor. Detail-, Bearbeiten-, Verlauf- und Logaktionen verwenden gleich große Symbole. Status, Abfragebudget und automatische Intervalle stehen bei der jeweiligen Integration statt in einem gemeinsamen Sammelblock.
+- **Logs:** Das Betriebsjournal bleibt eine begrenzte, scrollbar gekapselte Tabelle. Die Auswahl bietet 25, 50, 100, 150 oder alle Treffer; technische Details öffnen über ein Augensymbol.
+- **Arbeitszeit und Notdienst:** Neue Arbeitszeitmodelle können ausdrücklich „Ab jetzt“ oder „Rückwirkend ab“ gespeichert werden. Abgeschlossene betroffene Monate sperren die Rückdatierung, bis sie begründet wieder geöffnet wurden. Notdienst ist ein Kontrollkästchen; berechtigte Rollen können vollständige Rotationen löschen, während der Auditverlauf erhalten bleibt.
+- **Abwesenheiten:** Das Antragsfenster ist kompakter und responsiv aufgebaut. Die Abwesenheitsart ist ein normales Auswahlfeld; ausführliche Richtlinien sind einklappbar. Historische direkte Korrekturanträge verschwinden aus „Meine Anträge“, bleiben jedoch im Änderungsverlauf erhalten.
+- **Richtlinien und 2FA:** Sicherheits-, Arbeitszeit- und Abwesenheitsrichtlinien liegen zusammen in einem Reiter mit einklappbaren Bereichen und kompaktem Speichern. Die Rollenauswahl für verpflichtende 2FA ist als durchsuchbare Chip-Auswahl umgesetzt. TOTP über Authenticator-Apps und E-Mail-Codes sind klar getrennt. Nach dem Speichern einer Profiladresse wird der 2FA-Status sofort neu geladen.
+- **Wirksame Sicherheitsregeln:** Passwort-Historie und -Ablauf, maximale Fehlversuche und Sperrdauer sowie Inaktivitäts- und maximale Sitzungsdauer werden serverseitig durchgesetzt. Passwortänderung und E-Mail-Reset prüfen dieselbe Historie. Alte Sitzungen erhalten bei der Migration einen stabilen Erstellungszeitpunkt.
+- **E-Mail-Vorlage:** Unter E-Mail / SMTP steht eine zentrale Vorlage mit Unternehmensname, Logo-URL, Primär- und Akzentfarbe sowie Fußzeile bereit. Sie bietet eine isolierte Desktop-/Mobilvorschau und einen Testversand; sämtliche transaktionalen E-Mails verwenden die gespeicherte Gestaltung und behalten eine Klartextalternative.
+- **Mitarbeiterabrechnung:** Die bisherige Startkarte wurde zu einer Arbeitsansicht mit Monats-, Mitarbeiter- und Statusfilter, Kennzahlen, Konten-/Buchungsansicht, Abschlussansicht, Tagesdetails und CSV-Export ausgebaut. Monate lassen sich zeilenweise prüfen, abschließen oder mit Pflichtbegründung wieder öffnen. Auszahlungen, Korrekturen und Auszahlungsstornos bleiben nachvollziehbar.
+- **Mobil:** Tabellenwerte bleiben in kompakten Karten zeilenweise zusammen. Detail- und Zuordnungsdialoge, Richtlinien, E-Mail-Vorschau und Abrechnung brechen auf kleinen Displays kontrolliert um.
+
+## Betrieb und Migration
+
+Beim Start werden die Passwort-Historie, der Zeitpunkt der letzten Passwortänderung und der Erstellungszeitpunkt vorhandener Sitzungen ergänzt. Die E-Mail-Vorlage wird mit sicheren Standardwerten angelegt. Bestehende Providerdaten, Zuordnungen, Arbeitszeitmodelle, Abrechnungsabschlüsse und Auditdaten bleiben erhalten.
+
+Vor dem Update Datenbank und Datenverzeichnis gemeinsam sichern. Für eigene Logo-URLs in E-Mails eine öffentlich per HTTPS erreichbare Datei verwenden. Rückwirkende Arbeitszeitmodelle verändern keinen abgeschlossenen Monat automatisch; der Monat muss in der Mitarbeiterabrechnung bewusst wieder geöffnet werden.
+
+## Prüfung
+
+Lokal bestehen 170 Python-Tests (vier optionale MariaDB-Prüfungen ohne Datenbankdienst übersprungen) sowie sämtliche UI-/DOM-, Timeline-, STARFACE- und Arbeitsbereichstests. Zusätzliche Regressionstests prüfen Zammad-Besitzer, Rotationslöschung, Rückdatierungsschutz, Monatswiederöffnung, CSV-Formelschutz, Passwort-Historie und E-Mail-Branding. JavaScript-Syntax, Python-Kompilierung und Runtime-Initialisierung werden ebenfalls geprüft.
+
+Eine visuelle Live-Abnahme auf der Zielinstallation und echte Provider-/SMTP-Daten sind nicht Bestandteil der lokalen Automatisierung. Die Release-CI führt zusätzlich die MariaDB-Suite aus und baut das Docker-Image für AMD64 und ARM64. Installationsbereit ist 0.7.6 erst nach erfolgreichem Merge und erfolgreichem Main-Publish.
