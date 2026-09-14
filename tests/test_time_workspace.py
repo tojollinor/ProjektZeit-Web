@@ -94,6 +94,20 @@ class TimeWorkspaceTests(unittest.TestCase):
         a,b=tw.normalize('zammad',{'created_at':'2026-03-29T01:00:00Z','duration':999})
         self.assertIsNotNone(a);self.assertIsNone(b)
 
+    def test_my_tickets_uses_actual_zammad_assignee(self):
+        rows=[
+            {'external_key':'zammad:id:11','raw':{'id':11,'title':'Mine','created_at':'2026-03-29T01:15:00Z','owner':{'email':'one@example.test'}},'customer_hint':{}},
+            {'external_key':'zammad:id:12','raw':{'id':12,'title':'Other','created_at':'2026-03-29T01:20:00Z','owner':{'email':'two@example.test'}},'customer_hint':{}},
+            {'external_key':'zammad:id:13','raw':{'id':13,'title':'Unowned','created_at':'2026-03-29T01:25:00Z','owner':None,'owner_id':None},'customer_hint':{}},
+        ]
+        customer_data.cache_rows(self.c,1,'zammad',{'rows':rows})
+        identities={'one@example.test':{'employee_id':1,'employee_name':'One','employee_username':'one'},
+                    'two@example.test':{'employee_id':2,'employee_name':'Two','employee_username':'two'}}
+        with patch('zammad_cache_runtime.employee_identities',return_value=identities):
+            tickets=[e for e in tw.workspace(self.c,1,self.body)['events'] if e['source']=='zammad']
+        self.assertEqual([e['key'] for e in tickets],['zammad:id:11'])
+        self.assertEqual(tickets[0]['employee'],'one')
+
     def test_read_path_does_not_write(self):
         self.c.execute('PRAGMA query_only=ON')
         tw.workspace(self.c,1,self.body)

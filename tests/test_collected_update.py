@@ -1,12 +1,19 @@
 """Shared customers, provider identities and company defaults regression."""
+import json
 import unittest
+from datetime import datetime, timezone
 from unittest.mock import patch
 import test_company_services as fixtures
+import app
 import admin_controls as acl
+import collected_update_runtime as collected
 import company_master
 import customer_data
 import customer_access_runtime as access
+import duty_plan
+import email_runtime
 import permission_help
+import staff_time
 import system_features
 import work_models
 import zammad_cache_runtime as zammad
@@ -78,6 +85,57 @@ class CollectedUpdateTests(unittest.TestCase):
         for key in keys:
             self.assertGreater(len(permission_help.permission(key)), 100, key)
         self.assertFalse(set(acl.POLICY_DEFAULTS) - permission_help.POLICIES.keys())
+
+    def test_duty_rotation_can_be_deleted_with_retained_audit(self):
+        rotation=duty_plan.save(self.c,1,{'name':'Woche A','from':'2026-09-14T08:00:00+02:00','to':'2026-09-28T08:00:00+02:00','members':[1,2],'period_days':7,'review_swaps':True})['id']
+        self.assertEqual(duty_plan.listing(self.c,1,{'from':'2026-09-14','to':'2026-09-28'})['rotations'][0]['id'],rotation)
+        duty_plan.delete(self.c,1,{'id':rotation})
+        self.assertEqual(self.c.execute('SELECT COUNT(*) FROM duty_rotations').fetchone()[0],0)
+        event=self.c.execute("SELECT action,changes_json FROM audit_events WHERE entity_type='duty_plan' AND entity_id=? ORDER BY id DESC",(str(rotation),)).fetchone()
+        self.assertEqual(event['action'],'deleted')
+        self.assertEqual(json.loads(event['changes_json'])['slots'],2)
+
+    def test_retroactive_work_model_respects_closed_month(self):
+        self.c.execute("INSERT INTO staff_month_closures VALUES(2,'2026-08','{}',1,'2026-09-01T00:00:00+00:00')")
+        body={'user_id':2,'valid_from':'2026-08-01','effective_mode':'retroactive','mode':'weekly','hours':40,'weekdays':[0,1,2,3,4],'subdivision':'SH'}
+        with patch.object(work_models,'now',return_value=datetime(2026,9,14,12,tzinfo=timezone.utc)):
+            with self.assertRaisesRegex(ValueError,'wieder öffnen'):work_models.save(self.c,1,body)
+            self.c.execute("DELETE FROM staff_month_closures WHERE user_id=2 AND month='2026-08'")
+            ident=work_models.save(self.c,1,body)['id']
+            now_id=work_models.save(self.c,1,{**body,'valid_from':'2020-01-01','effective_mode':'now'})['id']
+        self.assertEqual(self.c.execute('SELECT valid_from FROM work_models WHERE id=?',(ident,)).fetchone()[0],'2026-08-01')
+        self.assertEqual(self.c.execute('SELECT valid_from FROM work_models WHERE id=?',(now_id,)).fetchone()[0],'2026-09-14')
+
+    def test_payroll_overview_reopen_and_safe_csv(self):
+        staff_time.save_model(self.c,1,{'user_id':2,'valid_from':'2026-01-01','mode':'weekly','hours':40,'weights':[1,1,1,1,1,0,0],'subdivision':'SH'})
+        report=staff_time.month_report(self.c,2,'2026-08')
+        self.c.execute('INSERT INTO staff_month_closures VALUES(?,?,?,?,?)',(2,'2026-08',json.dumps(report),1,'2026-09-01T00:00:00+00:00'))
+        self.c.execute("UPDATE users SET username='=formula' WHERE id=2")
+        overview=staff_time.payroll_overview(self.c,1,{'month':'2026-08','user_id':2})
+        self.assertEqual(overview['rows'][0]['status'],'closed')
+        exported=staff_time.payroll_export(self.c,1,{'month':'2026-08','user_id':2})['content']
+        self.assertIn("'=formula",exported)
+        staff_time.reopen_month(self.c,1,{'month':'2026-08','user_id':2,'note':'Korrektur erforderlich'})
+        self.assertFalse(self.c.execute("SELECT 1 FROM staff_month_closures WHERE user_id=2 AND month='2026-08'").fetchone())
+        self.assertTrue(self.c.execute("SELECT 1 FROM audit_events WHERE entity_type='payroll_month' AND action='reopened'").fetchone())
+
+    def test_password_history_and_email_template_are_enforced(self):
+        old_salt,old_hash=app.hash_password('Older-password-123!')
+        new_salt,new_hash=app.hash_password('Newer-password-456!')
+        self.c.execute('UPDATE users SET password_salt=?,password_hash=? WHERE id=2',(new_salt,new_hash))
+        acl.set_setting(self.c,'policy.password_history',3)
+        collected.archive_password(self.c,2,old_salt,old_hash)
+        with self.assertRaisesRegex(ValueError,'bereits verwendet'):
+            collected.ensure_password_unused(self.c,2,'Older-password-123!',app.verify_password)
+        with self.assertRaisesRegex(ValueError,'bereits verwendet'):
+            collected.ensure_password_unused(self.c,2,'Newer-password-456!',app.verify_password)
+        template=collected.validate_template({'company_name':'Beispiel GmbH','logo_url':'https://example.test/logo.png','primary_color':'#112233','accent_color':'#abcdef','footer_text':'Eigene Fußzeile'})
+        rendered=email_runtime._mail_content('Test','Max','Inhalt','Öffnen','https://example.test',template=template)['html']
+        self.assertIn('Beispiel GmbH',rendered)
+        self.assertIn('background:#abcdef',rendered)
+        self.assertIn('Eigene Fußzeile',rendered)
+        self.assertIn('/projektzeit-logo.png',collected.preview(self.c)['html'])
+        with self.assertRaises(ValueError):collected.validate_template({**template,'logo_url':'ftp://example.test/logo.png'})
 
 
 if __name__ == '__main__':

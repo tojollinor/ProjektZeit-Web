@@ -1,4 +1,4 @@
-# ProjektZeit Web 0.7.5
+# ProjektZeit Web 0.7.6
 
 Webbasierte Zeiterfassung mit Kunden, Projekten, Zeitkategorien, bearbeitbaren Stempelungen und Tageszeitstrahl. Arbeitsbeginn/-ende begrenzen die Arbeitszeit; Lücken werden als „unproduktiv“ erfasst. Projektwechsel beendet den laufenden Timer atomar.
 
@@ -46,6 +46,8 @@ Updates: `docker compose pull`, danach `docker compose up -d`. Stacknamen beibeh
 
 SMTP wird unter **Admin-Optionen → E-Mail / SMTP** eingerichtet. `APP_PUBLIC_URL` muss auf die öffentlich im Browser verwendete ProjektZeit-Adresse zeigen, damit Einmal-Links für E-Mail-Bestätigung und Passwort-Wiederherstellung erzeugt werden können. Danach lassen sich unter **Richtlinien** Sicherheitsmails, E-Mail-Verifizierung sowie numerische oder alphanumerische E-Mail-Codes als zweite Anmeldestufe konfigurieren. 2FA kann optional, für alle Benutzer oder nur für ausgewählte Rollen gelten.
 
+Die zentrale E-Mail-Vorlage lässt sich dort mit Unternehmensname, Logo, Primär-/Akzentfarbe und Fußzeile gestalten, direkt als Desktop-/Mobilvorschau prüfen und per Testmail versenden. Zusätzlich werden Passwort-Historie und -Ablauf, Anmeldesperre sowie Inaktivitäts- und maximale Sitzungsdauer serverseitig durchgesetzt. Als zweite Faktoren stehen TOTP über eine Authenticator-App und E-Mail-Codes zur Verfügung.
+
 Administratoren vergeben bei neuen Benutzern ein vorläufiges Passwort und können einen verpflichtenden Wechsel bei der nächsten Anmeldung setzen. Passwörter werden nie per E-Mail versendet. E-Mail-Codes sind kurzlebig und nur einmal verwendbar; zur Prüfung liegt ausschließlich ihr Hash vor, während ausstehende Nachrichten bis zum Versand verschlüsselt im Datenvolume gespeichert werden.
 
 ## Entwicklung
@@ -61,3 +63,5 @@ Mit `DB_BACKEND=sqlite`, `DEMO_MODE=1` und `ADMIN_PASSWORD=admin` ist ein isolie
 ## Logo
 
 Das enthaltene ProjektZeit-Logo wurde für dieses Projekt erstellt und stammt aus der bisherigen Windows-Anwendung.
+
+Die vollständigen Änderungen dieser Version stehen in [UPDATE-0.7.6.md](UPDATE-0.7.6.md).

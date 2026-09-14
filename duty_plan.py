@@ -22,6 +22,23 @@ def save(c,uid,body):
         end=min(b,cursor+timedelta(days=period));c.execute('INSERT INTO duty_slots(rotation_id,user_id,starts,ends) VALUES(?,?,?,?)',(ident,members[index%len(members)],st.iso(cursor),st.iso(end)));cursor=end;index+=1
     st.audit(c,uid,uid,'duty_plan',ident,'created',body);return {'ok':True,'id':ident}
 
+def delete(c,uid,body):
+    """Remove one complete rotation, including its generated slots.
+
+    This is deliberately a privileged, explicit action.  Historic audit data is
+    retained in the central audit trail even though the editable plan disappears.
+    """
+    st.require(c,uid,'duty.manage')
+    ident=int(body.get('id') or 0)
+    rotation=c.execute('SELECT * FROM duty_rotations WHERE id=?',(ident,)).fetchone()
+    if not rotation:raise ValueError('Notdienst-Rotation wurde nicht gefunden.')
+    slot_count=c.execute('SELECT COUNT(*) n FROM duty_slots WHERE rotation_id=?',(ident,)).fetchone()['n']
+    c.execute('DELETE FROM duty_swaps WHERE slot_id IN (SELECT id FROM duty_slots WHERE rotation_id=?)',(ident,))
+    c.execute('DELETE FROM duty_slots WHERE rotation_id=?',(ident,))
+    c.execute('DELETE FROM duty_rotations WHERE id=?',(ident,))
+    st.audit(c,uid,uid,'duty_plan',ident,'deleted',{'name':rotation['name'],'from':rotation['starts'],'to':rotation['ends'],'slots':slot_count})
+    return {'ok':True,'id':ident}
+
 def swap(c,uid,body):
     r=c.execute('SELECT * FROM duty_slots WHERE id=?',(int(body['id']),)).fetchone()
     if not r or r['user_id']!=uid:raise PermissionError('Nur eigenen Notdienst zum Tausch anbieten.')
@@ -54,6 +71,11 @@ def listing(c,uid,body):
     if not 0<(b-a).days<=366:raise ValueError('Zeitraum maximal ein Jahr.')
     slots=[dict(r) for r in c.execute('SELECT s.*,u.username,r.name FROM duty_slots s JOIN users u ON u.id=s.user_id JOIN duty_rotations r ON r.id=s.rotation_id WHERE s.starts<? AND s.ends>? ORDER BY s.starts',(st.iso(st.midnight(b)),st.iso(st.midnight(a))))]
     admin=st.acl.can(c,uid,'duty.manage');requests=[dict(r) for r in c.execute("SELECT * FROM duty_swaps WHERE state IN ('pending','review')"+('' if admin else ' AND (requested_by=? OR to_user=?)'),() if admin else (uid,uid))]
-    return {'slots':slots,'requests':requests}
+    rotations=[]
+    if admin:
+        rotations=[dict(r) for r in c.execute('''SELECT r.*,COUNT(s.id) slot_count
+          FROM duty_rotations r LEFT JOIN duty_slots s ON s.rotation_id=r.id
+          WHERE r.starts<? AND r.ends>? GROUP BY r.id ORDER BY r.starts,r.id''',(st.iso(st.midnight(b)),st.iso(st.midnight(a))))]
+    return {'slots':slots,'requests':requests,'rotations':rotations,'can_manage':admin}
 
-HANDLERS={'duty/save':save,'duty/swap':swap,'duty/approve':decide,'duty/list':listing}
+HANDLERS={'duty/save':save,'duty/delete':delete,'duty/swap':swap,'duty/approve':decide,'duty/list':listing}

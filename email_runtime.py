@@ -166,7 +166,29 @@ def _replace_state(c, uid, email, verified_at=''):
               (now_iso(), int(uid)))
 
 
-def _mail_content(subject, name, body, action_label='', action_url='', code=''):
+EMAIL_TEMPLATE_DEFAULTS = {
+    'company_name': 'ProjektZeit', 'logo_url': '', 'primary_color': '#1d4f91',
+    'accent_color': '#2563eb',
+    'footer_text': 'Diese Nachricht wurde automatisch versendet. Bitte antworte nicht auf diese E-Mail.',
+}
+
+
+def email_template(c):
+    saved = admin_controls.setting(c, 'email.template', {})
+    if not isinstance(saved, dict):
+        saved = {}
+    return {**EMAIL_TEMPLATE_DEFAULTS, **{key: saved.get(key, value) for key, value in EMAIL_TEMPLATE_DEFAULTS.items()}}
+
+
+def _mail_content(subject, name, body, action_label='', action_url='', code='', template=None):
+    template = {**EMAIL_TEMPLATE_DEFAULTS, **(template if isinstance(template, dict) else {})}
+    company = str(template.get('company_name') or 'ProjektZeit').strip()[:120]
+    footer = str(template.get('footer_text') or EMAIL_TEMPLATE_DEFAULTS['footer_text']).strip()[:1000]
+    primary = str(template.get('primary_color') or EMAIL_TEMPLATE_DEFAULTS['primary_color'])
+    accent = str(template.get('accent_color') or EMAIL_TEMPLATE_DEFAULTS['accent_color'])
+    primary = primary if re.fullmatch(r'#[0-9a-fA-F]{6}', primary) else EMAIL_TEMPLATE_DEFAULTS['primary_color']
+    accent = accent if re.fullmatch(r'#[0-9a-fA-F]{6}', accent) else EMAIL_TEMPLATE_DEFAULTS['accent_color']
+    logo = str(template.get('logo_url') or 'cid:projektzeit-logo').strip()[:1000]
     greeting = 'Hallo' + (' ' + str(name).strip() if str(name or '').strip() else '') + ','
     body = str(body or '').strip()
     plain = greeting + '\n\n' + body
@@ -174,14 +196,14 @@ def _mail_content(subject, name, body, action_label='', action_url='', code=''):
         plain += '\n\nDein Code: ' + str(code)
     if action_url:
         plain += '\n\n' + str(action_label or 'Öffnen') + ': ' + str(action_url)
-    plain += '\n\nViele Grüße\nProjektZeit'
+    plain += '\n\nViele Grüße\n' + company + '\n\n' + footer
     paragraphs = ''.join('<p style="margin:0 0 16px;line-height:1.65;color:#334155">' +
                          html.escape(part).replace('\n', '<br>') + '</p>'
                          for part in body.split('\n\n') if part.strip())
     action = ''
     if action_url:
         action = ('<p style="margin:26px 0;text-align:center"><a href="' + html.escape(str(action_url), quote=True) +
-                  '" style="display:inline-block;padding:13px 22px;border-radius:10px;background:#2f7fe6;color:#fff;'
+                  '" style="display:inline-block;padding:13px 22px;border-radius:10px;background:' + accent + ';color:#fff;'
                   'text-decoration:none;font-weight:700">' + html.escape(str(action_label or 'Öffnen')) + '</a></p>')
     code_box = ''
     if code:
@@ -212,12 +234,16 @@ def _mail_content(subject, name, body, action_label='', action_url='', code=''):
         </table>
       </td></tr></table>
     </body></html>'''
+    document = (document.replace('cid:projektzeit-logo', html.escape(logo, quote=True))
+                .replace('#1d4f91', primary).replace('#2563eb', accent)
+                .replace('ProjektZeit', html.escape(company))
+                .replace('Diese Nachricht wurde automatisch von ' + html.escape(company) + ' versendet. Bitte antworte nicht auf diese E-Mail.', html.escape(footer)))
     return {'text': plain, 'html': document}
 
 
 def _queue(c, root, recipient, subject, body, name='', action_label='', action_url='', code=''):
     recipient = normalize_email(recipient, required=True)
-    content = _mail_content(subject, name, body, action_label, action_url, code)
+    content = _mail_content(subject, name, body, action_label, action_url, code, email_template(c))
     encrypted = integrations.cipher(root).encrypt(json.dumps(content, ensure_ascii=False).encode()).decode()
     ident = c.execute('''INSERT INTO email_outbox(recipient,subject,body_secret,status,attempts,next_attempt_at,last_error,created_at,sent_at)
                          VALUES(?,?,?,'queued',0,0,'',?,'')''',
@@ -499,17 +525,23 @@ def change_password(c, root, uid, current_password, new_password, confirmation, 
     if str(new_password or '') != str(confirmation or ''):
         raise ValueError('Die neuen Passwörter stimmen nicht überein.')
     admin_controls.validate_password(c, new_password)
+    try: __import__('collected_update_runtime').ensure_password_unused(c, uid, str(new_password), verify_password)
+    except ImportError: pass
     if verify_password(str(new_password), row['password_salt'], row['password_hash']):
         raise ValueError('Das neue Passwort muss sich vom bisherigen Passwort unterscheiden.')
+    try: __import__('collected_update_runtime').archive_password(c, uid, row['password_salt'], row['password_hash'])
+    except ImportError: pass
     salt, digest = hash_password(str(new_password))
     c.execute('UPDATE users SET password_salt=?,password_hash=? WHERE id=?', (salt, digest, uid))
     c.execute('DELETE FROM user_security_state WHERE user_id=?', (int(uid),))
     c.execute('INSERT INTO user_security_state(user_id,must_change_password) VALUES(?,0)', (int(uid),))
+    try: __import__('collected_update_runtime').mark_password_changed(c, uid)
+    except ImportError: pass
     _end_sessions(c, uid, keep_hash)
     password_changed(c, root, uid)
 
 
-def reset_password(c, root, token, new_password, confirmation, hash_password):
+def reset_password(c, root, token, new_password, confirmation, hash_password, verify_password=None):
     digest = hashlib.sha256(str(token or '').encode()).hexdigest()
     row = c.execute("SELECT * FROM email_action_tokens WHERE token_hash=? AND purpose='password_reset'", (digest,)).fetchone()
     if not row or row['used_at'] or int(row['expires_at']) < int(time.time()):
@@ -520,12 +552,21 @@ def reset_password(c, root, token, new_password, confirmation, hash_password):
     if str(new_password or '') != str(confirmation or ''):
         raise ValueError('Die neuen Passwörter stimmen nicht überein.')
     admin_controls.validate_password(c, new_password)
+    verify_password = verify_password or __import__('app').verify_password
+    try: __import__('collected_update_runtime').ensure_password_unused(c, row['user_id'], str(new_password), verify_password)
+    except ImportError: pass
+    current=c.execute('SELECT password_salt,password_hash FROM users WHERE id=?',(row['user_id'],)).fetchone()
+    if current:
+        try: __import__('collected_update_runtime').archive_password(c, row['user_id'], current['password_salt'], current['password_hash'])
+        except ImportError: pass
     salt, password_hash = hash_password(str(new_password))
     stamp = now_iso()
     changed = c.execute("UPDATE email_action_tokens SET used_at=? WHERE token_hash=? AND used_at=''", (stamp, digest))
     if changed.rowcount != 1:
         raise ValueError('Der Link wurde bereits verwendet.')
     c.execute('UPDATE users SET password_salt=?,password_hash=? WHERE id=?', (salt, password_hash, row['user_id']))
+    try: __import__('collected_update_runtime').mark_password_changed(c, row['user_id'])
+    except ImportError: pass
     c.execute("UPDATE email_action_tokens SET used_at=? WHERE user_id=? AND used_at=''", (stamp, row['user_id']))
     _replace_state(c, row['user_id'], email, stamp)
     _end_sessions(c, row['user_id'])
@@ -788,7 +829,7 @@ def install(app):
                     request_password_reset(c, app.DATA_DIR, body.get('email'), str(self.client_address[0]))
                 return self.send_json(200, {'ok': True, 'message': 'Falls die Adresse zu einem aktiven Konto gehört, wurde ein Link versendet.'})
             if path == '/api/v1/auth/password-reset/complete':
-                with app.db() as c: reset_password(c, app.DATA_DIR, body.get('token'), body.get('password'), body.get('confirmation'), app.hash_password)
+                with app.db() as c: reset_password(c, app.DATA_DIR, body.get('token'), body.get('password'), body.get('confirmation'), app.hash_password, app.verify_password)
                 return self.send_json(200, {'ok': True})
             if path == '/api/v1/auth/email-verification/complete':
                 with app.db() as c: consume_verification(c, body.get('token'))

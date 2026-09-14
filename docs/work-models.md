@@ -4,7 +4,7 @@
 
 Unter **Admin-Optionen → Arbeitszeitmodelle** einen Mitarbeiter auswählen. Tägliche, wöchentliche oder monatliche Sollstunden, Arbeitstage, Feiertagsregion und Gültigkeitsbeginn angeben. Die Adminrolle erhält die Berechtigung `staff.models.manage`; diese kann über die vorhandenen Rollen delegiert werden. Mitarbeiter können ihr eigenes Modell und die eigene Übersicht lesen, es aber nicht selbst ändern.
 
-Das erste Modell darf rückwirkend beginnen. Weitere Änderungen gelten frühestens ab heute. Historische Modelle werden nicht überschrieben. Heutige und zukünftige Modelle können bearbeitet werden; eine Versionsprüfung schützt gegen veraltete Formulare. Änderungen werden protokolliert.
+Beim Anlegen wird ausdrücklich zwischen **Ab jetzt** und **Rückwirkend ab** gewählt. Rückwirkende Modellstufen erhalten ein frei wählbares Gültigkeitsdatum; historische Modelle werden nicht überschrieben. Berührt der neue Gültigkeitsbereich einen abgeschlossenen Abrechnungsmonat, muss dieser in der Mitarbeiterabrechnung zuerst mit Begründung wieder geöffnet werden. Heutige und zukünftige Modelle können bearbeitet werden; eine Versionsprüfung schützt gegen veraltete Formulare. Änderungen und Gültigkeitsart werden protokolliert.
 
 Bei einem Modellwechsel mitten im Monat wird jeder Tag nach dem an diesem Tag geltenden Modell berechnet. Die Verteilungsbasis des Monatsmodells bleibt jeweils der gesamte Kalendermonat. Der resultierende Übergangsmonat kann daher von beiden vollständigen Monatswerten abweichen.
 
@@ -31,7 +31,7 @@ Das Konto berücksichtigt abgeschlossene Tage, genehmigte bezahlte Abwesenheiten
 1. Ein Modell mit 173 Monatsstunden, Montag–Freitag und zutreffender Region anlegen. Zwei Monate mit unterschiedlicher Arbeitstagezahl vergleichen.
 2. Arbeit beginnen, pausieren, fortsetzen und beenden. Arbeitsstunden müssen sich unabhängig von Projektzeiten ergeben.
 3. Vergangenen Feiertag auswählen: Tages-Soll wird gutgeschrieben; erfasste Arbeit ergibt ein Plus. Ein zukünftiger Feiertag darf noch keine Gutschrift haben.
-4. Ein zukünftiges Modell erstellen und bearbeiten; frühere Tage müssen unverändert bleiben.
+4. Je ein Modell „Ab jetzt“ und „Rückwirkend ab“ erstellen. Ein abgeschlossener betroffener Monat muss die Rückdatierung sperren, bis er nachvollziehbar wieder geöffnet wurde.
 5. Als normaler Mitarbeiter die eigene Übersicht prüfen; fremde Modelle dürfen nicht geändert werden.
 
 Automatische Tests decken Monats-/Wochenverteilung, Tagesmodelle, Feiertage, regionale Varianten, Pausen, Zeitumstellung, offene Arbeitsenden, Monatsgrenzen, fehlende Modelle, Berechtigungen, Versionskonflikte und produktive HTTP-Routen ab. DOM-Tests prüfen Formulare und Lade-/Fehlerzustände. Keine visuelle Live-Browser-Abnahme erfolgt.

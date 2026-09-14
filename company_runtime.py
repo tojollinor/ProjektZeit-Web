@@ -9,7 +9,7 @@ import company_diagnostics
 import provider_budget
 import work_models
 
-READ_ACTIONS={'read','context','report','inbox','calendar','list','statistics','preview','status','detail'}
+READ_ACTIONS={'read','context','report','inbox','calendar','list','statistics','preview','status','detail','overview','export'}
 
 def install(app):
     staff_time.register()

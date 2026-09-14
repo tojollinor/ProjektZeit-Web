@@ -49,4 +49,5 @@
  stylesheet('/settings-session-polish.css?v=0.8.1-1','settingsSessionPolish');script('/settings-session-polish.js?v=0.8.1-1','settingsSessionPolish');
  stylesheet('/time-workspace.css','timeWorkspace');script('/time-workspace.js','timeWorkspace');
  stylesheet('/company-ui.css','companyUi');script('/company-ui.js','companyUi');script('/notifications.js','notifications');script('/provider-visibility.js','providerVisibility');
+ stylesheet('/collected-update-076.css','collectedUpdate076');script('/collected-update-076.js','collectedUpdate076');
 })();

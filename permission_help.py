@@ -71,6 +71,12 @@ POLICIES = {
  'password_require_lower':'Verlangt bei neu angelegten Benutzerpasswörtern mindestens einen Kleinbuchstaben.',
  'password_require_number':'Verlangt bei neu angelegten Benutzerpasswörtern mindestens eine Ziffer.',
  'password_require_special':'Verlangt bei neu angelegten Benutzerpasswörtern mindestens ein nicht alphanumerisches Zeichen.',
+ 'password_history':'Verhindert bei Passwortänderung und Passwort-Reset die erneute Verwendung der angegebenen Anzahl zuletzt genutzter Passwörter. Null schaltet die Historie aus.',
+ 'password_expiry_days':'Fordert nach der angegebenen Anzahl Tage beim nächsten Aufruf eine Passwortänderung. Null schaltet den Ablauf aus.',
+ 'login_max_attempts':'Begrenzt fehlgeschlagene Anmeldeversuche je Quelladresse innerhalb der konfigurierten Sperrzeit.',
+ 'login_lock_minutes':'Legt fest, wie lange fehlgeschlagene Anmeldeversuche für die temporäre Anmeldesperre berücksichtigt werden.',
+ 'session_idle_minutes':'Beendet eine Sitzung nach dieser Zeit ohne Aktivität. Null schaltet den Inaktivitätsablauf aus.',
+ 'session_max_hours':'Beendet Sitzungen unabhängig von Aktivität spätestens nach der angegebenen Gesamtdauer.',
  'remember_login_allowed':'Blendet auf der Anmeldeseite „Angemeldet bleiben“ ein. Nur wenn der Benutzer die Option auswählt, bleibt das Sitzungscookie nach dem Schließen des Browsers erhalten.',
  'two_factor_mode':'Optional lässt freiwillige 2FA zu. Die Pflicht kann für alle oder nur für ausgewählte Rollen gelten. Änderungen beenden bestehende Sitzungen, damit die neue Vorgabe bei der nächsten Anmeldung geprüft wird.',
  'two_factor_required_roles':'Jeder Benutzer mit mindestens einer ausgewählten Rolle muss 2FA verwenden. Weitere zugewiesene Rollen heben die Pflicht nicht auf.',
@@ -89,10 +95,7 @@ POLICIES = {
  'self_approval':'Erlaubt Eigengenehmigungen nur zusammen mit dem gesonderten Rollenrecht und dem passenden fachlichen Genehmigungsrecht.',
  'valid_from':'Neue Arbeitszeit- und Abwesenheitsregeln gelten ab diesem Datum. Bereits eingereichte Anträge behalten ihre beim Einreichen gespeicherten Regeln.',
 }
-PREPARED_POLICIES = {
- 'password_history','password_expiry_days','login_max_attempts',
- 'login_lock_minutes','session_idle_minutes','session_max_hours',
-}
+PREPARED_POLICIES = set()
 for key in PREPARED_POLICIES:
     POLICIES[key] = 'Noch nicht aktiv umgesetzt: Diese vorbereitete Einstellung wird derzeit nicht durchgesetzt. Ein gespeicherter Wert bietet deshalb noch keine entsprechende Funktion.'
 

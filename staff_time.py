@@ -3,6 +3,8 @@
 All calculations use Europe/Berlin dates and integer seconds. No future credit.
 """
 import calendar
+import csv
+import io
 import json
 from datetime import date, datetime, time, timedelta, timezone
 from fractions import Fraction
@@ -427,6 +429,61 @@ def close_month(c,actor,body):
     c.execute('INSERT INTO staff_month_closures VALUES(?,?,?,?,?)',(uid,month,json.dumps(snapshot),actor,iso(now())))
     audit(c,actor,uid,'payroll_month',month,'closed',snapshot);return {'ok':True}
 
+def reopen_month(c,actor,body):
+    require(c,actor,'payroll.manage');uid=int(body['user_id']);month=str(body['month']);note=str(body.get('note') or '').strip()
+    if not note:raise ValueError('Zum Wiederöffnen ist eine Begründung erforderlich.')
+    row=c.execute('SELECT * FROM staff_month_closures WHERE user_id=? AND month=?',(uid,month)).fetchone()
+    if not row:raise ValueError('Dieser Monat ist nicht abgeschlossen.')
+    snapshot=json.loads(row['snapshot_json'])
+    c.execute('DELETE FROM staff_month_closures WHERE user_id=? AND month=?',(uid,month))
+    audit(c,actor,uid,'payroll_month',month,'reopened',{'note':note[:2000],'previous_closure':snapshot,'closed_at':row['created_at'],'closed_by':row['created_by']})
+    notify(c,uid,'time_account','Abrechnungsmonat '+month+' wurde wieder geöffnet · '+note[:200])
+    return {'ok':True}
+
+def payroll_overview(c,actor,body):
+    require(c,actor,'staff.view')
+    month=str(body.get('month') or str(now().astimezone(TZ).date())[:7])
+    start=date.fromisoformat(month+'-01');end=(start.replace(day=28)+timedelta(days=4)).replace(day=1)
+    target=int(body.get('user_id') or 0);status_filter=str(body.get('status') or 'all')
+    if status_filter not in ('all','open','attention','closed'):raise ValueError('Ungültiger Statusfilter.')
+    users=[dict(r) for r in c.execute('''SELECT u.id,u.username,p.first_name,p.last_name
+      FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id
+      WHERE u.active=1'''+(' AND u.id=?' if target else '')+' ORDER BY p.last_name,p.first_name,u.username',((target,) if target else ()))]
+    today=now().astimezone(TZ).date();through=min(today,end-timedelta(days=1));rows=[]
+    for user in users:
+        report=month_report(c,user['id'],month);closure=c.execute('SELECT created_at,created_by FROM staff_month_closures WHERE user_id=? AND month=?',(user['id'],month)).fetchone()
+        problem_days=sum(d['state'] in ('unresolved','unconfigured') for d in report['days'])
+        future_days=sum(d['state'] in ('planned','provisional') for d in report['days'])
+        item_status='closed' if closure else 'attention' if problem_days else 'open'
+        if status_filter!='all' and item_status!=status_filter:continue
+        display=' '.join(x for x in (user.get('first_name'),user.get('last_name')) if x).strip() or user['username']
+        balance=account_balance(c,user['id'],through) if through>=start else {'balance_seconds':0,'unresolved_days':0,'configured':bool(report['models'])}
+        payouts=sum(-m['seconds'] for m in report['movements'] if m['kind']=='payout')
+        rows.append({'user_id':user['id'],'username':user['username'],'name':display,'status':item_status,
+          'configured':bool(report['models']),'posted_seconds':report['posted_seconds'],'movement_seconds':report['movement_seconds'],
+          'balance_seconds':balance['balance_seconds'],'problem_days':problem_days,'future_days':future_days,
+          'payout_seconds':payouts,'movement_count':len(report['movements']),'revision_seconds':report['revision_seconds'],
+          'closed_at':closure['created_at'] if closure else '', 'closed_by':closure['created_by'] if closure else None,
+          'can_close':not closure and not problem_days and not future_days and all(d['state']=='closed' for d in report['days'])})
+    movements=[dict(r) for r in c.execute('''SELECT m.*,u.username,p.first_name,p.last_name
+      FROM staff_movements m JOIN users u ON u.id=m.user_id LEFT JOIN user_profiles p ON p.user_id=u.id
+      WHERE m.day>=? AND m.day<?'''+(' AND m.user_id=?' if target else '')+' ORDER BY m.day DESC,m.id DESC',(str(start),str(end),*((target,) if target else ())))]
+    return {'month':month,'rows':rows,'movements':movements,'summary':{
+      'employees':len(rows),'closed':sum(r['status']=='closed' for r in rows),'attention':sum(r['status']=='attention' for r in rows),
+      'balance_seconds':sum(r['balance_seconds'] for r in rows),'payout_seconds':sum(r['payout_seconds'] for r in rows)}}
+
+def payroll_export(c,actor,body):
+    data=payroll_overview(c,actor,{**body,'status':body.get('status') or 'all'})
+    stream=io.StringIO();writer=csv.writer(stream,delimiter=';',lineterminator='\n')
+    writer.writerow(['Mitarbeiter','Benutzername','Monat','Status','Monatsdifferenz (Sek.)','Bewegungen (Sek.)','Stundenkonto (Sek.)','Ausgezahlt (Sek.)','Klärungstage','Abgeschlossen am'])
+    labels={'open':'Offen','attention':'Klärung erforderlich','closed':'Abgeschlossen'}
+    def cell(value):
+        text=str(value or '')
+        return "'"+text if text[:1] in ('=','+','-','@') else text
+    for row in data['rows']:
+        writer.writerow([cell(row['name']),cell(row['username']),data['month'],labels[row['status']],row['posted_seconds'],row['movement_seconds'],row['balance_seconds'],row['payout_seconds'],row['problem_days'],row['closed_at']])
+    return {'filename':'mitarbeiterabrechnung-'+data['month']+'.csv','content':'\ufeff'+stream.getvalue(),'content_type':'text/csv;charset=utf-8'}
+
 def kind_save(c,actor,body):
     require(c,actor,'staff.policy');code=str(body['code']);name=str(body['name']).strip();rule=body['rule'];color=str(body.get('color') or '#62a5fa')
     import re
@@ -474,6 +531,8 @@ def handle(c,uid,action,body):
     if action=='notifications/seen':return notification_seen(c,uid,body)
     if action=='movement/preview':return movement_preview(c,uid,body)
     if action=='movement/reverse':return reverse_movement(c,uid,body)
+    if action=='payroll/overview':return payroll_overview(c,uid,body)
+    if action=='payroll/export':return payroll_export(c,uid,body)
     if action=='context':return context(c,uid)
     if action=='tracking/report':return tracking_report(c,uid,body)
     if action=='report':
@@ -490,7 +549,7 @@ def handle(c,uid,action,body):
         a=date.fromisoformat(body['from']);b=date.fromisoformat(body['to'])+timedelta(days=1)
         if not 0<(b-a).days<=366:raise ValueError('Kalenderzeitraum ungültig.')
         return {'events':calendar_data(c,uid,a,b),'day_bounds':[{'day':str(d),'start':iso(midnight(d)),'end':iso(midnight(d+timedelta(days=1)))} for d in days(a,b)]}
-    handlers={'model/save':save_model,'policy/save':save_policy,'account/save':account,'absence/submit':submit,'absence/cancel':cancellation,'absence/approve':decide,'correction/submit':correction,'movement/pay':movement,'month/close':close_month,'kind/save':kind_save}
+    handlers={'model/save':save_model,'policy/save':save_policy,'account/save':account,'absence/submit':submit,'absence/cancel':cancellation,'absence/approve':decide,'correction/submit':correction,'movement/pay':movement,'month/close':close_month,'month/reopen':reopen_month,'kind/save':kind_save}
     if action not in handlers:raise ValueError('Unbekannte Arbeitszeitaktion.')
     return handlers[action](c,uid,body)
 
