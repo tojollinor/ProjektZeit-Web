@@ -12,14 +12,15 @@ assert.equal(rows.find(x=>x.e.key==='4').lane,0);
 const point=rows.find(x=>x.e.key==='ticket');assert.equal(point.a,point.b);
 const clipped=context.window.pzTimeLayout([event('span',-10,90)],base,base+3600000)[0];assert.equal(clipped.a,base);assert.equal(clipped.b,base+3600000);
 console.log('Time workspace: overlaps, employees, point events and clipping passed');
-// A live timer changes text every second. Global decorators must not rerun for it.
-let native,timer;
+// Browser extensions rely on the unmodified, lossless native observer API.
+let native;
 class Observer{constructor(fn){this.fn=fn;native=this;}observe(){}disconnect(){}takeRecords(){return [];}}
 const body={};const win={MutationObserver:Observer,fetch:()=>{},addEventListener:()=>{}};
-const perfContext={window:win,document:{...document,body},performance:{now:()=>0},setTimeout:fn=>{timer=fn;return 1},clearTimeout:()=>{},Date,URL,location:{href:'https://example.test/'}};
+const perfContext={window:win,document:{...document,body},performance:{now:()=>0},Date,URL,location:{href:'https://example.test/'}};
 vm.runInNewContext(fs.readFileSync('static/performance-guard.js','utf8'),perfContext);
+assert.equal(win.MutationObserver,Observer,'Do not replace the browser observer API');
 let callbacks=0;const observer=new win.MutationObserver(()=>callbacks++);observer.observe(body,{childList:true,subtree:true});
 const target={closest:()=>null};for(let i=0;i<1000;i++)native.fn([{addedNodes:[{nodeType:3}],removedNodes:[{nodeType:3}],target}]);
-assert.equal(timer,undefined);assert.equal(callbacks,0);
-native.fn([{addedNodes:[{nodeType:1}],removedNodes:[],target}]);timer();assert.equal(callbacks,1);
-console.log('Global decorators ignore 1,000 timer text mutations and process new elements');
+assert.equal(callbacks,1000,'Text mutations must remain observable');
+native.fn([{addedNodes:[{nodeType:1}],removedNodes:[],target}]);assert.equal(callbacks,1001);
+console.log('Native observer API and mutation delivery remain intact');

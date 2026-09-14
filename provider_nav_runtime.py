@@ -98,7 +98,10 @@ def provider_status(app, c, uid, provider):
     confirmed=access['state']=='valid' and bool(access['checked_at'])
     connected=bool(configured_server and credentials and confirmed and not bad_state)
     if configured_server and credentials and not confirmed and not bad_state and (provider!='starface' or client_secret_configured):
-        return {'provider':provider,'connected':False,'reason':'unknown','label':'Status noch nicht geprüft','detail':'Zugangsdaten sind hinterlegt; noch keine erfolgreiche Verbindungsprüfung.','configured':True,'ever_configured':ever,'checked_at':access['checked_at']}
+        result = {'provider':provider,'connected':False,'reason':'unknown','label':'Status noch nicht geprüft','detail':'Zugangsdaten sind hinterlegt; noch keine erfolgreiche Verbindungsprüfung.','configured':True,'ever_configured':ever,'checked_at':access['checked_at']}
+        if client_secret_configured is not None:
+            result['client_secret_configured'] = client_secret_configured
+        return result
     if provider=='starface' and not client_secret_configured:
         connected=False;reason='missing_client_secret';detail='Es wurde kein STARFACE Client Secret hinterlegt. Bitte an einen Administrator wenden.'
     elif connected:
@@ -107,7 +110,7 @@ def provider_status(app, c, uid, provider):
         reason=('expired' if ever else 'missing') if provider=='starface' else ('interrupted' if ever else 'missing')
         detail='Verbindung wurde unterbrochen.' if ever else 'Verbindung wurde noch nicht eingerichtet.'
     else:
-        reason=('expired' if access['state']=='invalid' else 'unavailable') if provider=='starface' else 'interrupted';detail=access['message'] or (last.get('message') if last else '') or 'Verbindung wurde unterbrochen.'
+        reason='expired' if access['state']=='invalid' else 'unavailable';detail=access['message'] or (last.get('message') if last else '') or 'Verbindung wurde unterbrochen.'
     result={'provider':provider,'connected':connected,'reason':reason,'label':'Verbunden' if connected else 'Nicht verbunden',
             'detail':detail,'configured':bool(configured_server and credentials),'ever_configured':ever,
             'checked_at':access['checked_at'] or (last.get('created_at') if last else '')}

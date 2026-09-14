@@ -206,8 +206,11 @@ def _set_role_permissions(c, role_id, permissions):
 def permissions_for_user(c, uid):
     if is_superadmin(c, uid):
         return set(ALL_PERMISSIONS)
-    return {r['permission_key'] for r in c.execute('''SELECT rp.permission_key FROM role_permissions rp
+    permissions = {r['permission_key'] for r in c.execute('''SELECT rp.permission_key FROM role_permissions rp
         JOIN user_role_links ur ON ur.role_id=rp.role_id WHERE ur.user_id=?''', (uid,))}
+    if permissions & {'customers.view', 'customers.view_basic'}:
+        permissions.update({'customers.view', 'customers.view_basic'})
+    return permissions
 
 
 def can(c, uid, permission):
@@ -398,17 +401,17 @@ def create_user(c, actor, body, hash_password):
 
 
 def customer_master(c, uid, customer_id):
-    row=c.execute('SELECT * FROM customer_master_fields WHERE owner_id=? AND customer_id=?',(uid,int(customer_id))).fetchone()
+    row=c.execute('SELECT * FROM customer_master_fields WHERE customer_id=?',(int(customer_id),)).fetchone()
     if not row:return {'name_addition':'','street':'','house_number':'','zip_code':'','city':'','country':'Deutschland','website':'','billing_email':'','tax_number':'','vat_id':'','customer_number':'','payment_terms':'','invoice_note':''}
     data=dict(row);data.pop('owner_id',None);data.pop('customer_id',None);return data
 
 
 def save_customer_master(c, uid, customer_id, body):
     customer_id=int(customer_id)
-    if not c.execute('SELECT 1 FROM customers WHERE id=? AND owner_id=?',(customer_id,uid)).fetchone():raise ValueError('Kunde nicht gefunden.')
+    if not c.execute('SELECT 1 FROM customers WHERE id=?',(customer_id,)).fetchone():raise ValueError('Kunde nicht gefunden.')
     keys=('name_addition','street','house_number','zip_code','city','country','website','billing_email','tax_number','vat_id','customer_number','payment_terms','invoice_note')
     vals=[str(body.get(k) or '').strip()[:2000 if k=='invoice_note' else 250] for k in keys]
-    c.execute('DELETE FROM customer_master_fields WHERE owner_id=? AND customer_id=?',(uid,customer_id))
+    c.execute('DELETE FROM customer_master_fields WHERE customer_id=?',(customer_id,))
     c.execute('''INSERT INTO customer_master_fields(owner_id,customer_id,name_addition,street,house_number,zip_code,city,country,website,billing_email,tax_number,vat_id,customer_number,payment_terms,invoice_note)
                  VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',(uid,customer_id,*vals))
 
@@ -419,9 +422,13 @@ def admin_context(c, uid):
     return {
         'is_superadmin':superuser,
         'permissions':perms,
-        'permission_categories':{cat:[{'key':k,'label':label} for k,label in items] for cat,items in PERMISSION_CATEGORIES.items()},
+        'company':__import__('company_master').read(c) if can(c,uid,'system.options.edit') else {},
+        'holiday_regions':__import__('work_models').STATES,
+        'permission_categories':{cat:[{'key':k,'label':label,'help':__import__('permission_help').permission(k)} for k,label in items if k != 'customers.view'] for cat,items in PERMISSION_CATEGORIES.items()},
         'roles':list_roles(c,uid) if (superuser or 'roles.view' in perms) else [],
         'users':list_users(c,uid) if (superuser or 'users.view' in perms) else [],
+        'policy_help':__import__('permission_help').POLICIES,
+        'prepared_policies':sorted(__import__('permission_help').PREPARED_POLICIES),
         'policies':policy_values(c) if (superuser or 'security.policies.view' in perms) else {},
         'smtp':smtp_public(c) if (superuser or 'smtp.view' in perms) else {},
         'superadmin_settings':({'admin_may_reset_2fa':bool(setting(c,'security.admin_may_reset_2fa',True))} if can(c,uid,'system.options.edit') else {}),

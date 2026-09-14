@@ -4,12 +4,17 @@ from urllib.parse import urlparse
 
 import integrations
 import starface_oauth
+import system_features
 
 
 def connection_payload(c, uid):
     data = integrations.list_configs(c, uid)
     for item in data:
         if item['provider'] == 'starface':
+            public = system_features.starface_public(c)
+            item['domain'] = public.get('domain', '')
+            item['username'] = public.get('client_id', '')
+            item['client_configured'] = bool(public.get('has_client_secret'))
             try:
                 item['has_secret'] = bool(c.execute(
                     'SELECT 1 FROM oauth_tokens WHERE owner_id=?', (uid,)

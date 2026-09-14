@@ -115,7 +115,8 @@ def events(c, uid, body, allow_team=False):
     cid = int(body.get('customer_id') or 0); pid = int(body.get('project_id') or 0)
     team = bool(body.get('team')) and allow_team and bool(cid or pid)
     if body.get('team') and not team: raise PermissionError('Teamansicht ist nur für Administratoren in einem Kunden oder Projekt verfügbar.')
-    if cid and not c.execute('SELECT id FROM customers WHERE id=?'+('' if team else ' AND owner_id=?'), (cid,) if team else (cid,uid)).fetchone(): raise PermissionError('Kunde nicht zugänglich.')
+    if cid:__import__('admin_controls').require_permission(c,uid,'customers.view_basic')
+    if cid and not c.execute('SELECT id FROM customers WHERE id=?', (cid,)).fetchone(): raise PermissionError('Kunde nicht zugänglich.')
     if pid and not c.execute('SELECT id FROM projects WHERE id=?'+('' if team else ' AND (owner_id=? OR assigned_user_id=?)'), (pid,) if team else (pid,uid,uid)).fetchone(): raise PermissionError('Projekt nicht zugänglich.')
     result = []
     args = [iso(end), iso(start)]
@@ -157,7 +158,9 @@ def events(c, uid, body, allow_team=False):
                         LEFT JOIN customer_provider_links l
                         ON l.owner_id=e.owner_id AND l.provider=e.provider AND l.external_key=e.external_key
                         WHERE '''+where+' ORDER BY i.started_at,e.external_key LIMIT 1001',tuple(args))
+    starface_connected=__import__('provider_nav_runtime').provider_status(None,c,uid,'starface')['connected']
     for r in rows:
+        if r['provider']=='starface' and not starface_connected:continue
         result.append({'source':r['provider'],'key':r['external_key'],'owner_id':r['owner_id'],'employee':r['username'],
                        'project_id':r['project_id'],'customer_id':r['customer_id'],'title':r['summary'] or r['provider'],
                        'start':r['started_at'],'end':r['ended_at'],'running':False,'match_type':r['match_type'],'match_value':r['match_value']})
@@ -200,7 +203,7 @@ def workspace(c,uid,body,allow_team=False):
             'summary':{'unassigned':sum(not e['project_id'] for e in rows),'unreviewed':sum(not e['reviewed'] for e in rows),
                        'overlaps':len(overlaps),'running':sum(e['running'] for e in rows)+sum(not w['ended_at'] for w in work),
                        'event_seconds':sum(e['seconds'] for e in rows),'billable_seconds':sum(e['seconds'] for e in rows if e['billable'])},
-            'customers':[dict(r) for r in c.execute('SELECT id,name FROM customers WHERE owner_id=? AND archived=0 ORDER BY name',(uid,))],
+            'customers':__import__('customer_data').choices(c,uid,active_only=True),
             'projects':projects,
             'can_view_team':allow_team}
 
@@ -303,7 +306,7 @@ def customer_identities(c,uid):
         if kind=='email':value=value.casefold()
         if value:out.setdefault((provider,kind,value),set()).add(cid)
     for r in c.execute('SELECT provider,link_type,link_value,customer_id FROM customer_identity_links WHERE owner_id=?',(uid,)):add(r['provider'],r['link_type'],r['link_value'],r['customer_id'])
-    for r in c.execute('SELECT customer_id,number FROM customer_phones WHERE owner_id=? UNION SELECT x.customer_id,p.number FROM customer_contact_phones p JOIN customer_contacts x ON x.id=p.contact_id WHERE p.owner_id=?',(uid,uid)):add('starface','phone',r['number'],r['customer_id'])
-    for r in c.execute('SELECT customer_id,email FROM customer_profiles WHERE owner_id=? UNION SELECT customer_id,email FROM customer_contacts WHERE owner_id=?',(uid,uid)):add('zammad','email',r['email'],r['customer_id'])
-    for r in c.execute('SELECT customer_id,external_id FROM customer_devices WHERE owner_id=? AND provider=?',(uid,'teamviewer')):add('teamviewer','teamviewer_id',r['external_id'],r['customer_id'])
+    for r in c.execute('SELECT customer_id,number FROM customer_phones UNION SELECT x.customer_id,p.number FROM customer_contact_phones p JOIN customer_contacts x ON x.id=p.contact_id',()):add('starface','phone',r['number'],r['customer_id'])
+    for r in c.execute('SELECT customer_id,email FROM customer_profiles UNION SELECT customer_id,email FROM customer_contacts',()):add('zammad','email',r['email'],r['customer_id'])
+    for r in c.execute('SELECT customer_id,external_id FROM customer_devices WHERE provider=?',('teamviewer',)):add('teamviewer','teamviewer_id',r['external_id'],r['customer_id'])
     return out

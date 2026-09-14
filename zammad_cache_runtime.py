@@ -138,12 +138,24 @@ def employee_identities(c,uid):
         login=str(p['username'] or '').strip().casefold()
         if '@' not in login or domain(p['domain'])!=target:continue
         name=((p['last_name'] or '')+', '+(p['first_name'] or '')).strip(', ') or p['app_name']
-        identities.setdefault(login,[]).append({'employee_id':p['id'],'employee_name':name})
+        identities.setdefault(login,[]).append({'employee_id':p['id'],'employee_name':name,'employee_username':p['app_name']})
     return {key:values[0] for key,values in identities.items() if len(values)==1}
 
 def ticket_employee(raw,identities):
-    owner=raw.get('owner');email=owner.get('email','') if isinstance(owner,dict) else owner if isinstance(owner,str) and '@' in owner else raw.get('owner_email','')
-    return identities.get(str(email).strip().casefold(),{})
+    owner = raw.get('owner')
+    email = (owner.get('email') if isinstance(owner, dict) else owner if isinstance(owner, str) and '@' in owner else None) or raw.get('owner_email', '')
+    owner_id = raw.get('owner_id', owner.get('id') if isinstance(owner, dict) else None)
+    # Zammad reserves user 1 (login '-') for unassigned tickets:
+    # https://github.com/zammad/zammad/blob/develop/db/seeds/user_nr_1.rb
+    # Other unresolved owners must not become unassigned.
+    label = owner.get('login') or owner.get('name') or '' if isinstance(owner, dict) else str(owner or '')
+    unowned = (str(owner_id) in ('0', '1') or label.strip() in ('-', '–', '—')
+               or ('owner' in raw and owner is None and owner_id in (None, ''))
+               or ('owner_id' in raw and owner_id is None and not owner))
+    employee = {} if unowned else identities.get(str(email).strip().casefold(), {})
+    display = employee.get('employee_username') or ('Ohne Besitzer' if unowned else label or str(email) or ('Besitzer #' + str(owner_id) if owner_id else 'Besitzer unbekannt'))
+    return {**employee, 'unowned': unowned, 'owner_display': display}
+
 
 def cached_list(c, uid):
     seeded=_bootstrap_from_archive(c,uid)
@@ -156,9 +168,10 @@ def cached_list(c, uid):
         last_sync=max(last_sync,row['synced_at'] or '')
         raw['id']=row['ticket_id'];raw['number']=row['number'];raw['title']=row['title'];raw['organization_name']=row['organization']
         raw['status']=row['state'];raw['created_at']=row['created_at'];raw['updated_at']=row['updated_at']
+        employee=ticket_employee(raw,employees);raw['owner_display']=employee['owner_display']
         rows.append({'cells':[row['ticket_id'],row['number'],row['title'],row['organization'],row['state'],row['created_at'],row['updated_at']],
                      'ticket_id':row['ticket_id'],'raw':raw,'external_key':'zammad:id:'+row['ticket_id'],'customer_hint':hint,
-                     'cache_status':'current','synced_at':row['synced_at'],**ticket_employee(raw,employees)})
+                     'cache_status':'current','synced_at':row['synced_at'],**employee})
     priority=['id','number','title','organization_name','status','created_at','updated_at']
     ordered=[x for x in priority]
     ordered.extend(sorted(raw_names-set(ordered)-{'organization','state'},key=str.lower))
@@ -254,6 +267,18 @@ def install(app):
     def integration_list(self,session,body):
         if str(body.get('provider') or '').lower()=='zammad' and not body.get('ticket_id'):
             with app.db() as c:return self.send_json(200,cached_list(c,session['id']))
+        if str(body.get('provider') or '').lower() == 'zammad' and body.get('ticket_id'):
+            send = self.send_json
+            def with_owner(status, payload, *args, **kwargs):
+                if status == 200 and isinstance(payload.get('ticket'), dict):
+                    with app.db(read_only=True) as c:
+                        payload['ticket'].update(ticket_employee(payload['ticket'], employee_identities(c, session['id'])))
+                return send(status, payload, *args, **kwargs)
+            self.send_json = with_owner
+            try:
+                return previous_list(self, session, body)
+            finally:
+                self.send_json = send
         return previous_list(self,session,body)
     app.App.integration_list=integration_list
 

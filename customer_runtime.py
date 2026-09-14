@@ -72,7 +72,7 @@ def install(app):
         query=__import__('urllib.parse',fromlist=['parse_qs']).parse_qs(urlparse(self.path).query)
         begin,finish=time_workspace.bounds({'day':query.get('day',[None])[0]})
         with app.db(read_only=True) as c:
-            customers=[dict(x) for x in c.execute('SELECT id,name FROM customers WHERE owner_id=? ORDER BY name',(uid,))]
+            customers=customer_data.choices(c,uid)
             projects=[dict(x) for x in c.execute('SELECT id,name,customer_id,active FROM projects WHERE owner_id=? AND is_system=0 ORDER BY name',(uid,))]
             categories=[dict(x) for x in c.execute('SELECT id,name FROM categories WHERE owner_id=? ORDER BY name',(uid,))]
             entries=[dict(x) for x in c.execute('''SELECT e.id,e.project_id,e.category_id,e.is_idle,e.work_session_id,e.started_at,e.ended_at,e.note,CASE WHEN e.is_idle=1 THEN 'unproduktiv' ELSE p.name END project,c.name customer,k.name category
@@ -130,7 +130,7 @@ def install(app):
         return sorted(found.values(),key=lambda x:(x['id'],x['name'].casefold()))
 
     def current_devices(c,uid,customer_id):
-        devices=[dict(r) for r in c.execute('SELECT id,provider,external_id,name FROM customer_devices WHERE owner_id=? AND customer_id=? ORDER BY id',(uid,customer_id))]
+        devices=[dict(r) for r in c.execute('SELECT id,provider,external_id,name FROM customer_devices WHERE customer_id=? ORDER BY id',(customer_id,))]
         tv={x['id']:x for x in available_teamviewer_devices(c,uid)}
         for device in devices:
             device['current_name']=device['name'];device['last_seen']=''

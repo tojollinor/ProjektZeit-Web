@@ -188,7 +188,7 @@ def install(app):
         if path=='/api/v1/external/customers':
             if not _need(self,auth,'customers.read'):return
             with app.db() as c:
-                rows=[dict(r) for r in c.execute('SELECT id,name FROM customers WHERE owner_id=? ORDER BY name',(uid,))]
+                rows=[dict(r) for r in c.execute('SELECT id,name FROM customers ORDER BY name',())]
             return self.send_json(200,{'customers':rows[:limit]})
         if path.startswith('/api/v1/external/customers/'):
             if not _need(self,auth,'customers.read'):return
@@ -199,6 +199,7 @@ def install(app):
                 customers=cd.list_all(c,uid);customer=next((x for x in customers if x['id']==cid),None)
                 if not customer:return self.send_json(404,{'error':'Kunde nicht gefunden.'})
                 customer['master']=ac.customer_master(c,uid,cid)
+                customer=__import__('customer_access_runtime').filter_customer(customer,ac.permissions_for_user(c,uid))
             return self.send_json(200,{'customer':customer})
         if path=='/api/v1/external/projects':
             if not _need(self,auth,'projects.read'):return

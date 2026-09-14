@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 import project_catalog as pc
 import app
 import next_batch_runtime
@@ -16,6 +17,8 @@ class ProjectCatalogTests(unittest.TestCase):
 
     def setUp(self):
         self.setUpBase()
+        legacy = patch.object(admin_controls, 'is_superadmin', return_value=False)
+        legacy.start(); self.addCleanup(legacy.stop)
         with app.db() as c:
             admin_controls.migrate(c)
             system_features.migrate(c)

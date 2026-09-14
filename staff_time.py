@@ -375,7 +375,7 @@ def correction(c,actor,body):
 
 def context(c,uid):
     perms=acl.permissions_for_user(c,uid)
-    return {'policy':policy(c),'permissions':sorted(perms),'kinds':[dict(r) for r in c.execute('SELECT * FROM absence_kinds WHERE active=1 ORDER BY name')],
+    return {'policy_help':__import__('permission_help').POLICIES,'policy':policy(c),'permissions':sorted(perms),'kinds':[dict(r) for r in c.execute('SELECT * FROM absence_kinds WHERE active=1 ORDER BY name')],
       'people':[dict(r) for r in c.execute("SELECT u.id,u.username,p.first_name,p.last_name FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id WHERE u.active=1 ORDER BY u.username")],
       'subdivisions':list(holidays.DE.subdivisions),'today':str(now().astimezone(TZ).date())}
 

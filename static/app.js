@@ -150,7 +150,7 @@ form("#project-form","/api/v1/projects",()=>({name:$("#project-name").value,cust
 function showTimelineDetail(entry,conflict){
   $('#detail-title').textContent=entry.project;
   const fields=$('#detail-fields');fields.replaceChildren();
-  const format=value=>new Date(value).toLocaleString('de-DE');
+  const format=value=>new Date(value).toLocaleString('de-DE',{timeZone:'Europe/Berlin'});
   for(const [label,value] of [['Kunde',entry.customer||'Ohne Kunde'],['Kategorie',entry.category],['Start',format(entry.started_at)],['Ende',entry.ended_at?format(entry.ended_at):'Läuft'],['Dauer',duration(entry.started_at,entry.ended_at||new Date())],['Bemerkung',entry.note||'Keine Bemerkung']]){
     const term=document.createElement('dt'),description=document.createElement('dd');
     term.textContent=label;description.textContent=value;fields.append(term,description);
@@ -181,7 +181,7 @@ function renderWork(){
   if(!active.length)picker.insertAdjacentHTML('beforeend','<p class="muted">Noch keine aktiven Projekte. Unter Projekte ein Projekt anlegen oder aktivieren.</p>');
 
   fillSelect('#project-select',active,'Projekt wählen');
-  $("#entry-table").innerHTML=d.entries.map(e=>`<tr><td><strong class="${e.is_idle?'idle-label':''}">${esc(e.project)}</strong><small class="entry-note">${esc(e.note)}</small></td><td>${esc(e.customer||'Ohne Kunde')}</td><td>${esc(e.category)}</td><td>${new Date(e.started_at).toLocaleString('de-DE')}<small class="entry-end">${e.ended_at?new Date(e.ended_at).toLocaleString('de-DE'):'Läuft'}</small></td><td>${duration(e.started_at,e.ended_at)}</td><td><button class="secondary subtle" data-edit="${e.id}">Bearbeiten</button></td></tr>`).join('')||'<tr><td colspan="6">Noch keine Stempelungen.</td></tr>';
+  $("#entry-table").innerHTML=d.entries.map(e=>`<tr><td><strong class="${e.is_idle?'idle-label':''}">${esc(e.project)}</strong><small class="entry-note">${esc(e.note)}</small></td><td>${esc(e.customer||'Ohne Kunde')}</td><td>${esc(e.category)}</td><td>${new Date(e.started_at).toLocaleString('de-DE',{timeZone:'Europe/Berlin'})}<small class="entry-end">${e.ended_at?new Date(e.ended_at).toLocaleString('de-DE',{timeZone:'Europe/Berlin'}):'Läuft'}</small></td><td>${duration(e.started_at,e.ended_at)}</td><td><button class="secondary subtle" data-edit="${e.id}">Bearbeiten</button></td></tr>`).join('')||'<tr><td colspan="6">Noch keine Stempelungen.</td></tr>';
 }
 async function workAction(path){try{await post(path);await refresh()}catch(error){toast(error.message)}}
 async function switchProject(id){try{await post('/api/v1/timer/start',{project_id:id,category_id:+$('#category-select').value,note:$('#note').value});$('#note').value='';await refresh()}catch(error){toast(error.message)}}
@@ -269,8 +269,8 @@ $('#integration-cards').addEventListener('click',async event=>{
       status.textContent=result.ok?'Verbindungstest erfolgreich. Bitte Datenprobe und Hinweise prüfen.':'Verbindungstest unvollständig oder fehlgeschlagen. Details siehe unten.';
       status.classList.add(result.ok?'success':'failure');
       output.classList.remove('hidden');
-      const checks=document.createElement('p');checks.className='integration-note';checks.textContent='Relevante Felder in der Datenprobe: '+result.checks.map(check=>`${check.name}: ${check.found?'vorhanden':'nicht nachgewiesen'}`).join(' · ');
-      output.innerHTML=`<p class="integration-note">${esc(result.note)}</p><p class="integration-meta">${esc(new Date(result.checked_at).toLocaleString('de-DE'))} · ${result.duration_ms} ms · Test speichert keine Daten</p>`+result.steps.map(step=>`<section class="debug-step"><strong>${step.ok?'✓':'✕'} ${esc(step.name)}${step.status?' · HTTP '+step.status:''}</strong><p class="step-path">${esc(step.path||'')} ${step.duration_ms!==undefined?'· '+step.duration_ms+' ms':''}</p><p>${esc(step.message)}</p>${step.count!==undefined?`<p>${step.count} Datensätze in der Antwort · Vorschau maximal 5</p><p>Felder: ${esc(step.fields.join(', ')||'Keine Datensatzfelder geliefert')}</p><details open><summary>Bereinigte Datenvorschau</summary><pre>${esc(JSON.stringify(step.preview,null,2))}</pre></details>`:''}</section>`).join('');
+      const hasSample=(result.steps||[]).some(step=>step.ok&&step.count!==undefined);const checks=document.createElement('p');checks.className='integration-note';checks.textContent=hasSample?'Relevante Felder in der Datenprobe: '+(result.checks||[]).map(check=>`${check.name}: ${check.found?'vorhanden':'nicht nachgewiesen'}`).join(' · '):'Datenfelder noch nicht geprüft: Es konnte keine verwertbare Datenprobe abgerufen werden.';
+      output.innerHTML=`<p class="integration-note">${esc(result.note)}</p><p class="integration-meta">${esc(new Date(result.checked_at).toLocaleString('de-DE',{timeZone:'Europe/Berlin'}))} · ${result.duration_ms} ms · Test speichert keine Daten</p>`+result.steps.map(step=>`<section class="debug-step"><strong>${step.ok?'✓':'✕'} ${esc(step.name)}${step.status?' · HTTP '+step.status:''}</strong><p class="step-path">${esc(step.path||'')} ${step.duration_ms!==undefined?'· '+step.duration_ms+' ms':''}</p><p>${esc(step.message)}</p>${step.count!==undefined?`<p>${step.count} Datensätze in der Antwort · Vorschau maximal 5</p><p>Felder: ${esc(step.fields.join(', ')||'Keine Datensatzfelder geliefert')}</p><details open><summary>Bereinigte Datenvorschau</summary><pre>${esc(JSON.stringify(step.preview,null,2))}</pre></details>`:''}</section>`).join('');
       output.prepend(checks);
     }else{
       field('secret').value='';

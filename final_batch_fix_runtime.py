@@ -32,7 +32,7 @@ def install(app):
     try:
         cd=__import__('customer_data');old_list=cd.list_all
         def list_all(c,uid):
-            rows=old_list(c,uid);states={r['id']:bool(r['archived']) for r in c.execute('SELECT id,archived FROM customers WHERE owner_id=?',(uid,))}
+            rows=old_list(c,uid);states={r['id']:bool(r['archived']) for r in c.execute('SELECT id,archived FROM customers',())}
             for row in rows:row['archived']=states.get(row['id'],False)
             return rows
         cd.list_all=list_all

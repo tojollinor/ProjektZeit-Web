@@ -30,7 +30,7 @@ class ConnectionsMariaContractTests(unittest.TestCase):
         cursor = _MariaLikeCursor()
         rows = connections_runtime.connection_payload(cursor, 9)
         self.assertEqual(len(rows), 3)
-        self.assertTrue(all('?' in sql for sql, _ in cursor.queries))
+        self.assertTrue(all('?' in sql or 'FROM starface_system_config WHERE id=1' in sql for sql, _ in cursor.queries))
         self.assertFalse(any('PRAGMA' in sql.upper() for sql, _ in cursor.queries))
 
 

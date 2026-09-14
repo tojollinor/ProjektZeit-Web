@@ -60,7 +60,7 @@ def install(app):
                 if action.rsplit('/',1)[-1] not in READ_ACTIONS:
                     c.execute('BEGIN IMMEDIATE')
                     if getattr(c,'dialect','')=='mariadb':c.execute('SELECT id FROM company_write_lock WHERE id=1 FOR UPDATE')
-                handlers={'entry/correction':staff_time.entry_correction,**company_projects.HANDLERS,**duty_plan.HANDLERS,**company_sync.HANDLERS,**company_diagnostics.HANDLERS}
+                handlers={'master/save':__import__('company_master').save,'entry/correction':staff_time.entry_correction,**company_projects.HANDLERS,**duty_plan.HANDLERS,**company_sync.HANDLERS,**company_diagnostics.HANDLERS}
                 result=handlers[action](c,session['id'],body) if action in handlers else staff_time.handle(c,session['id'],action,body)
             return self.send_json(200,result)
         except PermissionError as e:return self.send_json(403,{'error':str(e)})

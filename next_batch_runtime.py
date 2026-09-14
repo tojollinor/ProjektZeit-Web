@@ -392,7 +392,8 @@ def install(app):
                     c.execute("DELETE FROM sessions WHERE token_hash=?", (token_hash,))
                     return self.send_json(200, {"ok": True, "current": token_hash == session["token_hash"]})
                 if path == "/api/v1/starface/missed":
-                    return self.send_json(200, {"calls": _missed_calls(c, uid), "server_write_supported": False})
+                    status=__import__("provider_nav_runtime").provider_status(app,c,uid,"starface")
+                    return self.send_json(200, {"calls": _missed_calls(c, uid) if status["connected"] else [], "connection":status, "server_write_supported": False})
         except PermissionError as error:
             return self.send_json(403, {"error": str(error)})
         except (ValueError, TypeError) as error:

@@ -40,7 +40,7 @@ def _fast_enrich(final, c, uid, provider, result):
         'FROM customer_identity_links WHERE owner_id=? AND provider=?', (uid, provider)
     ):
         links[(r['link_type'], r['link_value'])] = dict(r)
-    customers = {r['id']: r['name'] for r in c.execute('SELECT id,name FROM customers WHERE owner_id=?', (uid,))}
+    customers = {r['id']: r['name'] for r in c.execute('SELECT id,name FROM customers', ())}
     projects = {r['id']: r['name'] for r in c.execute('SELECT id,name FROM projects WHERE owner_id=?', (uid,))}
     events = {}
     if links:
@@ -151,7 +151,7 @@ def install(app):
         uid = session['id']
         with app.db() as c:
             counts = {
-                'customers': _count(c, 'SELECT COUNT(*) n FROM customers WHERE owner_id=?', (uid,)),
+                'customers': _count(c, 'SELECT COUNT(*) n FROM customers', ()),
                 'projects': _count(c, 'SELECT COUNT(*) n FROM projects WHERE owner_id=?', (uid,)),
                 'entries': _count(c, 'SELECT COUNT(*) n FROM entries WHERE owner_id=?', (uid,)),
                 'zammad_tickets': _count(c, 'SELECT COUNT(*) n FROM zammad_ticket_cache WHERE owner_id=?', (uid,)),

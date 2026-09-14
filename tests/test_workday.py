@@ -33,6 +33,9 @@ class WorkdayTest(unittest.TestCase):
         os.environ.update(DEMO_MODE='1', ADMIN_USER='admin', ADMIN_PASSWORD='admin', SEED_DEMO='0')
         app.init_db()
         with app.db() as c:
+            # Dashboard customer choices now use the shared role-aware service.
+            __import__('admin_controls').migrate(c)
+            __import__('customer_data').migrate(c)
             self.uid = c.execute('SELECT id FROM users').fetchone()['id']
             self.cid = c.execute('SELECT id FROM categories').fetchone()['id']
             self.pids = [c.execute('INSERT INTO projects(owner_id,name) VALUES(?,?)', (self.uid, name)).lastrowid for name in ('A', 'B')]
