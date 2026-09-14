@@ -4,7 +4,7 @@
  const locationDialog=document.createElement('dialog');locationDialog.className='location-detail-dialog';locationDialog.innerHTML='<div data-location-detail></div><button type="button" class="secondary" data-close>Schließen</button>';q('[data-close]',locationDialog).onclick=()=>locationDialog.close();document.body.append(locationDialog);
  locationDialog.addEventListener('click',e=>{if(e.target===locationDialog)locationDialog.close();});
  function address(x){return [[x?.street,x?.house_number].filter(Boolean).join(' '),[x?.zip_code,x?.city].filter(Boolean).join(' '),x?.country].filter(Boolean);}
- async function callPhone(number){if(!number)return;if(await window.pzUI.confirm(`${number} jetzt anrufen?`))location.href='tel:'+String(number).replace(/[^+\d]/g,'');}
+ async function callPhone(number){if(!number||!window.pzRequireCallConnection?.())return;if(await window.pzUI.confirm(`${number} jetzt anrufen?`))location.href='tel:'+String(number).replace(/[^+\d]/g,'');}
  function locationCard(x){return `<button type="button" class="customer-location-card" data-location-id="${x.id}"><strong>${h(x.name)}</strong><small>${address(x).map(h).join(' · ')||'Keine Adresse'}</small>${x.phone?`<span>☎ ${h(x.phone)}</span>`:''}</button>`;}
  async function renderExtra(id){
   const root=q('.customer-detail-dialog [data-detail]');if(!root||root.dataset.customerId!==String(id))return;

@@ -240,7 +240,7 @@ def admin_list(c, uid, body):
       FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id ORDER BY u.username''')]
     all_models=[dict(r) for r in c.execute('SELECT * FROM work_models ORDER BY user_id,valid_from')]
     for m in all_models:m['weekdays']=json.loads(m.pop('weekdays_json'))
-    return {'users':users,'models':all_models,'states':STATES,'today':str(now().astimezone(TZ).date())}
+    return {'default_subdivision':__import__('company_master').default_region(c),'users':users,'models':all_models,'states':STATES,'today':str(now().astimezone(TZ).date())}
 
 
 def install(app):

@@ -35,6 +35,9 @@ DEPENDENCIES = {
 
 def closure(perms):
     out=set(perms)
+    if 'customers.view' in out:
+        out.discard('customers.view')
+        out.add('customers.view_basic')
     changed=True
     while changed:
         changed=False
@@ -188,7 +191,7 @@ def customer_links(c,uid,cid):
 
 
 def _valid_customer(c,uid,cid):
-    row=c.execute('SELECT id,name,archived FROM customers WHERE owner_id=? AND id=?',(uid,int(cid))).fetchone()
+    row=c.execute('SELECT id,name,archived FROM customers WHERE id=?',(int(cid),)).fetchone()
     if not row:raise ValueError('Kunde nicht gefunden.')
     return row
 
@@ -196,7 +199,11 @@ def _valid_customer(c,uid,cid):
 def install(app):
     _register_permissions()
     admin_controls.is_superadmin=lambda c,uid:False
-    def permissions_for_user(c,uid):return {r['permission_key'] for r in c.execute('SELECT rp.permission_key FROM role_permissions rp JOIN user_role_links ur ON ur.role_id=rp.role_id WHERE ur.user_id=?',(uid,))}
+    def permissions_for_user(c,uid):
+        permissions = {r['permission_key'] for r in c.execute('SELECT rp.permission_key FROM role_permissions rp JOIN user_role_links ur ON ur.role_id=rp.role_id WHERE ur.user_id=?',(uid,))}
+        if permissions & {'customers.view', 'customers.view_basic'}:
+            permissions.update({'customers.view', 'customers.view_basic'})
+        return permissions
     admin_controls.permissions_for_user=permissions_for_user;admin_controls.can=lambda c,uid,p:p in permissions_for_user(c,uid)
     old_set=admin_controls._set_role_permissions;admin_controls._set_role_permissions=lambda c,rid,perms:old_set(c,rid,closure(perms))
 
@@ -256,7 +263,7 @@ def install(app):
             with app.db() as c:
                 if path=='/api/v1/history/object':
                     entity=str(body.get('entity_type') or '')[:80];eid=str(body.get('entity_id') or '')[:160]
-                    if entity=='customer':admin_controls.require_permission(c,uid,'customers.view_basic')
+                    if entity=='customer':admin_controls.require_permission(c,uid,'customers.view_history')
                     return self.send_json(200,{'history':system_features.history(c,uid,entity,eid,int(body.get('limit') or 200))})
                 if path=='/api/v1/customers/links':
                     admin_controls.require_permission(c,uid,'customers.view_links');cid=int(body.get('customer_id'));_valid_customer(c,uid,cid);return self.send_json(200,{'links':customer_links(c,uid,cid)})
@@ -311,9 +318,9 @@ def install(app):
                     if not c.execute("SELECT 1 FROM provider_events WHERE owner_id=? AND provider='starface' AND external_key=?",(uid,key)).fetchone():raise ValueError('Anruf nicht gefunden.')
                     c.execute('DELETE FROM starface_manual_callbacks WHERE owner_id=? AND external_key=?',(uid,key));c.execute('INSERT INTO starface_manual_callbacks(owner_id,external_key,marked_by,marked_at) VALUES(?,?,?,?)',(uid,key,uid,now_iso()));_audit(c,uid,'starface_call',key,'manually_called_back',{});return self.send_json(200,{'ok':True})
                 if path=='/api/v1/customers/archive':
-                    admin_controls.require_permission(c,uid,'customers.archive');cid=int(body.get('customer_id'));_valid_customer(c,uid,cid);state=1 if body.get('archived',True) else 0;c.execute('UPDATE customers SET archived=? WHERE id=? AND owner_id=?',(state,cid,uid));_audit(c,uid,'customer',cid,'archived' if state else 'restored',{});return self.send_json(200,{'ok':True,'archived':bool(state)})
+                    admin_controls.require_permission(c,uid,'customers.archive');cid=int(body.get('customer_id'));_valid_customer(c,uid,cid);state=1 if body.get('archived',True) else 0;c.execute('UPDATE customers SET archived=? WHERE id=?',(state,cid));_audit(c,uid,'customer',cid,'archived' if state else 'restored',{});return self.send_json(200,{'ok':True,'archived':bool(state)})
                 if path=='/api/v1/customers/delete':
-                    admin_controls.require_permission(c,uid,'customers.delete');cid=int(body.get('customer_id'));row=_valid_customer(c,uid,cid);c.execute('UPDATE provider_assignments SET customer_id=NULL,project_id=NULL,assigned_by=?,assigned_at=? WHERE owner_id=? AND customer_id=?',(uid,now_iso(),uid,cid));c.execute('DELETE FROM customer_identity_links WHERE owner_id=? AND customer_id=?',(uid,cid));_audit(c,uid,'customer',cid,'deleted',{'name':row['name']});c.execute('DELETE FROM customers WHERE id=? AND owner_id=?',(cid,uid));return self.send_json(200,{'ok':True})
+                    admin_controls.require_permission(c,uid,'customers.delete');cid=int(body.get('customer_id'));row=_valid_customer(c,uid,cid);c.execute('UPDATE provider_assignments SET customer_id=NULL,project_id=NULL,assigned_by=?,assigned_at=? WHERE customer_id=?',(uid,now_iso(),cid));c.execute('DELETE FROM customer_identity_links WHERE customer_id=?',(cid,));_audit(c,uid,'customer',cid,'deleted',{'name':row['name']});c.execute('DELETE FROM customers WHERE id=?',(cid,));return self.send_json(200,{'ok':True})
         except PermissionError as e:return self.send_json(403,{'error':str(e)})
         except (ValueError,TypeError,json.JSONDecodeError) as e:return self.send_json(400,{'error':str(e)})
     app.App.do_POST=do_POST

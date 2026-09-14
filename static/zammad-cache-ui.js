@@ -2,11 +2,11 @@
  const q=(s,r=document)=>r.querySelector(s),qa=(s,r=document)=>[...r.querySelectorAll(s)];
  const notify=(m,l='info',t=5000)=>window.pzToast?window.pzToast(m,l,t):typeof toast==='function'?toast(m):null;
  const view=q('#view-zammad');if(!view)return;
- let running=false,statusFilter='all',employeeFilter='all',employees=new Map();
+ let running=false,statusFilter='all',employeeFilter='own',employees=new Map();
  function statusKey(text){const s=String(text||'').trim().toLowerCase();if(/geschlossen|closed|merged|zusammengeführt|removed|entfernt/.test(s))return'closed';if(/pending[\s_-]*reminder|reminder|erinner/.test(s))return'reminder';if(/pending|wartend|warten auf schließen/.test(s))return'pending';if(/new|neu/.test(s))return'new';return'open';}
  function applyFilter(){
   const tbody=q('tbody',view);if(!tbody)return;const rows=qa(':scope > tr',tbody);
-  for(const row of rows){const key=statusKey(row._pzRow?.raw?.status||row._pzRow?.raw?.state?.name||row._pzRow?.raw?.state||'');const show=statusFilter==='all'||key===statusFilter;row.dataset.statusHidden=show?'0':'1';const target=employeeFilter==='own'?state.user.id:Number(employeeFilter);row.dataset.employeeHidden=employeeFilter!=='all'&&row._pzRow?.employee_id!==target?'1':'0';window.pzApplyRowVisibility?.(row);}
+  for(const row of rows){const key=statusKey(row._pzRow?.raw?.status||row._pzRow?.raw?.state?.name||row._pzRow?.raw?.state||'');const show=statusFilter==='all'||key===statusFilter;row.dataset.statusHidden=show?'0':'1';const target=employeeFilter==='own'?state.user.id:Number(employeeFilter);const owned=row._pzRow?.unowned!==true&&row._pzRow?.employee_id===target;row.dataset.employeeHidden=(employeeFilter==='unowned'?row._pzRow?.unowned!==true:employeeFilter!=='all'&&!owned)?'1':'0';window.pzApplyRowVisibility?.(row);}
   qa('[data-filter]',view).forEach(b=>b.classList.toggle('active',b.dataset.filter===statusFilter));window.pzProviderCount?.(view);
  }
  function controls(){
@@ -15,7 +15,7 @@
   toolbar.insertAdjacentElement('afterend',wrap);qa('[data-filter]',wrap).forEach(b=>b.onclick=()=>{statusFilter=b.dataset.filter;window.pzUI?.set('zammad-status',statusFilter);applyFilter();});
  }
  function loader(on){const panel=q(':scope > article.panel',view);if(!panel)return;let el=q('.zammad-list-loader',panel);if(!el){el=document.createElement('span');el.className='zammad-list-loader';el.innerHTML='<i></i><span>Aktualisierung</span>';q('.panel-head',panel)?.append(el);}el.classList.toggle('active',!!on);}
- let restored=false;function syncRows(){if(!restored&&typeof state!=='undefined'&&state.user){statusFilter=window.pzUI?.get('zammad-status','all')||'all';restored=true;}controls();const tbody=q('tbody',view);if(!tbody)return;const employee=q('[data-zammad-employee]',view);if(employee){const people=employees;employee.replaceChildren(new Option('Alle Mitarbeiter','all'),new Option('Eigene Tickets','own'),...Array.from(people,([id,name])=>new Option(name,String(id))));employee.value=Array.from(employee.options).some(o=>o.value===employeeFilter)?employeeFilter:'all';employeeFilter=employee.value;}tbody.dataset.pzZammadSeen=String(tbody.childElementCount);applyFilter();}
+ let restored=false;function syncRows(){if(!restored&&typeof state!=='undefined'&&state.user){statusFilter=window.pzUI?.get('zammad-status','all')||'all';restored=true;}controls();const tbody=q('tbody',view);if(!tbody)return;const employee=q('[data-zammad-employee]',view);if(employee){const people=employees;employee.replaceChildren(new Option('Alle Mitarbeiter','all'),new Option('Eigene Tickets','own'),...Array.from(people,([id,name])=>new Option(name,String(id))),new Option('Ohne Besitzer','unowned'));employee.value=Array.from(employee.options).some(o=>o.value===employeeFilter)?employeeFilter:'all';employeeFilter=employee.value;}tbody.dataset.pzZammadSeen=String(tbody.childElementCount);applyFilter();}
  const status=q('.list-status',view);if(status)new MutationObserver(()=>{const text=status.textContent||'';loader(/geladen|aktualisiert|abgleich|läuft/i.test(text)&&!/einträge/i.test(text));queueMicrotask(syncRows);}).observe(status,{childList:true,characterData:true,subtree:true});
  document.addEventListener('pz-provider-rendered',e=>{if(e.detail.provider==='zammad'){if(e.detail.employees)employees=new Map(e.detail.employees);syncRows();}});
  async function repaint(){try{if(typeof providerLoaders!=='undefined'&&providerLoaders.zammad)await providerLoaders.zammad(false);}catch(_){}syncRows();}

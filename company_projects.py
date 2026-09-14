@@ -122,7 +122,7 @@ HANDLERS={'projects/list':catalog,'tags/save':tags,'tags/assign':attach,'tags/me
 
 def create_assign(c,uid,body):
     st.require(c,uid,'customers.edit');cid=int(body['customer_id']);name=str(body['name']).strip()
-    if not name or len(name)>120 or not c.execute('SELECT 1 FROM customers WHERE id=? AND owner_id=?',(cid,uid)).fetchone():raise ValueError('Kunde und Projektname erforderlich.')
+    if not name or len(name)>120 or not c.execute('SELECT 1 FROM customers WHERE id=?',(cid,)).fetchone():raise ValueError('Kunde und Projektname erforderlich.')
     ident=c.execute("INSERT INTO projects(owner_id,customer_id,name,active,status) VALUES(?,?,?,1,'open')",(uid,cid,name)).lastrowid
     result=tw.assign(c,uid,{'project_id':ident,'items':body['items'],'confirm_reassign':body.get('confirm_reassign') is True});result['project_id']=ident;return result
 

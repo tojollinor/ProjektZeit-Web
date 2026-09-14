@@ -11,34 +11,7 @@
  };
  window.pzDiagnostics={record,events:ring};
 
- const NativeObserver=window.MutationObserver;
- if(NativeObserver){
-  class PzMutationObserver{
-   constructor(callback){
-    this.callback=callback;this.pending=[];this.timer=null;this.global=false;
-    this.native=new NativeObserver(records=>{
-     if(!this.global)return this.invoke(records);
-     records=records.filter(r=>[...r.addedNodes,...r.removedNodes].some(n=>n.nodeType===1)&&!r.target.closest?.('.view:not(.active-view)'));
-     if(!records.length)return;
-     this.pending.push(...records.slice(-80));
-     if(this.pending.length>160)this.pending.splice(0,this.pending.length-160);
-     if(this.timer)return;
-     this.timer=setTimeout(()=>{const batch=this.pending.splice(0);this.timer=null;this.invoke(batch);},70);
-    });
-   }
-   invoke(records){
-    const start=performance.now();
-    try{return this.callback(records,this);}finally{
-     const duration=performance.now()-start;
-     if(duration>20)record('slow-mutation-callback',{duration_ms:Math.round(duration),records:records.length,global:this.global});
-    }
-   }
-   observe(target,options){this.global=target===document.body&&!!options?.childList&&!!options?.subtree;return this.native.observe(target,options);}
-   disconnect(){if(this.timer){clearTimeout(this.timer);this.timer=null;}this.pending.length=0;return this.native.disconnect();}
-   takeRecords(){return this.pending.splice(0).concat(this.native.takeRecords());}
-  }
-  window.MutationObserver=PzMutationObserver;
- }
+ // Keep the native observer API intact for browser integrations.
 
  const nativeFetch=window.fetch.bind(window);
  window.fetch=(input,init={})=>{

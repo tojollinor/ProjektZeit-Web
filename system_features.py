@@ -69,10 +69,14 @@ def audit(c, owner_id, actor_id, entity_type, entity_id, action, changes=None, s
 
 def history(c, owner_id, entity_type, entity_id, limit=200):
     limit = max(1, min(int(limit or 200), 500))
-    rows = c.execute('''SELECT a.id,a.actor_id,a.action,a.source,a.changes_json,a.created_at,u.username actor_name
-                        FROM audit_events a LEFT JOIN users u ON u.id=a.actor_id
-                        WHERE a.owner_id=? AND a.entity_type=? AND a.entity_id=? ORDER BY a.id DESC''',
-                     (owner_id, str(entity_type), str(entity_id)))
+    scope = 'a.entity_type=? AND a.entity_id=?'
+    args = (str(entity_type), str(entity_id))
+    if entity_type != 'customer':
+        scope += ' AND a.owner_id=?'
+        args += (owner_id,)
+    rows = c.execute('SELECT a.id,a.actor_id,a.action,a.source,a.changes_json,a.created_at,u.username actor_name '
+                     'FROM audit_events a LEFT JOIN users u ON u.id=a.actor_id WHERE ' + scope + ' ORDER BY a.id DESC LIMIT ?',
+                     (*args, limit))
     out = []
     for row in rows:
         try: changes = json.loads(row['changes_json'])

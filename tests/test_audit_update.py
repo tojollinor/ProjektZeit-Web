@@ -125,7 +125,9 @@ class AuditUpdateTests(unittest.TestCase):
         identities={'worker@example.test':{'employee_id':2,'employee_name':'worker'}}
         self.assertEqual(zc.ticket_employee({'owner':{'email':'Worker@Example.Test'}},identities)['employee_id'],2)
         self.assertEqual(zc.ticket_employee({'owner':'worker@example.test'},identities)['employee_id'],2)
-        self.assertEqual(zc.ticket_employee({'owner_id':2,'customer':{'email':'worker@example.test'}},identities),{})
+        unknown=zc.ticket_employee({'owner_id':2,'customer':{'email':'worker@example.test'}},identities)
+        self.assertNotIn('employee_id',unknown)
+        self.assertFalse(unknown['unowned'])
 
     def test_linked_ticket_owners_require_same_instance_and_unique_login(self):
         for uid,domain,login in [(1,'https://tickets.example.test','Boss@Example.Test'),(2,'https://tickets.example.test/','worker@example.test')]:

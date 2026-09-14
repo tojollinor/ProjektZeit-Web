@@ -233,11 +233,11 @@ def phone_update(c, uid, body):
     label=str(body.get('label') or 'Sonstige')[:40]
     if not number: raise ValueError('Rufnummern müssen mehr als fünf Ziffern enthalten.')
     if scope=='contact':
-        row=c.execute('SELECT id FROM customer_contact_phones WHERE id=? AND owner_id=?',(pid,uid)).fetchone()
+        row=c.execute('SELECT id FROM customer_contact_phones WHERE id=?',(pid,)).fetchone()
         if not row: raise ValueError('Rufnummer nicht gefunden.')
         c.execute('UPDATE customer_contact_phones SET number=?,label=? WHERE id=?',(number,label,pid))
     else:
-        row=c.execute('SELECT id FROM customer_phones WHERE id=? AND owner_id=?',(pid,uid)).fetchone()
+        row=c.execute('SELECT id FROM customer_phones WHERE id=?',(pid,)).fetchone()
         if not row: raise ValueError('Rufnummer nicht gefunden.')
         c.execute('UPDATE customer_phones SET number=?,label=? WHERE id=?',(number,label,pid))
 
@@ -245,7 +245,7 @@ def phone_update(c, uid, body):
 def phone_delete(c, uid, body):
     scope=str(body.get('scope') or 'company');pid=int(body.get('id'))
     table='customer_contact_phones' if scope=='contact' else 'customer_phones'
-    c.execute(f'DELETE FROM {table} WHERE id=? AND owner_id=?',(pid,uid))
+    c.execute(f'DELETE FROM {table} WHERE id=?',(pid,))
 
 
 def _parse_time(value):

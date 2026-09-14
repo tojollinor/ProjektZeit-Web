@@ -470,7 +470,7 @@ class App(SimpleHTTPRequestHandler):
     def dashboard(self, session):
         uid = session["id"]
         with db() as c:
-            customers = [dict(x) for x in c.execute("SELECT id,name,owner_id FROM customers WHERE owner_id=? OR id IN (SELECT customer_id FROM projects WHERE assigned_user_id=?) ORDER BY name", (uid,uid))]
+            customers = __import__('customer_data').choices(c,uid)
             projects = [dict(x) for x in c.execute("SELECT id,name,customer_id,active FROM projects WHERE (owner_id=? OR assigned_user_id=?) AND is_system=0 ORDER BY name", (uid,uid))]
             categories = [dict(x) for x in c.execute("SELECT id,name FROM categories WHERE owner_id=? ORDER BY name", (uid,))]
             entries = [dict(x) for x in c.execute("""SELECT e.id,e.project_id,e.category_id,e.is_idle,e.work_session_id,e.started_at,e.ended_at,e.note,CASE WHEN e.is_idle=1 THEN 'unproduktiv' ELSE p.name END project,c.name customer,k.name category
@@ -536,8 +536,13 @@ class App(SimpleHTTPRequestHandler):
                         if not project_name or end <= start: raise ValueError("Projekt fehlt oder Ende liegt nicht nach Start")
                         customer_id = None
                         if customer_name != "Ohne Kunde":
-                            c.execute("INSERT OR IGNORE INTO customers(owner_id,name) VALUES(?,?)", (session["id"], customer_name))
-                            customer_id = c.execute("SELECT id FROM customers WHERE owner_id=? AND name=?", (session["id"], customer_name)).fetchone()["id"]
+                            existing = c.execute("SELECT id FROM customers WHERE name=? ORDER BY id LIMIT 1", (customer_name,)).fetchone()
+                            if existing:
+                                __import__('admin_controls').require_permission(c, session['id'], 'customers.view_basic')
+                                customer_id = existing['id']
+                            else:
+                                __import__('admin_controls').require_permission(c, session['id'], 'customers.create')
+                                customer_id = __import__('customer_data').create(c, session['id'], {'name': customer_name})
                         c.execute("INSERT OR IGNORE INTO categories(owner_id,name) VALUES(?,?)", (session["id"], category_name))
                         category_id = c.execute("SELECT id FROM categories WHERE owner_id=? AND name=?", (session["id"], category_name)).fetchone()["id"]
                         c.execute("INSERT OR IGNORE INTO projects(owner_id,customer_id,name) VALUES(?,?,?)", (session["id"], customer_id, project_name))
@@ -566,7 +571,15 @@ class App(SimpleHTTPRequestHandler):
             return self.send_json(400, {"error": "CSV konnte nicht gelesen werden: " + str(error)})
 
     def add_customer(self, session, body):
-        return self.simple_name_insert(session, body, "customers")
+        try:
+            with db() as c:
+                __import__('admin_controls').require_permission(c, session['id'], 'customers.create')
+                ident = __import__('customer_data').create(c, session['id'], body)
+            return self.send_json(201, {'id': ident, 'name': body.get('name', '').strip()})
+        except PermissionError as error:
+            return self.send_json(403, {'error': str(error)})
+        except ValueError as error:
+            return self.send_json(400, {'error': str(error)})
 
     def add_category(self, session, body):
         return self.simple_name_insert(session, body, "categories")
@@ -588,7 +601,7 @@ class App(SimpleHTTPRequestHandler):
         if not name or len(name) > 120:
             return self.send_json(400, {"error": "Bitte einen gültigen Projektnamen eingeben"})
         with db() as c:
-            if customer_id and not c.execute("SELECT 1 FROM customers WHERE id=? AND owner_id=?", (customer_id, session["id"])).fetchone():
+            if customer_id and not c.execute("SELECT 1 FROM customers WHERE id=?", (customer_id,)).fetchone():
                 return self.send_json(400, {"error": "Unbekannter Kunde"})
             try:
                 cursor = c.execute("INSERT INTO projects(owner_id,customer_id,name,status) VALUES(?,?,?,'open')", (session["id"], customer_id, name))

@@ -58,6 +58,10 @@ def _credentials_present(c, uid, provider):
 
 
 def provider_visible(c, uid, provider):
+    if provider == 'starface':
+        from provider_nav_runtime import provider_status
+        status = provider_status(None, c, uid, provider)
+        return status['connected'], {'state': status['reason'], 'message': status['detail'], 'checked_at': status['checked_at']}
     if not _credentials_present(c, uid, provider):
         return False, {'state':'missing','message':'Keine aktive Verbindung vorhanden.','checked_at':''}
     state = access_state(c, uid, provider)
@@ -181,7 +185,7 @@ def cached_list(c, uid, provider, body):
     if not visible:
         base = _starface_cached(c, uid, body) if provider == 'starface' else _teamviewer_cached(c, uid, body)
         base['rows'] = [];base['next_offset'] = None
-        base['note'] = 'Gespeicherte Daten sind vorhanden, werden aber erst nach Wiederherstellung der Provider-Verbindung angezeigt.'
+        base['note'] = state.get('message') or 'Nicht verbunden. Gespeicherte Daten werden nach Wiederherstellung der Verbindung angezeigt.'
         base['access_state'] = state
         return base
     result = _starface_cached(c, uid, body) if provider == 'starface' else _teamviewer_cached(c, uid, body)

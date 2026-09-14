@@ -27,16 +27,23 @@ class TimeWorkspaceTests(unittest.TestCase):
     def tearDownClass(cls):cls.temp.cleanup()
 
     def setUp(self):
+        legacy=patch.object(__import__('admin_controls'),'is_superadmin',return_value=False)
+        legacy.start();self.addCleanup(legacy.stop)
         self.c=sqlite3.connect(':memory:');self.c.row_factory=sqlite3.Row
         with sqlite3.connect(self.seed) as seed:seed.backup(self.c)
         self.c.executescript("""
         INSERT INTO users(id,username,password_salt,password_hash,role,created_at) VALUES(1,'one','','','admin',''),(2,'two','','','user','');
+        INSERT INTO user_role_links(user_id,role_id) SELECT 1,id FROM role_definitions WHERE role_key='admin';
+        INSERT INTO user_role_links(user_id,role_id) SELECT 2,id FROM role_definitions WHERE role_key='user';
         INSERT INTO customers(id,owner_id,name) VALUES(1,1,'Customer'),(2,2,'Private');
         INSERT INTO projects(id,owner_id,customer_id,name) VALUES(1,1,1,'Project'),(2,2,2,'Private project');
         INSERT INTO categories(id,owner_id,name) VALUES(1,1,'Work'),(2,2,'Work');
         INSERT INTO entries(id,owner_id,project_id,category_id,started_at,ended_at,note) VALUES(1,1,1,1,'2026-03-28T22:30:00+00:00','2026-03-29T02:30:00+00:00',''),(2,2,2,2,'2026-03-29T00:00:00+00:00','2026-03-29T01:00:00+00:00','');
         """)
         customer_data.cache_rows(self.c,1,'starface',{'rows':[{'external_key':'call1','raw':{'startTime':'2026-03-29T01:00:00Z','duration':600,'direction':'OUTBOUND','calledNumber':'+49 123'},'customer_hint':{}}]})
+        self.c.execute("INSERT INTO starface_system_config(id,domain,client_id,client_secret,updated_at) VALUES(1,'https://example.invalid','test','fixture','')")
+        self.c.execute("INSERT INTO oauth_tokens(owner_id,secret) VALUES(1,'fixture')")
+        self.c.execute("INSERT INTO provider_access_state(owner_id,provider,state,message,checked_at) VALUES(1,'starface','valid','','2026-03-29')")
         self.body={'day':'2026-03-29'}
 
     def tearDown(self):self.c.close()
@@ -47,7 +54,7 @@ class TimeWorkspaceTests(unittest.TestCase):
         self.assertEqual(len(result['events']),2)
         self.assertEqual(result['summary']['overlaps'],2)
         self.assertEqual(result['summary']['billable_seconds'],0)
-        with self.assertRaises(PermissionError):tw.workspace(self.c,1,{**self.body,'customer_id':2})
+        self.assertEqual(tw.workspace(self.c,1,{**self.body,'customer_id':2})['events'],[])
         with self.assertRaises(PermissionError):tw.workspace(self.c,1,{**self.body,'customer_id':1,'team':True})
 
     def test_statistics_split_at_midnight_and_dst(self):
@@ -175,7 +182,25 @@ server.shutdown()
             with conn.cursor() as c:c.execute('CREATE DATABASE '+name+' CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci')
             with tempfile.TemporaryDirectory() as folder:
                 env={**os.environ,'DATA_DIR':folder,'DB_BACKEND':'mariadb','DB_NAME':name,'DEMO_MODE':'1','SEED_DEMO':'0'}
-                result=subprocess.run([sys.executable,'-c','import runtime; app=runtime.initialize(False); import time_workspace; c=app.db(); conn=c.__enter__(); conn.execute("INSERT INTO users(id,username,password_salt,password_hash,role,created_at) VALUES(1,\'ci\',\'\',\'\',\'admin\',\'\')"); conn.execute("INSERT INTO customers(id,owner_id,name) VALUES(1,1,\'Example\')"); c.__exit__(None,None,None); c=app.db(read_only=True); conn=c.__enter__(); assert time_workspace.workspace(conn,1,{\'day\':\'2026-03-29\',\'customer_id\':1})[\'events\']==[]; c.__exit__(None,None,None)'],env=env,text=True,capture_output=True,timeout=60)
+                script = """
+import runtime, time_workspace
+app = runtime.initialize(False)
+with app.db() as conn:
+    conn.execute("INSERT INTO users(id,username,password_salt,password_hash,role,created_at) VALUES(1,'ci','','','admin','')")
+    conn.execute("INSERT INTO customers(id,owner_id,name) VALUES(1,1,'Example')")
+with app.db(read_only=True) as conn:
+    try:
+        time_workspace.workspace(conn,1,{'day':'2026-03-29','customer_id':1})
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError('Customer access without a role was accepted')
+with app.db() as conn:
+    conn.execute("INSERT INTO user_role_links(user_id,role_id) SELECT 1,id FROM role_definitions WHERE role_key='admin'")
+with app.db(read_only=True) as conn:
+    assert time_workspace.workspace(conn,1,{'day':'2026-03-29','customer_id':1})['events'] == []
+"""
+                result=subprocess.run([sys.executable,'-c',script],env=env,text=True,capture_output=True,timeout=60)
                 self.assertEqual(result.returncode,0,result.stderr)
         finally:
             with conn.cursor() as c:c.execute('DROP DATABASE '+name)

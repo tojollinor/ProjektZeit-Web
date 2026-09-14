@@ -61,7 +61,15 @@ def _clean(value, limit=500):
 
 
 def _customer(c, uid, customer_id):
-    return c.execute('SELECT id,name FROM customers WHERE id=? AND owner_id=?', (customer_id, uid)).fetchone()
+    return c.execute('SELECT id,name FROM customers WHERE id=?', (customer_id,)).fetchone()
+
+
+def choices(c, uid, active_only=False):
+    import admin_controls
+    if not admin_controls.can(c, uid, 'customers.view_basic'):
+        return []
+    return [dict(r) for r in c.execute('SELECT id,name FROM customers' +
+            (' WHERE archived=0' if active_only else '') + ' ORDER BY name')]
 
 
 def valid_phone(value):
@@ -78,6 +86,8 @@ def add_company_phone(c, uid, customer_id, number, label='Sonstige', source=''):
     number = valid_phone(number)
     if not number or not _customer(c, uid, customer_id):
         return False
+    if c.execute('SELECT 1 FROM customer_phones WHERE customer_id=? AND number=?', (customer_id, number)).fetchone():
+        return True
     c.execute('INSERT OR IGNORE INTO customer_phones(owner_id,customer_id,number,label,source) VALUES(?,?,?,?,?)',
               (uid, customer_id, number, _kind(label), _clean(source, 40)))
     return True
@@ -89,7 +99,7 @@ def add_contact(c, uid, customer_id, name, email='', note='', phones=None):
     name = _clean(name, 250)
     if not name:
         raise ValueError('Bitte einen Namen für den Ansprechpartner eingeben.')
-    row = c.execute('SELECT id FROM customer_contacts WHERE owner_id=? AND customer_id=? AND name=?', (uid, customer_id, name)).fetchone()
+    row = c.execute('SELECT id FROM customer_contacts WHERE customer_id=? AND name=?', (customer_id, name)).fetchone()
     if row:
         contact_id = row['id']
         c.execute('UPDATE customer_contacts SET email=?,note=? WHERE id=?', (_clean(email,250), _clean(note,2000), contact_id))
@@ -106,9 +116,11 @@ def add_contact(c, uid, customer_id, name, email='', note='', phones=None):
 
 def add_contact_phone(c, uid, contact_id, number, label='Sonstige', source=''):
     number = valid_phone(number)
-    owner = c.execute('SELECT 1 FROM customer_contacts WHERE id=? AND owner_id=?', (contact_id, uid)).fetchone()
+    owner = c.execute('SELECT 1 FROM customer_contacts WHERE id=?', (contact_id,)).fetchone()
     if not number or not owner:
         return False
+    if c.execute('SELECT 1 FROM customer_contact_phones WHERE contact_id=? AND number=?', (contact_id, number)).fetchone():
+        return True
     c.execute('INSERT OR IGNORE INTO customer_contact_phones(owner_id,contact_id,number,label,source) VALUES(?,?,?,?,?)',
               (uid, contact_id, number, _kind(label), _clean(source,40)))
     return True
@@ -122,6 +134,8 @@ def add_device(c, uid, customer_id, provider, external_id='', name=''):
     key = external_id or name
     if not key:
         raise ValueError('Gerätename oder Verbindungs-ID fehlt.')
+    if c.execute('SELECT 1 FROM customer_devices WHERE customer_id=? AND provider=? AND external_id=?', (customer_id, provider, key)).fetchone():
+        return
     c.execute('INSERT OR IGNORE INTO customer_devices(owner_id,customer_id,provider,external_id,name) VALUES(?,?,?,?,?)',
               (uid, customer_id, provider, key, name))
 
@@ -130,12 +144,12 @@ def create(c, uid, body):
     name = _clean(body.get('name'), 120)
     if not name:
         raise ValueError('Bitte einen Kundennamen eingeben.')
+    if c.execute('SELECT 1 FROM customers WHERE name=?', (name,)).fetchone():
+        raise ValueError('Ein Kunde mit diesem Namen existiert bereits. Bitte den vorhandenen Kunden auswählen.')
     try:
         customer_id = c.execute('INSERT INTO customers(owner_id,name) VALUES(?,?)', (uid, name)).lastrowid
     except sqlite3.IntegrityError:
-        row = c.execute('SELECT id FROM customers WHERE owner_id=? AND name=?', (uid, name)).fetchone()
-        if not row: raise
-        customer_id = row['id']
+        raise ValueError('Ein Kunde mit diesem Namen existiert bereits.') from None
     update(c, uid, customer_id, body)
     return customer_id
 
@@ -145,13 +159,13 @@ def update(c, uid, customer_id, body):
         raise ValueError('Unbekannter Kunde.')
     name = _clean(body.get('name'), 120)
     if name:
-        try: c.execute('UPDATE customers SET name=? WHERE id=? AND owner_id=?', (name, customer_id, uid))
+        try: c.execute('UPDATE customers SET name=? WHERE id=?', (name, customer_id))
         except sqlite3.IntegrityError: raise ValueError('Ein Kunde mit diesem Namen existiert bereits.') from None
-    profile = c.execute('SELECT * FROM customer_profiles WHERE owner_id=? AND customer_id=?', (uid,customer_id)).fetchone()
+    profile = c.execute('SELECT * FROM customer_profiles WHERE customer_id=?', (customer_id,)).fetchone()
     email = _clean(body.get('email', profile['email'] if profile else ''),250)
     note = _clean(body.get('note', profile['note'] if profile else ''),2000)
     legacy_contact = _clean(body.get('contact_person', ''),250)
-    c.execute('DELETE FROM customer_profiles WHERE owner_id=? AND customer_id=?', (uid,customer_id))
+    c.execute('DELETE FROM customer_profiles WHERE customer_id=?', (customer_id,))
     c.execute('INSERT INTO customer_profiles(owner_id,customer_id,contact_person,email,note) VALUES(?,?,?,?,?)', (uid,customer_id,'',email,note))
     for item in body.get('phones') or []:
         if isinstance(item,dict): add_company_phone(c,uid,customer_id,item.get('number'),item.get('label'),item.get('source'))
@@ -197,16 +211,16 @@ def links(c, uid, provider):
 
 
 def list_all(c, uid):
-    customers=[dict(r) for r in c.execute('SELECT id,name FROM customers WHERE owner_id=? ORDER BY name',(uid,))]
-    profiles={r['customer_id']:dict(r) for r in c.execute('SELECT * FROM customer_profiles WHERE owner_id=?',(uid,))}
+    customers=[dict(r) for r in c.execute('SELECT id,name FROM customers ORDER BY name',())]
+    profiles={r['customer_id']:dict(r) for r in c.execute('SELECT * FROM customer_profiles',())}
     phones={}
-    for r in c.execute('SELECT id,customer_id,number,label,source FROM customer_phones WHERE owner_id=? ORDER BY id',(uid,)): phones.setdefault(r['customer_id'],[]).append(dict(r))
+    for r in c.execute('SELECT id,customer_id,number,label,source FROM customer_phones ORDER BY id',()): phones.setdefault(r['customer_id'],[]).append(dict(r))
     contacts={}
     contact_phones={}
-    for r in c.execute('SELECT id,customer_id,name,email,note FROM customer_contacts WHERE owner_id=? ORDER BY id',(uid,)): contacts.setdefault(r['customer_id'],[]).append(dict(r))
-    for r in c.execute('SELECT id,contact_id,number,label,source FROM customer_contact_phones WHERE owner_id=? ORDER BY id',(uid,)): contact_phones.setdefault(r['contact_id'],[]).append(dict(r))
+    for r in c.execute('SELECT id,customer_id,name,email,note FROM customer_contacts ORDER BY id',()): contacts.setdefault(r['customer_id'],[]).append(dict(r))
+    for r in c.execute('SELECT id,contact_id,number,label,source FROM customer_contact_phones ORDER BY id',()): contact_phones.setdefault(r['contact_id'],[]).append(dict(r))
     devices={}
-    for r in c.execute('SELECT id,customer_id,provider,external_id,name FROM customer_devices WHERE owner_id=? ORDER BY id',(uid,)): devices.setdefault(r['customer_id'],[]).append(dict(r))
+    for r in c.execute('SELECT id,customer_id,provider,external_id,name FROM customer_devices ORDER BY id',()): devices.setdefault(r['customer_id'],[]).append(dict(r))
     providers={}
     for r in c.execute('SELECT customer_id,provider,external_key,label FROM customer_provider_links WHERE owner_id=? ORDER BY id',(uid,)): providers.setdefault(r['customer_id'],[]).append(dict(r))
     for customer in customers:
@@ -261,21 +275,22 @@ def activity(c, uid, customer_id, limit=200):
             selects.append('SELECT provider,external_key FROM event_organizations WHERE owner_id=? AND organization_id=?')
             args.extend((uid,r['external_key'].split(':',2)[2]))
     rows=c.execute('SELECT e.provider,e.external_key,e.occurred_at,e.summary,e.raw_json,e.hint_json FROM provider_events e JOIN ('+' UNION '.join(selects)+') selected ON selected.provider=e.provider AND selected.external_key=e.external_key WHERE e.owner_id=? ORDER BY e.occurred_at DESC LIMIT ?',tuple(args+[uid,min(int(limit),1000)]))
-    return [dict(provider=r['provider'],external_key=r['external_key'],occurred_at=r['occurred_at'],summary=r['summary'],raw=json.loads(r['raw_json']),hint=json.loads(r['hint_json'])) for r in rows]
+    connected=__import__('provider_nav_runtime').provider_status(None,c,uid,'starface')['connected']
+    return [dict(provider=r['provider'],external_key=r['external_key'],occurred_at=r['occurred_at'],summary=r['summary'],raw=json.loads(r['raw_json']),hint=json.loads(r['hint_json'])) for r in rows if r['provider']!='starface' or connected]
 
 
 
 def get_one(c,uid,cid):
-    r=c.execute('SELECT id,name,archived FROM customers WHERE owner_id=? AND id=?',(uid,cid)).fetchone()
+    r=c.execute('SELECT id,name,archived FROM customers WHERE id=?',(cid,)).fetchone()
     if not r:raise ValueError('Unbekannter Kunde.')
-    result=dict(r);profile=c.execute('SELECT contact_person,email,note FROM customer_profiles WHERE owner_id=? AND customer_id=?',(uid,cid)).fetchone()
+    result=dict(r);profile=c.execute('SELECT contact_person,email,note FROM customer_profiles WHERE customer_id=?',(cid,)).fetchone()
     result.update(dict(profile) if profile else {'email':'','note':''})
-    result['phones']=[dict(r) for r in c.execute('SELECT id,number,label,source FROM customer_phones WHERE owner_id=? AND customer_id=?',(uid,cid))]
-    result['contacts']=[dict(r) for r in c.execute('SELECT id,name,email,note FROM customer_contacts WHERE owner_id=? AND customer_id=?',(uid,cid))]
+    result['phones']=[dict(r) for r in c.execute('SELECT id,number,label,source FROM customer_phones WHERE customer_id=?',(cid,))]
+    result['contacts']=[dict(r) for r in c.execute('SELECT id,name,email,note FROM customer_contacts WHERE customer_id=?',(cid,))]
     phones={}
-    for r in c.execute('SELECT p.* FROM customer_contact_phones p JOIN customer_contacts x ON x.id=p.contact_id WHERE p.owner_id=? AND x.customer_id=?',(uid,cid)):phones.setdefault(r['contact_id'],[]).append(dict(r))
+    for r in c.execute('SELECT p.* FROM customer_contact_phones p JOIN customer_contacts x ON x.id=p.contact_id WHERE x.customer_id=?',(cid,)):phones.setdefault(r['contact_id'],[]).append(dict(r))
     for x in result['contacts']:x['phones']=phones.get(x['id'],[])
-    result['devices']=[dict(r) for r in c.execute('SELECT * FROM customer_devices WHERE owner_id=? AND customer_id=?',(uid,cid))]
+    result['devices']=[dict(r) for r in c.execute('SELECT * FROM customer_devices WHERE customer_id=?',(cid,))]
     result['provider_links']=[dict(r) for r in c.execute('SELECT provider,external_key,label FROM customer_provider_links WHERE owner_id=? AND customer_id=?',(uid,cid))]
     return result
 

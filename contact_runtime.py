@@ -11,13 +11,13 @@ def install(app):
     original_customer_update = customer_data.update
     def customer_update(c, uid, customer_id, body):
         row = c.execute('''SELECT c.name,p.email,p.note FROM customers c
-                           LEFT JOIN customer_profiles p ON p.customer_id=c.id AND p.owner_id=c.owner_id
-                           WHERE c.id=? AND c.owner_id=?''', (customer_id, uid)).fetchone()
+                           LEFT JOIN customer_profiles p ON p.customer_id=c.id
+                           WHERE c.id=?''', (customer_id,)).fetchone()
         before = dict(row) if row else {}
         result = original_customer_update(c, uid, customer_id, body)
         row = c.execute('''SELECT c.name,p.email,p.note FROM customers c
-                           LEFT JOIN customer_profiles p ON p.customer_id=c.id AND p.owner_id=c.owner_id
-                           WHERE c.id=? AND c.owner_id=?''', (customer_id, uid)).fetchone()
+                           LEFT JOIN customer_profiles p ON p.customer_id=c.id
+                           WHERE c.id=?''', (customer_id,)).fetchone()
         after = dict(row) if row else {}
         changes = {key: {'old': before.get(key) or '', 'new': after.get(key) or ''}
                    for key in after if (before.get(key) or '') != (after.get(key) or '')}
@@ -50,11 +50,11 @@ def install(app):
             if not name:
                 raise ValueError('Bitte einen Namen für den Ansprechpartner eingeben.')
             with app.db() as c:
-                row = c.execute('SELECT customer_id,name,email,note FROM customer_contacts WHERE id=? AND owner_id=?', (contact_id, uid)).fetchone()
+                row = c.execute('SELECT customer_id,name,email,note FROM customer_contacts WHERE id=?', (contact_id,)).fetchone()
                 if not row:
                     raise ValueError('Ansprechpartner nicht gefunden.')
                 before = dict(row)
-                c.execute('UPDATE customer_contacts SET name=?,email=?,note=? WHERE id=? AND owner_id=?', (name, email, note, contact_id, uid))
+                c.execute('UPDATE customer_contacts SET name=?,email=?,note=? WHERE id=?', (name, email, note, contact_id))
                 after = {'customer_id': before['customer_id'], 'name': name, 'email': email, 'note': note}
                 changes = {key: {'old': before.get(key) or '', 'new': after.get(key) or ''}
                            for key in ('name','email','note') if (before.get(key) or '') != (after.get(key) or '')}
