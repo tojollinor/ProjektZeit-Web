@@ -467,7 +467,7 @@ class App(SimpleHTTPRequestHandler):
             try:
                 c.execute("INSERT INTO sessions(token_hash,user_id,csrf,expires_at,created_at) VALUES(?,?,?,?,?)",
                           (hashlib.sha256(token.encode()).hexdigest(), row["id"], csrf, created + session_ttl, created))
-            except sqlite3.OperationalError as error:
+            except sqlite3.DatabaseError as error:
                 if 'created_at' not in str(error):raise
                 c.execute("INSERT INTO sessions(token_hash,user_id,csrf,expires_at) VALUES(?,?,?,?)",
                           (hashlib.sha256(token.encode()).hexdigest(), row["id"], csrf, created + session_ttl))
