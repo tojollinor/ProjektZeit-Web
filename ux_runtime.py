@@ -296,7 +296,7 @@ def install(app):
                     ac.require_permission(c, uid, 'integrations.view')
                     data = provider_public(c)
                     sf = system_features.starface_public(c)
-                return self.send_json(200, {'providers': data, 'starface_network': network_probe(sf.get('domain'))})
+                return self.send_json(200, {'providers': data, 'starface_network': {'origin':sf.get('domain'),'state':'not_checked'}})
             if path == '/api/v1/admin/provider/save':
                 with app.db() as c:
                     ac.require_permission(c, uid, 'integrations.edit')

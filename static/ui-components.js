@@ -1,0 +1,40 @@
+/* Shared controls: explicit state and lifecycle, without global DOM polling. */
+(()=>{
+ const q=(s,r=document)=>r.querySelector(s),qa=(s,r=document)=>[...r.querySelectorAll(s)];
+ const h=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+ const key=k=>'pz.ui.'+(typeof state!=='undefined'?state.user?.id||'guest':'guest')+'.'+k;
+ const get=(k,f)=>{try{return JSON.parse(localStorage.getItem(key(k)))??f;}catch{return f;}};
+ const set=(k,v)=>{try{localStorage.setItem(key(k),JSON.stringify(v));}catch{}};
+ const dirty=root=>!!(root?.matches?.('form[data-dirty="1"]')||q('form[data-dirty="1"]',root||document));
+ const clean=root=>{if(!root)return;if(root.matches?.('form'))delete root.dataset.dirty;qa('form[data-dirty]',root).forEach(f=>delete f.dataset.dirty);};
+ const leave=root=>{if(!dirty(root))return true;if(!confirm('Ungespeicherte Änderungen verwerfen?'))return false;clean(root);return true;};
+ for(const type of ['input','change'])document.addEventListener(type,e=>{const f=e.target.closest('form');if(f&&f.id!=='login-form'&&!f.hasAttribute('data-ignore-dirty')&&!e.target.matches('[type=search]'))f.dataset.dirty='1';});
+ document.addEventListener('click',e=>{if(!e.target.closest('.sidebar [data-view],.sidebar [data-pz-nav-target],.sidebar [data-admin-open],.sidebar [data-company-nav],[data-admin-tab],[data-user-tab],[data-tab],[data-close],[data-pc-close],[data-customer-create-close]'))return;if(!leave(q('dialog[open]')||q('.view.active-view')||document)){e.preventDefault();e.stopImmediatePropagation();}},true);
+ document.addEventListener('cancel',e=>{if(e.target.matches('dialog')&&!leave(e.target))e.preventDefault();},true);
+ window.addEventListener('beforeunload',e=>{if(dirty(document)){e.preventDefault();e.returnValue='';}});
+ function message(title,text,choices=['OK']){return new Promise(resolve=>{const d=document.createElement('dialog');d.className='ui-dialog';d.innerHTML='<h3>'+h(title)+'</h3><p class="preserve-lines">'+h(text)+'</p><div class="panel-actions"></div>';for(const label of choices){const b=document.createElement('button');b.type='button';b.className='secondary';b.textContent=label;b.onclick=()=>{d.returnValue=label;d.close();};q('.panel-actions',d).append(b);}d.onclose=()=>{resolve(d.returnValue||choices.at(-1));d.remove();};document.body.append(d);d.showModal();});}
+ function formDialog(title,fields,save){
+  const d=document.createElement('dialog');d.className='ui-dialog';d.innerHTML='<form><h3>'+h(title)+'</h3>'+fields+'<p role="alert"></p><div class="panel-actions"><button type="submit" class="primary">Speichern</button><button type="button" class="secondary" data-close>Abbrechen</button></div></form>';document.body.append(d);q('[data-close]',d).onclick=()=>d.close();d.onclose=()=>d.remove();let busy=false;
+  q('form',d).onsubmit=async e=>{e.preventDefault();if(busy)return;busy=true;const button=q('[type=submit]',d);button.disabled=true;try{await save(Object.fromEntries(new FormData(e.currentTarget)),d);clean(d);d.close();}catch(error){q('[role=alert]',d).textContent=error.message;}finally{busy=false;button.disabled=false;}};d.showModal();return d;
+ }
+ function roleTags(host,roles,selected){
+  const chosen=new Set(selected.map(Number));host.className='role-picker';host.innerHTML='<div class="role-picker-input"><div class="role-chips"></div><input type="search" role="combobox" aria-label="Rollen suchen" aria-autocomplete="list" aria-expanded="false" placeholder="Rolle suchen …"></div><div class="role-options" role="listbox" hidden></div>';
+  const input=q('input',host),list=q('.role-options',host);let cursor=0;
+  function changed(){host.dispatchEvent(new CustomEvent('roleschange',{bubbles:true}));}
+  function draw(){q('.role-chips',host).innerHTML=roles.filter(r=>chosen.has(r.id)).map(r=>'<span class="role-chip">'+h(r.name)+'<button type="button" data-remove-role="'+r.id+'" aria-label="'+h(r.name)+' entfernen">×</button></span>').join('');qa('[data-remove-role]',host).forEach(b=>b.onclick=()=>{chosen.delete(Number(b.dataset.removeRole));draw();suggest();changed();});suggest();}
+  function suggest(){const matches=roles.filter(r=>!chosen.has(r.id)&&r.name.toLocaleLowerCase().includes(input.value.toLocaleLowerCase()));list.innerHTML=matches.map(r=>'<button type="button" role="option" data-role-id="'+r.id+'">'+h(r.name)+'</button>').join('')||'Keine weitere passende Rolle.';qa('[data-role-id]',list).forEach(b=>{b.onmousedown=e=>e.preventDefault();b.onclick=()=>{chosen.add(Number(b.dataset.roleId));input.value='';draw();changed();input.focus();};});list.hidden=document.activeElement!==input;input.setAttribute('aria-expanded',String(!list.hidden));cursor=0;}
+  input.oninput=suggest;input.onfocus=suggest;input.onblur=()=>setTimeout(()=>{list.hidden=true;input.setAttribute('aria-expanded','false');},120);
+  input.onkeydown=e=>{const bs=qa('button',list);if(e.key==='Escape'){list.hidden=true;return;}if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();cursor=Math.max(0,Math.min(bs.length-1,cursor+(e.key==='ArrowDown'?1:-1)));bs.forEach((b,i)=>b.setAttribute('aria-selected',String(i===cursor)));}if(e.key==='Enter'&&!list.hidden&&bs.length){e.preventDefault();bs[cursor]?.click();}};draw();return()=>[...chosen];
+ }
+ function searchable(select){if(!select||select.dataset.searchable)return;select.dataset.searchable='1';const input=document.createElement('input');input.type='search';input.placeholder='Auswahl durchsuchen …';input.setAttribute('aria-label','Auswahl durchsuchen');input.className='select-search';select.before(input);input.oninput=()=>{for(const option of select.options)option.hidden=!!option.value&&option.value!=='__new__'&&!option.text.toLocaleLowerCase().includes(input.value.toLocaleLowerCase());};}
+ function category(select){
+  if(!select||!state.data?.can_create_categories)return;if(![...select.options].some(o=>o.value==='__new__'))select.add(new Option('(Neu)','__new__'));if(select.dataset.newCategoryReady)return;select.dataset.newCategoryReady='1';let old=select.value;
+  select.addEventListener('focus',()=>{if(select.value!=='__new__')old=select.value;});select.addEventListener('change',()=>{if(select.value!=='__new__'){old=select.value;return;}select.value=old;formDialog('Zeitkategorie anlegen','<label>Bezeichnung<input name="name" maxlength="120" required></label>',async(values,d)=>{const r=await post('/api/v1/categories',values);clean(d);await refresh();const id=r.id||state.data.categories.find(c=>c.name===values.name.trim())?.id;if(id){select.value=id;if(!select.isConnected){const replacement=q('[data-work-category]');if(replacement)replacement.value=id;const primary=q('#category-select');if(primary)primary.value=id;}old=String(id);}});});
+ }
+ function providerCount(section){
+  const status=q('.list-status',section);if(!status||status.dataset.loadState!=='ready')return;const rows=qa('tbody tr',section).filter(r=>r._pzRow),visible=rows.filter(r=>!r.hidden).length,total=Number(status.dataset.total||rows.length),note=status.dataset.note||'',m=note.match(/zuletzt(?: vollständig)? aktualisiert\s+([^·\s]+)/i),date=m?new Date(m[1]):null;
+  const text=`${visible} von ${total} Einträgen sichtbar`+(date&&!Number.isNaN(+date)?' · Stand '+date.toLocaleString('de-DE'):'');if(status.textContent!==text)status.textContent=text;delete status.dataset.filterCount;
+  let empty=q('[data-provider-empty]',section);if(!empty){empty=document.createElement('p');empty.dataset.providerEmpty='';empty.className='empty';q('.raw-provider-table',section)?.after(empty);}empty.hidden=visible>0;const msg=total?'Keine Einträge für diese Filter. Filter zurücksetzen oder Auswahl ändern.':'Noch keine Daten gespeichert. Über Aktualisieren den Abruf starten; die Verbindung ist unter Einstellungen → Verbindungen verwaltbar.';if(empty.textContent!==msg)empty.textContent=msg;
+ }
+ window.pzUI={h,get,set,message,formDialog,dirty,clean,leave,roleTags,searchable,category};window.pzProviderCount=providerCount;
+})();

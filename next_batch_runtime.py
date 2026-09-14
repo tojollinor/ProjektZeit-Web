@@ -163,16 +163,26 @@ def _project_context(c, uid):
     return rows
 
 
-def _dashboard_prefs(c, uid):
-    row = c.execute("SELECT layout_json FROM dashboard_preferences WHERE user_id=?", (uid,)).fetchone()
-    default = ["stats", "missed_calls"]
-    if not row:
-        return default
-    try:
-        values = [str(x) for x in json.loads(row["layout_json"]) if str(x) in ("stats", "missed_calls")]
-        return values or default
-    except Exception:
-        return default
+DASHBOARD_WIDGETS=('stats','missed_calls','timeline','entries')
+
+def dashboard_layout(value):
+    if isinstance(value,list):value={'widgets':value+['timeline','entries']}
+    if not isinstance(value,dict):value={}
+    raw_widgets=value.get('widgets',DASHBOARD_WIDGETS)
+    if not isinstance(raw_widgets,(list,tuple)):raw_widgets=DASHBOARD_WIDGETS
+    widgets=list(dict.fromkeys(x for x in raw_widgets if isinstance(x,str) and x in DASHBOARD_WIDGETS)) or ['stats']
+    raw=value.get('heights',{});heights={}
+    for key in DASHBOARD_WIDGETS:
+        try:heights[key]=max(240,min(1200,int(raw.get(key,420))))
+        except (ValueError,TypeError,AttributeError):heights[key]=420
+    return {'widgets':widgets,'heights':heights}
+
+def _dashboard_layout(c,uid):
+    row=c.execute('SELECT layout_json FROM dashboard_preferences WHERE user_id=?',(uid,)).fetchone()
+    try:return dashboard_layout(json.loads(row['layout_json']) if row else None)
+    except (ValueError,TypeError):return dashboard_layout(None)
+
+def _dashboard_prefs(c,uid):return _dashboard_layout(c,uid)['widgets']
 
 
 def _bool(value):
@@ -307,7 +317,7 @@ def install(app):
                         "permissions": sorted(admin_controls.permissions_for_user(c, uid)),
                         "is_superadmin": admin_controls.is_superadmin(c, uid),
                         "projects": _project_context(c, uid),
-                        "dashboard": {"widgets": _dashboard_prefs(c, uid)},
+                        "dashboard": _dashboard_layout(c, uid),
                     })
                 if path == "/api/v1/projects/status":
                     pid = int(body.get("project_id") or 0)
@@ -359,14 +369,10 @@ def install(app):
                                           {"billing_state": {"old": row["billing_state"], "new": value}})
                     return self.send_json(200, {"ok": True})
                 if path == "/api/v1/dashboard/preferences":
-                    widgets = body.get("widgets") if isinstance(body.get("widgets"), list) else []
-                    widgets = [str(x) for x in widgets if str(x) in ("stats", "missed_calls")]
-                    if not widgets:
-                        widgets = ["stats"]
+                    layout=dashboard_layout(body)
                     c.execute("DELETE FROM dashboard_preferences WHERE user_id=?", (uid,))
-                    c.execute("INSERT INTO dashboard_preferences(user_id,layout_json,updated_at) VALUES(?,?,?)",
-                              (uid, json.dumps(widgets), now_iso()))
-                    return self.send_json(200, {"widgets": widgets})
+                    c.execute("INSERT INTO dashboard_preferences(user_id,layout_json,updated_at) VALUES(?,?,?)",(uid,json.dumps(layout),now_iso()))
+                    return self.send_json(200,layout)
                 if path == "/api/v1/sessions/list":
                     connected, history = _session_rows(c, uid, session["token_hash"])
                     return self.send_json(200, {"connected": connected, "history": history})

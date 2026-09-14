@@ -12,7 +12,7 @@ MUTATION=re.compile(r'/(save|assign(?:/(?:customer|project))?|profile|phone|cont
 EXCLUDED=('/api/v1/auth/','/api/v1/integrations/','/api/v1/archive/','/api/v1/provider/refresh/','/api/v1/settings/','/api/v1/account/')
 
 def eligible(path):
-    if path in ('/api/v1/customers', '/api/v1/categories', '/api/v1/projects', '/api/v1/users', '/api/v1/profile/avatar', '/api/v1/sessions/disconnect', '/api/v1/integrations/save', '/api/v1/integrations/remove', '/api/v1/account/save', '/api/v1/account/theme'):return True
+    if path in ('/api/v1/admin/user/create','/api/v1/customers', '/api/v1/categories', '/api/v1/projects', '/api/v1/users', '/api/v1/profile/avatar', '/api/v1/sessions/disconnect', '/api/v1/integrations/save', '/api/v1/integrations/remove', '/api/v1/account/save', '/api/v1/account/theme'):return True
     return bool(MUTATION.search(path)) and not path.startswith(EXCLUDED) and path not in ('/api/v1/provider/navigation-status',)
 
 def stamp():return datetime.now(timezone.utc).isoformat(timespec='seconds')

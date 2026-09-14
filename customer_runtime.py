@@ -10,6 +10,7 @@ import starface_directory
 
 
 def install(app):
+    app.MFA_ENABLED=True
     original_init = app.init_db
     def init_db(create_admin=True):
         original_init(create_admin)
@@ -18,6 +19,7 @@ def install(app):
             starface_directory.migrate(c)
             provider_archive.migrate(c)
             admin_controls.migrate(c)
+            __import__("auth_mfa").migrate(c)
     app.init_db = init_db
 
     context = threading.local()
@@ -83,13 +85,14 @@ def install(app):
                 a=time_workspace.parse(item['started_at']);b=time_workspace.parse(item['ended_at']) or now
                 if a and b:today_seconds+=max(0,int((min(b,today_end).astimezone(time_workspace.timezone.utc)-max(a,today_start).astimezone(time_workspace.timezone.utc)).total_seconds()))
             work=c.execute('SELECT * FROM work_sessions WHERE owner_id=? AND ended_at IS NULL',(uid,)).fetchone()
+            can_create_categories=admin_controls.can(c,uid,'categories.create')
             users=[]
             if session['role']=='admin':
                 superuser=admin_controls.is_superadmin(c,uid)
                 for x in c.execute('SELECT id,username,role,active,created_at FROM users ORDER BY username'):
                     if not superuser and admin_controls.is_superadmin(c,x['id']):continue
                     users.append(dict(x))
-        return self.send_json(200,{'customers':customers,'projects':projects,'categories':categories,'entries':entries[:1000],'entries_truncated':len(entries)>1000,'today_seconds':today_seconds,'users':users,'work':dict(work) if work else None})
+        return self.send_json(200,{'can_create_categories':can_create_categories,'customers':customers,'projects':projects,'categories':categories,'entries':entries[:1000],'entries_truncated':len(entries)>1000,'today_seconds':today_seconds,'users':users,'work':dict(work) if work else None})
     app.App.dashboard=dashboard
 
     def integration_config(uid,provider):
@@ -173,9 +176,9 @@ def install(app):
       '/api/v1/customers/contact-phone','/api/v1/customers/device','/api/v1/customers/workshop','/api/v1/customers/zammad-organization',
       '/api/v1/customers/timeline','/api/v1/customers/master','/api/v1/starface/users','/api/v1/starface/users/save','/api/v1/archive/sync','/api/v1/archive/status',
       '/api/v1/logs/list','/api/v1/debug/raw','/api/v1/zammad/organizations/refresh',
-      '/api/v1/admin/context','/api/v1/admin/role/save','/api/v1/admin/role/clone','/api/v1/admin/role/delete','/api/v1/admin/role/reset-user',
+      '/api/v1/admin/user/mfa-reset','/api/v1/admin/context','/api/v1/admin/role/save','/api/v1/admin/role/clone','/api/v1/admin/role/delete','/api/v1/admin/role/reset-user',
       '/api/v1/admin/user/profile','/api/v1/admin/user/roles','/api/v1/admin/policies/save','/api/v1/admin/super/settings',
-      '/api/v1/admin/smtp/save','/api/v1/admin/smtp/test'
+      '/api/v1/admin/smtp/save','/api/v1/admin/smtp/test','/api/v1/admin/smtp/check','/api/v1/admin/user/create'
     }
 
     def do_POST(self):
@@ -189,6 +192,9 @@ def install(app):
         if not session:return
         uid=session['id']
         try:
+            if path=='/api/v1/admin/user/create':
+                with app.db() as c:ident=admin_controls.create_user(c,uid,body,app.hash_password)
+                return self.send_json(200,{'ok':True,'id':ident})
             if path=='/api/v1/admin/context':
                 with app.db() as c:return self.send_json(200,admin_controls.admin_context(c,uid))
             if path=='/api/v1/admin/role/save':
@@ -207,18 +213,41 @@ def install(app):
                 with app.db() as c:
                     admin_controls.require_permission(c,uid,'security.policies.edit')
                     values=body.get('policies') if isinstance(body.get('policies'),dict) else {}
+                    previous=admin_controls.policy_values(c)
+                    if values.get('two_factor_mode',previous['two_factor_mode']) not in ('optional','required'):raise ValueError('Ungültiger 2FA-Modus.')
+                    if not 0<=int(values.get('two_factor_grace_days',previous['two_factor_grace_days']))<=365:raise ValueError('Einrichtungsfrist muss 0 bis 365 Tage betragen.')
                     for key,default in admin_controls.POLICY_DEFAULTS.items():
-                        if key in values:admin_controls.set_setting(c,'policy.'+key,values[key])
+                        if key in values and values[key]!=previous[key]:admin_controls.set_setting(c,'policy.'+key,values[key])
+                    if values.get('two_factor_mode')=='required' and previous['two_factor_mode']!='required':
+                        c.execute('DELETE FROM native_sessions');c.execute('DELETE FROM sessions')
                     return self.send_json(200,{'ok':True,'policies':admin_controls.policy_values(c)})
+            if path=='/api/v1/admin/user/mfa-reset':
+                with app.db() as c:
+                    admin_controls.require_permission(c,uid,'security.2fa.reset_user')
+                    target=int(body.get('user_id') or 0)
+                    if target==uid:raise ValueError('Eigene 2FA nicht über die Benutzerverwaltung zurücksetzen. Bitte Wiederherstellungscode verwenden.')
+                    user=c.execute('SELECT role FROM users WHERE id=?',(target,)).fetchone()
+                    if not user:raise ValueError('Benutzer nicht gefunden.')
+                    if user['role']=='admin' or not admin_controls.setting(c,'security.admin_may_reset_2fa',True):
+                        admin_controls.require_permission(c,uid,'system.options.edit')
+                    c.execute('DELETE FROM session_mfa WHERE token_hash IN (SELECT token_hash FROM sessions WHERE user_id=?)',(target,))
+                    c.execute('DELETE FROM native_sessions WHERE token_hash IN (SELECT token_hash FROM sessions WHERE user_id=?)',(target,))
+                    c.execute('DELETE FROM sessions WHERE user_id=?',(target,))
+                    c.execute('DELETE FROM user_mfa WHERE user_id=?',(target,))
+                    __import__('system_features').audit(c,uid,uid,'user',target,'mfa_reset',{})
+                return self.send_json(200,{'ok':True})
             if path=='/api/v1/admin/super/settings':
                 with app.db() as c:
-                    if not admin_controls.is_superadmin(c,uid):return self.send_json(404,{'error':'Nicht gefunden'})
-                    admin_controls.set_setting(c,'superadmin.admin_may_reset_2fa',bool(body.get('admin_may_reset_2fa')))
+                    admin_controls.require_permission(c,uid,'system.options.edit')
+                    admin_controls.set_setting(c,'security.admin_may_reset_2fa',bool(body.get('admin_may_reset_2fa')))
                     return self.send_json(200,{'ok':True})
             if path=='/api/v1/admin/smtp/save':
                 with app.db() as c:admin_controls.save_smtp(c,uid,body,app.DATA_DIR);return self.send_json(200,{'ok':True,'smtp':admin_controls.smtp_public(c)})
-            if path=='/api/v1/admin/smtp/test':
-                with app.db() as c:admin_controls.test_smtp(c,uid,body.get('recipient'),app.DATA_DIR);return self.send_json(200,{'ok':True})
+            if path in ('/api/v1/admin/smtp/test','/api/v1/admin/smtp/check'):
+                with app.db(read_only=True) as c:
+                    admin_controls.require_permission(c,uid,'smtp.test');settings,password=admin_controls._smtp_credentials(c,app.DATA_DIR);settings=dict(settings)
+                result=__import__('smtp_service').check(settings,password,recipient=str(body.get('recipient') or '') if path.endswith('/test') else None)
+                return self.send_json(200,result)
             if path=='/api/v1/customers/master':
                 cid=int(body.get('customer_id'))
                 with app.db() as c:

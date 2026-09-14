@@ -17,9 +17,9 @@
  function mount(host,scope={}){
   if(q(':scope > [data-time-workspace]',host))return;
   const panel=document.createElement('article');panel.className='panel time-workspace';panel.dataset.timeWorkspace='';
-  panel.innerHTML=`<div class="panel-head"><div><p class="eyebrow">ZEITEN PRÜFEN UND ZUORDNEN</p><h3>${scope.customer_id?'Kundenzeitstrahl':scope.projectView?'Projektzeitstrahl':'Mein Arbeitstag'}</h3></div><button class="secondary" data-tw-refresh aria-label="Zeiten aktualisieren">↻</button></div><div class="tw-toolbar"><label>Datum<input type="date" data-tw-day></label><label>Zeitraum<select data-tw-days><option value="1">Ein Tag</option><option value="7">7 Tage ab Datum</option><option value="30">30 Tage ab Datum</option></select></label><label>Projekt<select data-tw-project><option value="">Alle Projekte</option></select></label><label data-tw-team-label hidden><input type="checkbox" data-tw-team> Team anzeigen</label></div><div class="tw-tabs" role="group" aria-label="Zeitansicht"><button class="secondary" data-tw-mode="timeline">Zeitstrahl</button><button class="secondary" data-tw-mode="inbox">Zuordnungseingang</button><button class="secondary" data-tw-mode="review">Tagesabschluss</button><button class="secondary" data-tw-mode="bookings">Geprüfte Buchungen</button></div><p data-tw-status role="status"></p><div data-tw-summary class="tw-summary"></div><div data-tw-content></div>`;
+  panel.innerHTML=`<div class="panel-head"><div><p class="eyebrow">ZEITEN PRÜFEN UND ZUORDNEN</p><h3>${scope.customer_id?'Kundenzeitstrahl':scope.projectView?'Projektzeitstrahl':'Mein Arbeitstag'}</h3></div><button class="secondary" data-tw-refresh aria-label="Zeiten aktualisieren">↻</button></div><div class="tw-toolbar"><label>Datum<input type="date" data-tw-day></label><label>Zeitraum<select data-tw-days><option value="1">Ein Tag</option><option value="7">7 Tage ab Datum</option><option value="30">30 Tage ab Datum</option></select></label><label>Projekt<select data-tw-project><option value="">Alle Projekte</option></select></label><label data-tw-team-label hidden><input type="checkbox" data-tw-team> Team anzeigen</label></div><div class="tw-tabs" role="tablist" aria-label="Zeitansicht"><button class="secondary" data-tw-mode="timeline">Zeitstrahl</button><button class="secondary" data-tw-mode="inbox">Zuordnungseingang</button><button class="secondary" data-tw-mode="review">Tagesabschluss</button><button class="secondary" data-tw-mode="bookings">Geprüfte Buchungen</button></div><p data-tw-status role="status"></p><div data-tw-summary class="tw-summary"></div><div data-tw-content></div>`;
   host.prepend(panel);q('[data-tw-day]',panel).value=today();
-  let data=null,mode='timeline',controller=null,generation=0,loaded=false,saving=false;
+  let data=null,mode=window.pzUI?.get('time-tab','timeline')||'timeline',controller=null,generation=0,loaded=false,saving=false;
   const selected=new Map();
   const visible=()=>panel.isConnected&&!!panel.getBoundingClientRect().height&&!document.hidden;
   const body=()=>({day:q('[data-tw-day]',panel).value,days:Number(q('[data-tw-days]',panel).value),customer_id:scope.customer_id||0,project_id:Number(q('[data-tw-project]',panel).value)||scope.project_id||0,team:q('[data-tw-team]',panel).checked});
@@ -44,7 +44,7 @@
    return article;
   }
   function render(){if(!data)return;const s=data.summary;q('[data-tw-summary]',panel).innerHTML=`<span>${s.unassigned} ohne Projekt</span><span>${s.unreviewed} ungeprüft</span><span>${s.overlaps} überlappend</span><span>${s.running} laufende Zeiten</span><span>Abrechenbar: ${hours(s.billable_seconds)}</span>`;
-   qa('[data-tw-mode]',panel).forEach(b=>b.classList.toggle('primary',b.dataset.twMode===mode));const content=q('[data-tw-content]',panel);content.replaceChildren();
+   qa('[data-tw-mode]',panel).forEach(b=>(b.classList.toggle('primary',b.dataset.twMode===mode),b.setAttribute('aria-selected',String(b.dataset.twMode===mode)),b.setAttribute('role','tab')));const content=q('[data-tw-content]',panel);content.replaceChildren();
    if(mode==='timeline'){
     const scroll=document.createElement('div');scroll.className='tw-timeline-scroll';const chart=document.createElement('div');chart.className='tw-timeline';scroll.append(chart);content.append(scroll);
     const start=+new Date(data.start),end=+new Date(data.end),axis=document.createElement('div');axis.className='tw-axis';for(let i=0;i<=8;i++){const tick=document.createElement('span');tick.style.left=`${i/8*100}%`;tick.textContent=new Date(start+(end-start)*i/8).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});axis.append(tick);}chart.append(axis);
@@ -60,15 +60,16 @@
    }
   }
   q('[data-tw-refresh]',panel).onclick=load;for(const selector of ['[data-tw-day]','[data-tw-days]','[data-tw-project]','[data-tw-team]'])q(selector,panel).onchange=()=>{if(!scope.customer_id&&!Number(q('[data-tw-project]',panel).value))q('[data-tw-team]',panel).checked=false;load();};
-  qa('[data-tw-mode]',panel).forEach(b=>b.onclick=()=>{mode=b.dataset.twMode;selected.clear();render();});
+  qa('[data-tw-mode]',panel).forEach(b=>b.onclick=()=>{mode=b.dataset.twMode;window.pzUI?.set('time-tab',mode);selected.clear();render();});
   const instance={panel,load,invalidate:()=>{loaded=false;if(!saving&&visible())load();},stop:()=>{controller?.abort();generation++;},isLoaded:()=>loaded};instances.add(instance);load();return instance;
  }
  function sync(){for(const x of instances){if(!x.panel.isConnected){x.stop();instances.delete(x);}else if(!x.panel.getBoundingClientRect().height||document.hidden)x.stop();else if(!x.isLoaded())x.load();}
   const view=q('.view.active-view');if(!view)return;if(view.id==='view-projects')mount(view,{projectView:true});if(view.id==='view-bookkeeping')mount(view);}
  function attachCustomer(box,id){if(q('[data-tab="timeline"]',box))return;const b=document.createElement('button');b.className='secondary';b.dataset.tab='timeline';b.textContent='Zeitstrahl';q('.customer-tabs',box)?.append(b);const pane=document.createElement('section');pane.dataset.pane='timeline';pane.className='hidden';box.append(pane);b.onclick=()=>{qa('[data-pane]',box).forEach(p=>p.classList.toggle('hidden',p!==pane));qa('[data-tab]',box).forEach(t=>t.classList.toggle('primary',t===b));mount(pane,{customer_id:id});};}
+ document.addEventListener('pz-project-select',async e=>{const host=q('#view-projects');if(!host)return;const x=[...instances].find(x=>x.panel.closest('#view-projects'))||mount(host,{projectView:true});await x.load();const select=q('[data-tw-project]',host);if(select){select.value=e.detail.id;select.dispatchEvent(new Event('change'));}});
  window.pzTimeWorkspace={mount,attachCustomer};
  document.addEventListener('pz-view-changed',()=>requestAnimationFrame(sync));document.addEventListener('visibilitychange',sync);
  document.addEventListener('pz-data-changed',()=>{for(const x of instances)x.invalidate();});
- const dashboard=q('#view-dashboard');if(dashboard){const button=document.createElement('button');button.className='secondary';button.textContent='Tagesabschluss prüfen';button.onclick=()=>{showView('tracking');requestAnimationFrame(()=>q('[data-tw-mode="review"]',q('#view-tracking'))?.click());};dashboard.prepend(button);}
+ const dashboard=q('#view-dashboard');if(dashboard){const button=document.createElement('button');button.className='secondary';button.textContent='Tagesabschluss prüfen';button.onclick=()=>{showView('projects');requestAnimationFrame(()=>q('[data-tw-mode="review"]',q('#view-projects'))?.click());};dashboard.prepend(button);}
  sync();
 })();

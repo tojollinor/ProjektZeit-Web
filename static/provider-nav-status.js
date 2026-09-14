@@ -15,9 +15,10 @@
    tag.className='provider-nav-tag '+(s.connected?'connected':'disconnected');tag.dataset.state=s.connected?'connected':'disconnected';tag.title=s.detail||'';
   }
  }
+ let loadPromise=null;
  async function load(){
-  if(document.hidden||loading||typeof post!=='function'||typeof state==='undefined'||!state.user)return;
-  loading=true;if(!ready)decorateLoading();try{const d=await post('/api/v1/provider/navigation-status',{});states=new Map((d.providers||[]).map(x=>[x.provider,x]));ready=true;decorate();}catch(_){states=new Map();ready=true;decorate();}finally{loading=false;}
+  if(loadPromise)return loadPromise;if(document.hidden||typeof post!=='function'||typeof state==='undefined'||!state.user)return;
+  loading=true;if(!ready)decorateLoading();loadPromise=(async()=>{try{const d=await post('/api/v1/provider/navigation-status',{});states=new Map((d.providers||[]).map(x=>[x.provider,x]));ready=true;decorate();}catch(_){states=new Map();ready=false;decorate();}finally{loading=false;}})();try{await loadPromise;}finally{loadPromise=null;}
  }
  function focusSettings(provider,attempt=0){
   const card=q(`#integration-cards [data-provider="${provider}"]`);if(!card&&attempt<12){setTimeout(()=>focusSettings(provider,attempt+1),250);return;}if(!card)return;
@@ -25,14 +26,19 @@
  }
  function goSettings(provider){dialog.close();pendingProvider='';if(window.pzOpenNavTarget)window.pzOpenNavTarget('settings-connections','Verbindungen');else if(typeof showView==='function')showView('settings-connections');setTimeout(()=>focusSettings(provider),180);}
  yes.onclick=()=>{if(pendingProvider)goSettings(pendingProvider);};
- document.addEventListener('click',event=>{
-  const nav=event.target.closest('.nav[data-view="zammad"],.nav[data-view="starface"],.nav[data-view="teamviewer"]');if(!nav||!ready)return;
-  const provider=nav.dataset.view,s=states.get(provider);if(!s||s.reason!=='missing_client_secret')return; // Cached data remains accessible when a provider is offline.
-  event.preventDefault();event.stopImmediatePropagation();pendingProvider=provider;
-  const unavailableSetup=provider==='starface'&&s.reason==='missing_client_secret';
-  q('[data-provider-connect-title]',dialog).textContent=unavailableSetup?'STARFACE nicht eingerichtet':`${names[provider]} nicht verbunden`;
-  q('[data-provider-connect-message]',dialog).textContent=unavailableSetup?'Es wurde kein Client Secret für STARFACE hinterlegt. Bitte wenden Sie sich an einen Administrator. Eine Anmeldung ist momentan nicht möglich.':s.reason==='missing'?`Die ${names[provider]}-Verbindung wurde noch nicht eingerichtet. Möchten Sie sie jetzt einrichten?`:`Die ${names[provider]}-Verbindung ist momentan nicht verfügbar. Möchten Sie die Verbindungseinstellungen öffnen?`;
-  yes.hidden=unavailableSetup;no.textContent=unavailableSetup?'Schließen':'Nein';dialog.showModal();
+ let allowStarface=false,checking=false;
+ window.addEventListener('click',async event=>{
+  const nav=event.target.closest?.('.nav[data-view="starface"]');if(!nav)return;if(allowStarface){allowStarface=false;return;}
+  if(ready&&states.get('starface')?.connected===true)return;
+  event.preventDefault();event.stopImmediatePropagation();if(checking)return;checking=true;nav.setAttribute('aria-busy','true');
+  try{await load();let s=states.get('starface');
+   if(s?.reason==='unknown'){try{const result=await post('/api/v1/integrations/test',{provider:'starface'});if(result.ok===true){s={connected:true};states.set('starface',{provider:'starface',connected:true,reason:'connected'});decorate();}else s={reason:'unavailable',detail:result.error||result.message||'Die Verbindungsprüfung war nicht erfolgreich.'};}catch(error){s={reason:'unavailable',detail:error.message};}}
+   if(s?.connected===true){allowStarface=true;nav.click();return;}
+   pendingProvider='starface';const missing=s?.reason==='missing_client_secret',expired=['expired','missing'].includes(s?.reason);
+   q('[data-provider-connect-title]',dialog).textContent=missing?'STARFACE nicht eingerichtet':expired?'STARFACE-Anmeldung erforderlich':'STARFACE momentan nicht verfügbar';
+   q('[data-provider-connect-message]',dialog).textContent=missing?'Für STARFACE wurde kein Client Secret hinterlegt. Bitte informieren Sie einen Administrator, damit er die Zugangsdaten unter Einstellungen → Verbindungen ergänzt. Eine Anmeldung und das Öffnen von STARFACE sind momentan nicht möglich.':expired?'Die STARFACE-Anmeldung fehlt oder ist abgelaufen. Möchten Sie die Verbindungseinstellungen öffnen und sich erneut anmelden?':s?.detail||'Der Verbindungsstatus konnte noch nicht ermittelt werden. Bitte versuchen Sie es erneut oder prüfen Sie Einstellungen → Verbindungen.';
+   yes.hidden=!expired;yes.textContent='Ja';no.textContent=expired?'Nein':'OK';dialog.showModal();
+  }finally{checking=false;nav.removeAttribute('aria-busy');}
  },true);
  document.addEventListener('click',event=>{if(event.target.closest('[data-integration-action],[data-pz-starface-connect],[data-starface-action],[data-refresh]'))setTimeout(load,500);});
  document.addEventListener('pz-provider-status-changed',()=>setTimeout(load,100));window.addEventListener('starface-connected',()=>setTimeout(load,300));

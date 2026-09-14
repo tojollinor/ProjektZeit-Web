@@ -75,6 +75,7 @@ def register():
     import final_batch_runtime
     for key in ('staff.manage','staff.policy','sync.manage','sync.diagnostics','duty.manage'):
         final_batch_runtime.DEPENDENCIES[key]={'admin.options.view'}
+    final_batch_runtime.DEPENDENCIES['staff.manage'].add('users.view')
     final_batch_runtime.DEPENDENCIES['payroll.manage']={'bookkeeping.view','staff.view'}
 
 def policy(c,day=None):
@@ -431,6 +432,13 @@ def calendar_data(c,uid,start,end):
     return result
 
 def handle(c,uid,action,body):
+    if action=='account/read':
+        require(c,uid,'staff.manage');target=int(body.get('user_id') or uid);year=int(body.get('year') or now().year)
+        person(c,target)
+        if not 2000<=year<=2099:raise ValueError('Ungültiges Jahr.')
+        row=c.execute('SELECT * FROM vacation_accounts WHERE user_id=? AND year=?',(target,year)).fetchone()
+        return {'year':year,'days':row['entitlement']/1000000 if row else 0,'carry':row['carry']/1000000 if row else 0,'carry_until':row['carry_until'] if row else ''}
+
     if action=='context':return context(c,uid)
     if action=='tracking/report':return tracking_report(c,uid,body)
     if action=='report':
@@ -578,8 +586,8 @@ def tracking_report(c,actor,body):
     closures={r['month']:json.loads(r['snapshot_json']) for r in c.execute('SELECT * FROM staff_month_closures WHERE user_id=? AND month>=? AND month<=?',(uid,str(start)[:7],str(end-timedelta(days=1))[:7]))}
     frozen={d['day']:d for closure in closures.values() for d in closure.get('days',[])}
     for r in rows:
-        a=midnight(date.fromisoformat(r['day']));b=a+timedelta(days=1)
-        r['work']=[{'id':w['id'],'start':w['started_at'],'end':w['ended_at']} for w in sorted(data['work'],key=lambda w:w['started_at']) if parse(w['started_at'])<b and (not w['ended_at'] or parse(w['ended_at'])>a)]
+        a=midnight(date.fromisoformat(r['day']));b=midnight(date.fromisoformat(r['day'])+timedelta(days=1))
+        clock=now();r['work']=[{'id':w['id'],'start':iso(max(parse(w['started_at']),a)),'end':iso(min(parse(w['ended_at']),b)) if w['ended_at'] else (iso(b) if b<=clock else None)} for w in sorted(data['work'],key=lambda w:w['started_at']) if parse(w['started_at'])<min(b,clock) and (min(parse(w['ended_at']),clock) if w['ended_at'] else clock)>a]
         r['correction_seconds']=sum(m['seconds'] for m in movements if m['day']==r['day'] and m['kind']=='adjustment')
         r['payout_seconds']=-sum(m['seconds'] for m in movements if m['day']==r['day'] and m['kind']=='payout')
         booked=frozen.get(r['day'],r)['posted_seconds'];balance+=booked+r['correction_seconds']-r['payout_seconds']

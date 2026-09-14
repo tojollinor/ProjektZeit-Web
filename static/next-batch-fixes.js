@@ -1,5 +1,5 @@
 (()=>{
- const q=(s,r=document)=>r.querySelector(s),qa=(s,r=document)=>[...r.querySelectorAll(s)];
+ const q=(s,r=document)=>r?.querySelector(s)||null,qa=(s,r=document)=>[...(r?.querySelectorAll(s)||[])];
  const notify=(m,l='info',t=4500)=>window.pzToast?window.pzToast(m,l,t):typeof toast==='function'?toast(m):null;
  function applyTheme(theme){if(theme==='dark'||theme==='light')document.documentElement.dataset.theme=theme;else delete document.documentElement.dataset.theme;}
 

@@ -248,7 +248,7 @@ def install(app):
     acl.ALL_PERMISSIONS.add(PERMISSION)
     acl.DEFAULT_ADMIN_PERMISSIONS.add(PERMISSION)
     import final_batch_runtime
-    final_batch_runtime.DEPENDENCIES[PERMISSION]={'admin.options.view'}
+    final_batch_runtime.DEPENDENCIES[PERMISSION]={'admin.options.view','users.view'}
     original_init=app.init_db
     def init(create_admin=True):
         original_init(create_admin)
