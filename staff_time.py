@@ -22,7 +22,7 @@ PERMISSIONS={
  'absence.review_unpaid':'Unbezahlte Abwesenheit und Zeitausgleich genehmigen',
  'absence.review_self':'Eigene Abwesenheitsanträge genehmigen',
  'absence.enter_other':'Abwesenheiten für andere eintragen',
- 'correction.review':'Stempelkorrekturen genehmigen',
+ 'correction.review':'Arbeitszeiten anderer Mitarbeiter korrigieren',
  'correction.review_self':'Eigene Stempelkorrekturen genehmigen',
  'payroll.manage':'Stunden auszahlen und Monate abschließen',
  'calendar.work_team':'Arbeits- und Projektzeiten im Teamkalender sehen',
@@ -31,7 +31,7 @@ PERMISSIONS={
  'sync.diagnostics':'Isolierte Schnittstellentests durchführen',
  'projects.manage_templates':'Projektvorlagen und Tags verwalten',
 }
-DEFAULT_POLICY={'approval_paid':True,'approval_unpaid':True,'hourly_paid':False,'minimum_minutes':30,'correction_mode':'request','self_approval':False}
+DEFAULT_POLICY={'approval_paid':True,'approval_unpaid':True,'hourly_paid':False,'minimum_minutes':30,'correction_mode':'direct','self_approval':False}
 KINDS=[('vacation','Bezahlter Urlaub','paid',1,'#62a5fa'),('sick','Krank','paid',0,'#c58be2'),('unpaid','Unbezahlte Abwesenheit','debit',0,'#b8a36a'),('timeoff','Freizeitausgleich','debit',0,'#64bfa9'),('release','Unbezahlte Freistellung (Soll reduzieren)','reduce',0,'#a7a7a7')]
 
 def iso(x):return x.astimezone(timezone.utc).isoformat(timespec='seconds')
@@ -63,8 +63,13 @@ def migrate(c):
     CREATE TABLE IF NOT EXISTS staff_month_closures(user_id INTEGER NOT NULL,month VARCHAR(7) NOT NULL,snapshot_json LONGTEXT NOT NULL,created_by INTEGER NOT NULL,created_at VARCHAR(40) NOT NULL,PRIMARY KEY(user_id,month));
     CREATE TABLE IF NOT EXISTS staff_month_revisions(user_id INTEGER NOT NULL,month VARCHAR(7) NOT NULL,seconds INTEGER NOT NULL,PRIMARY KEY(user_id,month));
     CREATE TABLE IF NOT EXISTS staff_holiday_overrides(subdivision VARCHAR(8) NOT NULL,day VARCHAR(10) NOT NULL,name VARCHAR(120) NOT NULL,enabled INTEGER NOT NULL,PRIMARY KEY(subdivision,day));
+    CREATE TABLE IF NOT EXISTS notification_links(notification_id INTEGER PRIMARY KEY,request_id INTEGER,project_id INTEGER);
+    CREATE TABLE IF NOT EXISTS notification_reads(user_id INTEGER NOT NULL,notification_id INTEGER NOT NULL,read_at VARCHAR(40) NOT NULL,PRIMARY KEY(user_id,notification_id));
     ''')
     for code,name,rule,vacation,color in KINDS:c.execute('INSERT OR IGNORE INTO absence_kinds(code,name,rule,vacation,color) VALUES(?,?,?,?,?)',(code,name,rule,vacation,color))
+    for r in list(c.execute("SELECT id,user_id FROM staff_requests WHERE kind='correction' AND state='pending'")):
+        c.execute("UPDATE staff_requests SET state='superseded',version=version+1,decision_note=? WHERE id=?",('Direkte Korrekturen verfügbar. Bitte Stempelung prüfen und erneut speichern.',r['id']))
+        notify(c,r['user_id'],'correction','Eine frühere Zeitkorrektur wurde nicht angewendet. Bitte unter Zeiterfassung erneut prüfen und direkt speichern.')
 
 def register():
     acl.PERMISSION_CATEGORIES['Arbeitszeit & Abwesenheiten']=list(PERMISSIONS.items())
@@ -81,7 +86,9 @@ def register():
 def policy(c,day=None):
     day=day or now().astimezone(TZ).date()
     r=c.execute('SELECT settings_json FROM staff_policy_versions WHERE valid_from<=? ORDER BY valid_from DESC,id DESC LIMIT 1',(str(day),)).fetchone()
-    return {**DEFAULT_POLICY,**(json.loads(r['settings_json']) if r else {})}
+    result={**DEFAULT_POLICY,**(json.loads(r['settings_json']) if r else {})}
+    result['correction_mode']='none' if result['correction_mode']=='none' else 'direct'
+    return result
 
 def model_list(c,uid):return [dict(m,weights=[int(i in m['weekdays']) for i in range(7)],opening_seconds=0) for m in wm.models(c,uid)]
 def model_on(models,day):return next((x for x in reversed(models) if x['valid_from']<=str(day)),None)
@@ -260,8 +267,8 @@ def submit(c,actor,body):
     if state=='pending':
         key='absence.review' if meta['rule']=='paid' else 'absence.review_unpaid'
         for person_row in c.execute('SELECT id FROM users WHERE active=1 AND id<>?',(uid,)):
-            if acl.can(c,person_row['id'],key):notify(c,person_row['id'],'absence','Neuer Abwesenheitsantrag wartet auf Genehmigung.')
-    notify(c,uid,'absence','Abwesenheit '+state+' · '+str(a.astimezone(TZ).date()))
+            if acl.can(c,person_row['id'],key):notify(c,person_row['id'],'absence','Neuer Abwesenheitsantrag wartet auf Genehmigung.',request_id=cur.lastrowid)
+    notify(c,uid,'absence','Abwesenheit '+state+' · '+str(a.astimezone(TZ).date()),request_id=cur.lastrowid)
     audit(c,actor,uid,'absence',cur.lastrowid,'submitted',{'kind':kind,'state':state});return {'ok':True,'id':cur.lastrowid,'state':state}
 
 def cancellation(c,actor,body):
@@ -300,52 +307,71 @@ def decide(c,actor,body):
             bal=vacation_balance(c,r['user_id'],year)
             if not bal['configured'] or bal['after_pending']<0:raise ValueError('Resturlaub reicht nicht mehr aus.')
     if approved:reconcile_closed_months(c,actor,r['user_id'],parse(r['start_at']),parse(r['end_at']))
-    notify(c,r['user_id'],'absence','Antrag '+('genehmigt' if approved else 'abgelehnt')+' · '+str(parse(r['start_at']).astimezone(TZ).date()))
+    notify(c,r['user_id'],'absence','Antrag '+('genehmigt' if approved else 'abgelehnt')+' · '+str(parse(r['start_at']).astimezone(TZ).date()),request_id=rid)
     audit(c,actor,r['user_id'],'absence',rid,'approved' if approved else 'rejected',{'note':note});return {'ok':True}
 
 def apply_correction(c,actor,r,payload):
-    uid=r['user_id'];day=payload['day']
-    if c.execute('SELECT 1 FROM staff_month_closures WHERE user_id=? AND month=?',(uid,day[:7])).fetchone():raise ValueError('Monat abgeschlossen: Korrektur über Buchhaltung als Korrekturbuchung durchführen.')
-    for field in ('start','end'):
-        value=payload.get(field)
-        if value and c.execute('SELECT 1 FROM staff_month_closures WHERE user_id=? AND month=?',(uid,str(parse(value).astimezone(TZ).date())[:7])).fetchone():raise ValueError('Zielmonat ist abgeschlossen.')
-    if payload.get('entry_body'):
-        import workday
-        for field in ('started_at','ended_at'):
-            value=payload['entry_body'].get(field)
-            if value and c.execute('SELECT 1 FROM staff_month_closures WHERE user_id=? AND month=?',(uid,str(parse(value).astimezone(TZ).date())[:7])).fetchone():raise ValueError('Zielmonat ist abgeschlossen.')
-        current=c.execute('SELECT * FROM entries WHERE id=? AND owner_id=?',(payload['entry_body']['id'],uid)).fetchone()
-        if not current or dict(current)!=payload['before']:raise ValueError('Projektstempelung wurde inzwischen geändert.')
-        workday.edit(c,uid,payload['entry_body'],now());return
-    ident=payload.get('work_id');old=c.execute('SELECT * FROM work_sessions WHERE id=? AND owner_id=?',(ident,uid)).fetchone() if ident else None
-    if ident and (not old or dict(old)!=payload['before']):raise ValueError('Stempelung wurde inzwischen geändert.')
-    a=payload.get('start');b=payload.get('end')
-    if a and b:
-        if parse(a).astimezone(TZ).date()!=date.fromisoformat(day) or parse(b)>now():raise ValueError('Korrektur muss am gewählten Tag beginnen und in der Vergangenheit liegen.')
-        if old and c.execute('SELECT 1 FROM work_pauses WHERE work_session_id=? AND (started_at<? OR ended_at IS NULL OR ended_at>?)',(ident,a,b)).fetchone():raise ValueError('Pausen liegen außerhalb der korrigierten Arbeitszeit. Bitte zuerst klären.')
-        if old and c.execute('SELECT 1 FROM entries WHERE work_session_id=? AND (started_at<? OR ended_at IS NULL OR ended_at>?)',(ident,a,b)).fetchone():raise ValueError('Projektzeiten liegen außerhalb der korrigierten Arbeitszeit. Bitte zuerst klären.')
-        if parse(b)<=parse(a):raise ValueError('Ende muss nach Beginn liegen.')
-        if c.execute('SELECT 1 FROM work_sessions WHERE owner_id=? AND id<>? AND started_at<? AND (ended_at IS NULL OR ended_at>?)',(uid,ident or 0,b,a)).fetchone():raise ValueError('Arbeitszeiten überschneiden sich.')
-        if ident:c.execute('UPDATE work_sessions SET started_at=?,ended_at=? WHERE id=? AND owner_id=?',(a,b,ident,uid))
-        else:c.execute('INSERT INTO work_sessions(owner_id,started_at,ended_at) VALUES(?,?,?)',(uid,a,b))
-    elif ident:raise ValueError('Vorhandene Stempelung benötigt Beginn und Ende.')
-    audit(c,actor,uid,'work_correction',r['id'],'applied',payload)
+    """Validate the complete proposal before changing a shift or its pauses."""
+    import workday
+    uid=r['user_id'];day=payload['day'];ident=payload.get('work_id')
+    old=c.execute('SELECT * FROM work_sessions WHERE id=? AND owner_id=?',(ident,uid)).fetchone() if ident else None
+    if ident and (not old or dict(old)!=payload['before']):raise ValueError('Stempelung wurde inzwischen geändert. Bitte neu öffnen.')
+    a,b=payload.get('start'),payload.get('end')
+    for d in {day[:7],*[str(parse(v).astimezone(TZ).date())[:7] for v in [a,b,*([old['started_at'],old['ended_at']] if old else [])] if v]}:
+        if c.execute('SELECT 1 FROM staff_month_closures WHERE user_id=? AND month=?',(uid,d)).fetchone():raise ValueError('Monat abgeschlossen. Korrekturbuchung über die Buchhaltung erforderlich.')
+    old_pauses=[dict(x) for x in c.execute('SELECT * FROM work_pauses WHERE work_session_id=? ORDER BY started_at,id',(ident,))] if ident else []
+    if old and payload.get('original_pauses') is not None and payload['original_pauses']!=old_pauses:raise ValueError('Pausen wurden inzwischen geändert. Bitte neu öffnen.')
+    if not a and not b:
+        if ident:raise ValueError('Vorhandene Stempelung benötigt Beginn und Ende.')
+        return None
+    if not a or not b or parse(b)<=parse(a):raise ValueError('Ende muss nach Beginn liegen.')
+    if parse(a).astimezone(TZ).date()!=date.fromisoformat(day) or parse(b)>now():raise ValueError('Korrektur muss am gewählten Tag beginnen und in der Vergangenheit liegen.')
+    if (parse(b)-parse(a)).total_seconds()>48*3600:raise ValueError('Eine Stempelung darf höchstens 48 Stunden umfassen. Bitte mehrtägige Einträge aufteilen.')
+    for w in c.execute('SELECT * FROM work_sessions WHERE owner_id=? AND id<>?',(uid,ident or 0)):
+        if parse(w['started_at'])<parse(b) and (not w['ended_at'] or parse(w['ended_at'])>parse(a)):raise ValueError('Arbeitszeiten überschneiden sich.')
+    projects=[dict(x) for x in c.execute('SELECT * FROM entries WHERE work_session_id=? AND is_idle=0',(ident,))] if ident else []
+    if any(parse(e['started_at'])<parse(a) or not e['ended_at'] or parse(e['ended_at'])>parse(b) for e in projects):raise ValueError('Projektzeiten liegen außerhalb der korrigierten Arbeitszeit. Bitte zuerst klären.')
+    raw=payload.get('pauses',old_pauses)
+    if not isinstance(raw,list) or len(raw)>100:raise ValueError('Ungültige Pausenliste.')
+    pauses=[]
+    for x in raw:
+        start,end=iso(parse(x['started_at'])),iso(parse(x['ended_at']))
+        if not parse(a)<=parse(start)<parse(end)<=parse(b):raise ValueError('Pausen müssen innerhalb der Arbeitszeit liegen.')
+        if any(parse(e['started_at'])<parse(end) and parse(e['ended_at'])>parse(start) for e in projects):raise ValueError('Pause überschneidet sich mit Projektzeit. Bitte zuerst die Projektstempelung korrigieren.')
+        pauses.append({'started_at':start,'ended_at':end})
+    pauses.sort(key=lambda x:x['started_at'])
+    if any(parse(x['ended_at'])>parse(y['started_at']) for x,y in zip(pauses,pauses[1:])):raise ValueError('Pausen überschneiden sich.')
+    if ident:c.execute('UPDATE work_sessions SET started_at=?,ended_at=? WHERE id=? AND owner_id=?',(a,b,ident,uid))
+    else:ident=c.execute('INSERT INTO work_sessions(owner_id,started_at,ended_at) VALUES(?,?,?)',(uid,a,b)).lastrowid
+    if 'pauses' in payload:
+        c.execute('DELETE FROM work_pauses WHERE work_session_id=?',(ident,))
+        for x in pauses:c.execute('INSERT INTO work_pauses(owner_id,work_session_id,started_at,ended_at) VALUES(?,?,?,?)',(uid,ident,x['started_at'],x['ended_at']))
+    workday.reconcile(c,uid)
+    after=dict(c.execute('SELECT * FROM work_sessions WHERE id=?',(ident,)).fetchone())
+    def total(w,ps):return None if not w or not w['ended_at'] else int((parse(w['ended_at'])-parse(w['started_at'])).total_seconds())-sum(int((parse(x['ended_at'])-parse(x['started_at'])).total_seconds()) for x in ps if x['ended_at'])
+    audit(c,actor,uid,'worktime',ident,'Arbeitszeit korrigiert' if old else 'Arbeitszeit nachgestempelt',{'day':day,'before':dict(old) if old else None,'after':after,'pauses_before':old_pauses,'pauses_after':pauses,'seconds_before':total(old,old_pauses),'seconds_after':total(after,pauses),'note':payload.get('note','')})
+    return ident
 
 def correction(c,actor,body):
-    p=policy(c)
-    if p['correction_mode']=='none':raise PermissionError('Eigene Stempelkorrekturen sind ausgeschaltet.')
+    p=policy(c);uid=int(body.get('user_id') or actor)
+    if uid!=actor:require(c,actor,'correction.review')
+    elif p['correction_mode']=='none':raise PermissionError('Eigene Stempelkorrekturen sind ausgeschaltet.')
     d=date.fromisoformat(body['day']);ident=int(body.get('work_id') or 0)
-    before=c.execute('SELECT * FROM work_sessions WHERE owner_id=? AND id=?',(actor,ident)).fetchone() if ident else None
+    before=c.execute('SELECT * FROM work_sessions WHERE owner_id=? AND id=?',(uid,ident)).fetchone() if ident else None
     if ident and not before:raise PermissionError('Stempelung nicht zugänglich.')
-    payload={'day':str(d),'work_id':ident,'before':dict(before) if before else None,'start':iso(parse(body['start'])) if body.get('start') else None,'end':iso(parse(body['end'])) if body.get('end') else None}
+    if before and ('original_start' not in body or body['original_start']!=before['started_at'] or body.get('original_end')!=before['ended_at']):raise ValueError('Stempelung wurde inzwischen geändert. Bitte neu öffnen.')
+    payload={'day':str(d),'work_id':ident,'before':dict(before) if before else None,'start':iso(parse(body['start'])) if body.get('start') else None,'end':iso(parse(body['end'])) if body.get('end') else None,'note':str(body.get('note') or '').strip()[:2000]}
+    for key in ('pauses','original_pauses'):
+        if key in body:payload[key]=body[key]
     if d>=now().astimezone(TZ).date() and not payload['start']:raise ValueError('Nur vergangene Tage können ohne Arbeit bestätigt werden.')
-    if not str(body.get('note') or '').strip():raise ValueError('Begründung erforderlich.')
+    if not payload['note']:raise ValueError('Begründung erforderlich.')
     if bool(payload['start'])!=bool(payload['end']):raise ValueError('Beginn und Ende gemeinsam angeben.')
-    cur=c.execute('INSERT INTO staff_requests(user_id,created_by,kind,start_at,end_at,whole_day,state,policy_json,note,decision_note,created_at,payload_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',(actor,actor,'correction',iso(midnight(d)),iso(midnight(d+timedelta(days=1))),1,'pending',json.dumps(p),str(body.get('note') or '')[:2000],'',iso(now()),json.dumps(payload)))
-    if p['correction_mode']=='direct':
-        apply_correction(c,actor,{'user_id':actor,'id':cur.lastrowid},payload)
-        c.execute("UPDATE staff_requests SET state='approved',decided_by=?,decided_at=? WHERE id=?",(actor,iso(now()),cur.lastrowid))
-    audit(c,actor,actor,'correction',cur.lastrowid,'submitted',payload);return {'ok':True}
+    work_id=apply_correction(c,actor,{'user_id':uid},payload)
+    cur=c.execute('INSERT INTO staff_requests(user_id,created_by,kind,start_at,end_at,whole_day,state,policy_json,note,decision_note,created_at,decided_at,decided_by,payload_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(uid,actor,'correction',iso(midnight(d)),iso(midnight(d+timedelta(days=1))),1,'approved',json.dumps(p),payload['note'],'Direkt gespeichert; keine Genehmigung erforderlich.',iso(now()),iso(now()),actor,json.dumps(payload)))
+    if not work_id:audit(c,actor,uid,'correction',cur.lastrowid,'Tag ohne Arbeitszeit bestätigt',payload)
+    if uid!=actor:notify(c,uid,'correction','Deine Arbeitszeit vom '+d.strftime('%d.%m.%Y')+' wurde korrigiert. Details stehen im Zeitverlauf.')
+    return {'ok':True,'work_id':work_id,'state':'approved'}
+
 
 def context(c,uid):
     perms=acl.permissions_for_user(c,uid)
@@ -363,7 +389,7 @@ def inbox(c,uid):
         if r['state']=='pending':
             key='correction.review' if r['kind']=='correction' else 'absence.review' if payload['kind']['rule']=='paid' else 'absence.review_unpaid'
             allowed|=key in perms
-        if allowed:r['can_decide']=can_decide(c,uid,r);out.append(r)
+        if allowed:r['can_decide']=can_decide(c,uid,r,perms);out.append(r)
     return out
 
 def account(c,actor,body):
@@ -383,12 +409,15 @@ def movement(c,actor,body):
     if c.execute('SELECT 1 FROM staff_month_closures WHERE user_id=? AND month=?',(uid,str(d)[:7])).fetchone():raise ValueError('Buchung in einen abgeschlossenen Monat nicht möglich. Aktuelles Buchungsdatum verwenden.')
     if not note or kind not in ('payout','adjustment'):raise ValueError('Art und Begründung erforderlich.')
     amount=seconds(abs(Fraction(str(body['hours']))))
+    if not amount:raise ValueError('Bitte einen Stundenbetrag größer als null eintragen.')
     if kind=='payout':amount=-amount
     elif Fraction(str(body['hours']))<0:amount=-amount
     if kind=='payout' and account_balance(c,uid,d)['balance_seconds']+amount<0:raise ValueError('Nicht genügend gebuchte Überstunden für diese Auszahlung.')
     import uuid
     c.execute('INSERT INTO staff_movements(user_id,day,seconds,kind,note,created_by,created_at,source_key) VALUES(?,?,?,?,?,?,?,?)',(uid,str(d),amount,kind,note[:2000],actor,iso(now()),uuid.uuid4().hex))
-    audit(c,actor,uid,'time_account',str(d),kind,{'seconds':amount,'note':note});return {'ok':True}
+    audit(c,actor,uid,'time_account',str(d),kind,{'seconds':amount,'note':note})
+    notify(c,uid,'time_account',('Überstunden ausgezahlt' if kind=='payout' else 'Stundenkonto korrigiert')+' · '+d.strftime('%d.%m.%Y')+' · '+str(round(amount/3600,2))+' Stunden · '+note[:200])
+    return {'ok':True}
 
 def close_month(c,actor,body):
     require(c,actor,'payroll.manage');uid=int(body['user_id']);month=str(body['month']);report=month_report(c,uid,month)
@@ -434,11 +463,17 @@ def calendar_data(c,uid,start,end):
 def handle(c,uid,action,body):
     if action=='account/read':
         require(c,uid,'staff.manage');target=int(body.get('user_id') or uid);year=int(body.get('year') or now().year)
-        person(c,target)
+        if not c.execute('SELECT id FROM users WHERE id=?',(target,)).fetchone():raise ValueError('Mitarbeiter nicht gefunden.')
         if not 2000<=year<=2099:raise ValueError('Ungültiges Jahr.')
         row=c.execute('SELECT * FROM vacation_accounts WHERE user_id=? AND year=?',(target,year)).fetchone()
         return {'year':year,'days':row['entitlement']/1000000 if row else 0,'carry':row['carry']/1000000 if row else 0,'carry_until':row['carry_until'] if row else ''}
 
+    if action=='history/read':return time_history(c,uid,body)
+    if action=='notifications/detail':return notification_detail(c,uid,body)
+    if action=='notifications/list':return notifications(c,uid,body)
+    if action=='notifications/seen':return notification_seen(c,uid,body)
+    if action=='movement/preview':return movement_preview(c,uid,body)
+    if action=='movement/reverse':return reverse_movement(c,uid,body)
     if action=='context':return context(c,uid)
     if action=='tracking/report':return tracking_report(c,uid,body)
     if action=='report':
@@ -503,14 +538,10 @@ def entry_correction(c,actor,body):
         value=body.get(field)
         if value and c.execute('SELECT 1 FROM staff_month_closures WHERE user_id=? AND month=?',(actor,str(parse(value).astimezone(TZ).date())[:7])).fetchone():raise ValueError('Zielmonat ist abgeschlossen.')
     import workday
-    if p['correction_mode']=='direct':workday.edit(c,actor,body,now());return {'ok':True}
-    # Validate using a savepoint, then roll back the proposal. Approval applies it later.
-    c.execute('SAVEPOINT entry_proposal')
-    try:workday.edit(c,actor,body,now())
-    finally:c.execute('ROLLBACK TO SAVEPOINT entry_proposal');c.execute('RELEASE SAVEPOINT entry_proposal')
-    payload={'day':str(d),'entry_body':body,'before':dict(r)}
-    cur=c.execute("INSERT INTO staff_requests(user_id,created_by,kind,start_at,end_at,whole_day,state,policy_json,note,decision_note,created_at,payload_json) VALUES(?,?,'correction',?,?,1,'pending',?,'Projektstempelung korrigieren','',?,?)",(actor,actor,iso(midnight(d)),iso(midnight(d+timedelta(days=1))),json.dumps(p),iso(now()),json.dumps(payload)))
-    audit(c,actor,actor,'correction',cur.lastrowid,'submitted',payload);return {'ok':True,'state':'pending','message':'Stempelkorrektur zur Genehmigung eingereicht.'}
+    workday.edit(c,actor,body,now())
+    after=dict(c.execute('SELECT * FROM entries WHERE id=?',(r['id'],)).fetchone())
+    audit(c,actor,actor,'worktime',r['work_session_id'] or 'entry:'+str(r['id']),'Projektstempelung korrigiert',{'day':str(d),'before':dict(r),'after':after})
+    return {'ok':True,'state':'approved','message':'Direkt gespeichert. Änderung im Verlauf dokumentiert.'}
 
 
 def absence_preview(c,uid,body):
@@ -543,8 +574,9 @@ def work_overview(c,uid,body,clock=None):
     result['week']=wm.summarize([r for r in rows if result['week_start']<=r['day']<=result['week_end']]);result['month']=wm.summarize(result['days']);return result
 
 
-def notify(c,uid,kind,message):
-    c.execute('INSERT INTO user_notifications(user_id,kind,message,created_at) VALUES(?,?,?,?)',(uid,kind,message,iso(now())))
+def notify(c,uid,kind,message,request_id=None,project_id=None):
+    ident=c.execute('INSERT INTO user_notifications(user_id,kind,message,created_at) VALUES(?,?,?,?)',(uid,kind,message,iso(now()))).lastrowid
+    if request_id or project_id:c.execute('INSERT INTO notification_links VALUES(?,?,?)',(ident,request_id,project_id))
 
 def reconcile_closed_months(c,actor,uid,a,b):
     import uuid
@@ -561,14 +593,15 @@ def reconcile_closed_months(c,actor,uid,a,b):
         audit(c,actor,uid,'payroll_revision',month,'posted',{'seconds':change,'total_revision':difference})
 
 
-def can_decide(c,uid,r):
+def can_decide(c,uid,r,perms=None):
     if r['state']=='awaiting_employee':return uid==r['user_id']
     if r['state']!='pending':return False
     payload=r.get('payload') if isinstance(r,dict) else None
     payload=payload or json.loads(r['payload_json']);p=json.loads(r['policy_json'])
     key='correction.review' if r['kind']=='correction' else 'absence.review' if payload['kind']['rule']=='paid' else 'absence.review_unpaid'
-    if not acl.can(c,uid,key):return False
-    if uid==r['user_id']:return p['self_approval'] and acl.can(c,uid,'correction.review_self' if r['kind']=='correction' else 'absence.review_self')
+    if perms is None:perms=acl.permissions_for_user(c,uid)
+    if key not in perms:return False
+    if uid==r['user_id']:return p['self_approval'] and ('correction.review_self' if r['kind']=='correction' else 'absence.review_self') in perms
     return True
 
 
@@ -588,14 +621,82 @@ def tracking_report(c,actor,body):
     for r in rows:
         a=midnight(date.fromisoformat(r['day']));b=midnight(date.fromisoformat(r['day'])+timedelta(days=1))
         clock=now();r['work']=[{'id':w['id'],'start':iso(max(parse(w['started_at']),a)),'end':iso(min(parse(w['ended_at']),b)) if w['ended_at'] else (iso(b) if b<=clock else None)} for w in sorted(data['work'],key=lambda w:w['started_at']) if parse(w['started_at'])<min(b,clock) and (min(parse(w['ended_at']),clock) if w['ended_at'] else clock)>a]
-        r['correction_seconds']=sum(m['seconds'] for m in movements if m['day']==r['day'] and m['kind']=='adjustment')
+        r['correction_seconds']=sum(m['seconds'] for m in movements if m['day']==r['day'] and m['kind'] in ('adjustment','payout_reversal'))
         r['payout_seconds']=-sum(m['seconds'] for m in movements if m['day']==r['day'] and m['kind']=='payout')
         booked=frozen.get(r['day'],r)['posted_seconds'];balance+=booked+r['correction_seconds']-r['payout_seconds']
         r['balance_seconds']=balance if configured and r['state'] not in ('unconfigured','planned') else None
         r['frozen']=r['day'] in frozen
     requests=data['requests']
-    for r in requests:r['can_decide']=can_decide(c,actor,r)
+    perms=acl.permissions_for_user(c,actor) if requests else set()
+    for r in requests:r['can_decide']=can_decide(c,actor,r,perms)
     if uid!=actor:
         requests=[]
         for r in rows:r['labels']=['Abwesend'] if r['labels'] else []
-    return {'user_id':uid,'own':uid==actor,'from':str(start),'to':str(end-timedelta(days=1)),'day':str(selected),'mode':mode,'week_number':selected.isocalendar().week,'days':rows,'movements':movements,'work':data['work'],'projects':[dict(r) for r in c.execute('SELECT e.*,p.name project_name FROM entries e JOIN projects p ON p.id=e.project_id WHERE e.owner_id=? AND e.is_idle=0 AND e.started_at<? AND (e.ended_at IS NULL OR e.ended_at>?) ORDER BY e.started_at',(uid,iso(midnight(end)),iso(midnight(start))))],'requests':requests,'account':account_balance(c,uid),'vacation':vacation_balance(c,uid,selected.year),'can_view_team':acl.can(c,actor,'staff.view')}
+    full_pauses=[dict(p) for p in c.execute('SELECT * FROM work_pauses WHERE owner_id=? ORDER BY started_at,id',(uid,))]
+    return {'user_id':uid,'own':uid==actor,'from':str(start),'to':str(end-timedelta(days=1)),'day':str(selected),'mode':mode,'week_number':selected.isocalendar().week,'days':rows,'movements':movements,'work':[dict(w,pauses=[p for p in full_pauses if p['work_session_id']==w['id']]) for w in data['work']],'projects':[dict(r) for r in c.execute('SELECT e.*,p.name project_name FROM entries e JOIN projects p ON p.id=e.project_id WHERE e.owner_id=? AND e.is_idle=0 AND e.started_at<? AND (e.ended_at IS NULL OR e.ended_at>?) ORDER BY e.started_at',(uid,iso(midnight(end)),iso(midnight(start))))],'requests':requests,'account':account_balance(c,uid),'vacation':vacation_balance(c,uid,selected.year),'can_view_team':acl.can(c,actor,'staff.view')}
+
+
+def time_history(c,actor,body):
+    uid=int(body.get('user_id') or actor)
+    if uid!=actor:require(c,actor,'staff.view')
+    day=date.fromisoformat(body['day']);a,b=iso(midnight(day)),iso(midnight(day+timedelta(days=1)))
+    work=[dict(x) for x in c.execute('SELECT * FROM work_sessions WHERE owner_id=? AND started_at<? AND (ended_at IS NULL OR ended_at>?)',(uid,b,a))]
+    ids=[str(w['id']) for w in work]
+    condition='a.entity_id IN ('+','.join('?' for _ in ids)+') OR ' if ids else ''
+    rows=c.execute("SELECT a.*,u.username,p.first_name,p.last_name FROM audit_events a LEFT JOIN users u ON u.id=a.actor_id LEFT JOIN user_profiles p ON p.user_id=a.actor_id WHERE a.owner_id=? AND a.entity_type IN ('worktime','work_correction','correction') AND ("+condition+"a.changes_json LIKE ?) ORDER BY a.id LIMIT 1000",(uid,*ids,'%"day": "'+str(day)+'"%'))
+    events=[]
+    for r in rows:
+        changes=json.loads(r['changes_json']);name=((r['last_name'] or '')+', '+(r['first_name'] or '')).strip(', ') or r['username'] or 'Nicht dokumentiert'
+        events.append({'id':r['id'],'action':r['action'],'created_at':r['created_at'],'actor':name,'changes':changes,'source':r['source']})
+    return {'history':events,'employee_id':uid,'day':str(day)}
+
+
+def notifications(c,uid,body):
+    requests=[r for r in inbox(c,uid) if r['can_decide']]
+    manager=acl.can(c,uid,'duty.manage')
+    swaps=[dict(r) for r in c.execute("SELECT * FROM duty_swaps WHERE (state='pending' AND to_user=?)"+(" OR state='review'" if manager else '')+' ORDER BY created_at',(uid,))]
+    rows=[dict(r) for r in c.execute('SELECT n.*,r.read_at,l.request_id,l.project_id FROM user_notifications n LEFT JOIN notification_links l ON l.notification_id=n.id LEFT JOIN notification_reads r ON r.user_id=n.user_id AND r.notification_id=n.id WHERE n.user_id=? ORDER BY n.id DESC LIMIT 200',(uid,))]
+    unread=c.execute('SELECT COUNT(*) n FROM user_notifications n LEFT JOIN notification_reads r ON r.user_id=n.user_id AND r.notification_id=n.id WHERE n.user_id=? AND r.notification_id IS NULL',(uid,)).fetchone()['n']
+    return {'notifications':rows,'requests':requests,'swaps':swaps,'unread':unread,'action_count':len(requests)+len(swaps)}
+
+
+def notification_seen(c,uid,body):
+    ident=int(body['id'])
+    if not c.execute('SELECT id FROM user_notifications WHERE id=? AND user_id=?',(ident,uid)).fetchone():raise PermissionError('Benachrichtigung nicht zugänglich.')
+    c.execute('INSERT OR IGNORE INTO notification_reads VALUES(?,?,?)',(uid,ident,iso(now())))
+    return {'ok':True}
+
+
+def reverse_movement(c,actor,body):
+    require(c,actor,'payroll.manage');ident=int(body['id']);d=date.fromisoformat(body['day']);note=str(body.get('note') or '').strip()
+    r=c.execute("SELECT * FROM staff_movements WHERE id=? AND kind='payout'",(ident,)).fetchone()
+    if not r:raise ValueError('Auszahlung nicht gefunden.')
+    if not note or d>now().astimezone(TZ).date() or str(d)<r['day']:raise ValueError('Begründung und gültiges Stornodatum ab Auszahlungsdatum erforderlich.')
+    if c.execute('SELECT 1 FROM staff_month_closures WHERE user_id=? AND month=?',(r['user_id'],str(d)[:7])).fetchone():raise ValueError('Storno in einen offenen Monat buchen.')
+    key='payout-reversal:'+str(ident)
+    if c.execute('SELECT id FROM staff_movements WHERE source_key=?',(key,)).fetchone():raise ValueError('Auszahlung ist bereits storniert.')
+    new_id=c.execute('INSERT INTO staff_movements(user_id,day,seconds,kind,note,created_by,created_at,source_key) VALUES(?,?,?,?,?,?,?,?)',(r['user_id'],str(d),-r['seconds'],'payout_reversal','Storno Auszahlung #'+str(ident)+': '+note[:1900],actor,iso(now()),key)).lastrowid
+    audit(c,actor,r['user_id'],'time_account',new_id,'Auszahlung storniert',{'original_id':ident,'seconds':-r['seconds'],'note':note})
+    notify(c,r['user_id'],'time_account','Auszahlung storniert · '+d.strftime('%d.%m.%Y')+' · '+str(round(-r['seconds']/3600,2))+' Stunden gutgeschrieben · '+note[:200])
+    return {'ok':True,'id':new_id}
+
+
+def movement_preview(c,actor,body):
+    require(c,actor,'payroll.manage');uid=int(body.get('user_id') or actor);d=date.fromisoformat(body.get('day') or str(now().astimezone(TZ).date()))
+    if d>now().astimezone(TZ).date():raise ValueError('Keine zukünftigen Kontobuchungen.')
+    payouts=[dict(r) for r in c.execute("SELECT m.* FROM staff_movements m WHERE m.user_id=? AND m.kind='payout' ORDER BY m.day DESC,m.id DESC LIMIT 100",(uid,))]
+    reversed_ids={r['source_key'] for r in c.execute("SELECT source_key FROM staff_movements WHERE user_id=? AND kind='payout_reversal'",(uid,))}
+    return {'account':account_balance(c,uid,d),'payouts':[p for p in payouts if 'payout-reversal:'+str(p['id']) not in reversed_ids]}
+
+
+def notification_detail(c,uid,body):
+    r=c.execute('SELECT n.*,l.request_id,l.project_id FROM user_notifications n LEFT JOIN notification_links l ON l.notification_id=n.id WHERE n.id=? AND n.user_id=?',(int(body['id']),uid)).fetchone()
+    if not r:raise PermissionError('Benachrichtigung nicht zugänglich.')
+    result={'notification':dict(r)}
+    if r['request_id']:
+        request=c.execute('SELECT * FROM staff_requests WHERE id=?',(r['request_id'],)).fetchone()
+        if request:
+            request=dict(request);payload=json.loads(request['payload_json']);request['payload']=payload
+            permitted=request['user_id']==uid or acl.can(c,uid,'absence.review' if payload.get('kind',{}).get('rule')=='paid' else 'absence.review_unpaid')
+            if permitted:request['can_decide']=can_decide(c,uid,request);result['request']=request
+    return result

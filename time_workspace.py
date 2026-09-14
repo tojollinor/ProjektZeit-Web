@@ -116,7 +116,7 @@ def events(c, uid, body, allow_team=False):
     team = bool(body.get('team')) and allow_team and bool(cid or pid)
     if body.get('team') and not team: raise PermissionError('Teamansicht ist nur für Administratoren in einem Kunden oder Projekt verfügbar.')
     if cid and not c.execute('SELECT id FROM customers WHERE id=?'+('' if team else ' AND owner_id=?'), (cid,) if team else (cid,uid)).fetchone(): raise PermissionError('Kunde nicht zugänglich.')
-    if pid and not c.execute('SELECT id FROM projects WHERE id=?'+('' if team else ' AND owner_id=?'), (pid,) if team else (pid,uid)).fetchone(): raise PermissionError('Projekt nicht zugänglich.')
+    if pid and not c.execute('SELECT id FROM projects WHERE id=?'+('' if team else ' AND (owner_id=? OR assigned_user_id=?)'), (pid,) if team else (pid,uid,uid)).fetchone(): raise PermissionError('Projekt nicht zugänglich.')
     result = []
     args = [iso(end), iso(start)]
     where = 'e.is_idle=0 AND e.started_at<? AND (e.ended_at IS NULL OR e.ended_at>?)'
@@ -188,7 +188,7 @@ def workspace(c,uid,body,allow_team=False):
                 overlaps.add((e['source'],e['key'],e['owner_id']));overlaps.add((old['source'],old['key'],old['owner_id']))
         active.append((b,e))
     identities=customer_identities(c,uid)
-    projects=[dict(r) for r in c.execute('SELECT id,name,customer_id FROM projects WHERE owner_id=? AND is_system=0 ORDER BY name',(uid,))]
+    projects=[dict(r) for r in c.execute('SELECT id,name,customer_id FROM projects WHERE (owner_id=? OR assigned_user_id=?) AND is_system=0 ORDER BY name',(uid,uid))]
     for e in rows:
         e['overlap']=(e['source'],e['key'],e['owner_id']) in overlaps
         matches=identities.get((e['source'],e.get('match_type'),e.get('match_value')),set())
@@ -209,7 +209,7 @@ def assign(c,uid,body):
     import admin_controls
     admin_controls.require_permission(c,uid,'customers.edit')
     pid=int(body.get('project_id') or 0)
-    project=c.execute('SELECT id,customer_id FROM projects WHERE owner_id=? AND id=? AND is_system=0',(uid,pid)).fetchone()
+    project=__import__('project_access').get(c,uid,pid)
     if not project or not project['customer_id']:raise ValueError('Bitte ein eigenes Projekt mit Kunde auswählen.')
     selections=body.get('items') or []
     if not isinstance(selections,list) or not 1<=len(selections)<=100:raise ValueError('Bitte 1 bis 100 Ereignisse auswählen.')

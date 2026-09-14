@@ -37,17 +37,23 @@
   closeMenu();setTimeout(window.pzSyncNavigation,0);
  };
 
+ let previousNavView=null;
  window.pzSyncNavigation=()=>{
   const active=currentView();
-  const admin=q('.admin-nav-group');if(admin)setGroup(admin,active==='admin-options');
-  const settings=q('[data-pz-nav-group="settings"]');if(settings)setGroup(settings,active.startsWith('settings-'));
-  const workshop=q('[data-pz-nav-group="workshop"]');if(workshop)setGroup(workshop,active.startsWith('workshop-'));
+  const changed=previousNavView!==active;previousNavView=active;
+  const admin=q('.admin-nav-group');if(admin&&changed)setGroup(admin,['admin-options','staff-settings'].includes(active));
+  const bookkeeping=q('[data-pz-nav-group=bookkeeping]');if(bookkeeping&&changed)setGroup(bookkeeping,['bookkeeping','absence-approvals'].includes(active));
+  qa('[data-company-nav=staff-settings]').forEach(b=>b.classList.toggle('active',active==='staff-settings'));
+  const settings=q('[data-pz-nav-group="settings"]');if(settings&&changed)setGroup(settings,active.startsWith('settings-'));
+  const workshop=q('[data-pz-nav-group="workshop"]');if(workshop&&changed)setGroup(workshop,active.startsWith('workshop-'));
   qa('[data-pz-nav-target]').forEach(b=>b.classList.toggle('active',b.dataset.pzNavTarget===active));
   if(active==='admin-options'){
    qa('.admin-subnav[data-admin-open]').forEach(b=>b.classList.toggle('active',Boolean(q(`[data-admin-tab="${b.dataset.adminOpen}"]`)?.classList.contains('primary'))));
   }
  };
 
+ function setupBookkeeping(){const button=q('[data-view="bookkeeping"]',nav);if(!button||q('[data-pz-nav-group="bookkeeping"]'))return;const open=button.onclick;const {submenu}=makeGroup(button,'bookkeeping');button.dataset.bookkeepingToggle='';const overview=makeSub('Projektabrechnung','bookkeeping');overview.onclick=open;submenu.append(overview);const absence=q('[data-company-nav="absence-approvals"]');if(absence){absence.className='pz-subnav';submenu.append(absence);}button.onclick=e=>{e.stopPropagation();setGroup(button.parentElement,button.getAttribute('aria-expanded')!=='true');};}
+ document.addEventListener('pz-company-ready',()=>{setupBookkeeping();previousNavView=null;window.pzSyncNavigation();});
  function setupSettings(){
   if(q('[data-pz-nav-group="settings"]'))return true;
   const button=q('[data-view="settings"]',nav);if(!button)return false;
@@ -100,8 +106,8 @@
  function colorIndex(name){let n=0;for(const c of String(name||''))n=(n+c.charCodeAt(0))%6;return n;}
  function barRows(map,limit=7){const rows=[...map.entries()].sort((a,b)=>b[1]-a[1]).slice(0,limit),max=Math.max(1,...rows.map(x=>x[1]));return rows.map(([name,value])=>`<div class="pz-stat-bar-row"><div><strong>${h(name||'Ohne Zuordnung')}</strong><span>${fmtHours(value)}</span></div><div class="pz-stat-bar"><i class="c${colorIndex(name)}" style="width:${Math.max(2,value/max*100)}%"></i></div></div>`).join('')||'<p class="muted">Für diesen Zeitraum liegen noch keine Daten vor.</p>';}
  function lineChart(days,values){
-  const w=1000,hg=230,p=28,max=Math.max(1,...values),step=(w-p*2)/Math.max(1,days.length-1),points=values.map((v,i)=>`${p+i*step},${hg-p-(v/max)*(hg-p*2)}`).join(' ');
-  const labels=days.map((d,i)=>i%Math.max(1,Math.ceil(days.length/7))===0?`<text x="${p+i*step}" y="${hg-5}" text-anchor="middle">${d.slice(5).split('-').reverse().join('.')}</text>`:'').join('');
+  const w=Math.max(320,Math.round(q('#view-statistics')?.clientWidth||1000)-48),hg=220,p=28,max=Math.max(1,...values),step=(w-p*2)/Math.max(1,days.length-1),points=values.map((v,i)=>`${p+i*step},${hg-p-(v/max)*(hg-p*2)}`).join(' ');
+  const labels=days.map((d,i)=>i%Math.max(1,Math.ceil(days.length/Math.max(3,Math.floor(w/100))))===0?`<text x="${p+i*step}" y="${hg-5}" text-anchor="middle">${d.slice(5).split('-').reverse().join('.')}</text>`:'').join('');
   return `<div class="pz-line-chart"><svg viewBox="0 0 ${w} ${hg}" role="img" aria-label="Projektzeit im Zeitverlauf"><line x1="${p}" y1="${hg-p}" x2="${w-p}" y2="${hg-p}" class="axis"/><polyline points="${points}" class="line"/>${values.map((v,i)=>`<circle cx="${p+i*step}" cy="${hg-p-(v/max)*(hg-p*2)}" r="4"><title>${days[i]} · ${fmtHours(v)}</title></circle>`).join('')}${labels}</svg></div>`;
  }
  let statisticsGeneration=0;
@@ -116,7 +122,7 @@
  }
 
  function fixStarfaceStatus(){
-  const card=q('#integration-cards [data-provider="starface"]');if(!card)return;const missing=q('.missing-secret',card),badge=q('.badge',card),connect=q('[data-pz-starface-connect]',card);if(missing&&/kein client-secret/i.test(missing.textContent||'')){if(badge){if(badge.textContent!=='Nicht eingerichtet')badge.textContent='Nicht eingerichtet';badge.dataset.connectionState='not-configured';}if(connect)connect.disabled=true;}
+  const card=q('#integration-cards [data-provider="starface"]');if(!card)return;const missing=q('.missing-secret',card),badge=q('.badge',card),connect=q('[data-pz-starface-connect]',card);if(missing&&/kein client-secret/i.test(missing.textContent||'')){if(badge){if(badge.textContent!=='Nicht eingerichtet')badge.textContent='Nicht eingerichtet';badge.dataset.connectionState='not-configured';}for(const button of qa('button',card)){button.disabled=true;button.title='Client-Secret fehlt. Bitte einen Administrator informieren.';button.style.cursor='not-allowed';}}
  }
 
  setupSettings();setupWorkshop();setupStatistics();moveSettingsContent();fixStarfaceStatus();window.pzSyncNavigation();

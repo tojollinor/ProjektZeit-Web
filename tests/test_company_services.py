@@ -63,6 +63,7 @@ class CompanyServiceTest(unittest.TestCase):
     def test_billing_requires_text_and_uses_service_date_and_name(self):
         tw.review(self.c,1,{'day':'2026-09-07','source':'manual','key':'1','billable':True})
         with self.assertRaises(ValueError):cp.billing_submit(self.c,1,{'project_id':1})
+        self.c.execute("UPDATE projects SET status='closed',active=0 WHERE id=1")
         cp.billing_submit(self.c,1,{'project_id':1,'descriptions':{'2026-09-07':'Kasse aktualisiert\nFunktion geprüft'}})
         text=cp.billing_list(self.c,1,{})['descriptions'][0]['text'];self.assertIn('07.09.2026 · Muster, Max',text);self.assertNotIn('13.09.2026',text);self.assertIn('• Funktion geprüft',text)
     def test_changed_review_cannot_be_billed(self):
@@ -73,9 +74,9 @@ class CompanyServiceTest(unittest.TestCase):
         self.assertEqual(r['state'],'awaiting_employee')
         with self.assertRaises(PermissionError):st.decide(self.c,1,{'id':r['id'],'version':1,'approve':True})
         st.decide(self.c,2,{'id':r['id'],'version':1,'approve':True});events=st.calendar_data(self.c,1,date(2026,9,14),date(2026,9,15));absence=next(e for e in events if e['type']=='absence');self.assertEqual(absence['title'],'Abwesend');self.assertEqual(absence['details'],'')
-    def test_project_correction_is_proposal_until_review(self):
+    def test_project_correction_is_direct_and_audited(self):
         self.c.commit();r=st.entry_correction(self.c,1,{'id':1,'original_start':'2026-09-07T07:00:00+00:00','original_end':'2026-09-07T09:00:00+00:00','original_note':'','project_id':1,'category_id':1,'started_at':'2026-09-07T07:00:00+00:00','ended_at':'2026-09-07T10:00:00+00:00','note':'Korrektur'})
-        self.assertEqual(r['state'],'pending');self.assertEqual(self.c.execute('SELECT note FROM entries WHERE id=1').fetchone()[0],'')
+        self.assertEqual(r['state'],'approved');self.assertEqual(self.c.execute('SELECT note FROM entries WHERE id=1').fetchone()[0],'Korrektur');self.assertTrue(self.c.execute("SELECT id FROM audit_events WHERE entity_type='worktime'").fetchone())
     def test_rotations_and_confirmed_day_swap_preserve_other_days(self):
         duty_plan.save(self.c,1,{'from':'2026-09-14T08:00:00+02:00','to':'2026-09-28T08:00:00+02:00','members':[1,2],'period_days':7,'review_swaps':False})
         slot=self.c.execute('SELECT id FROM duty_slots WHERE user_id=1').fetchone()[0]

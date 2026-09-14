@@ -12,7 +12,7 @@
 
  function fmtDate(value){if(!value)return '–';const d=new Date(value);return Number.isNaN(+d)?String(value):d.toLocaleString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'});}
  function activeName(){return q('.view.active-view')?.id?.replace(/^view-/,'')||'';}
- function systemView(name=activeName()){return name==='settings'||name==='account'||name==='admin-options'||name==='logs'||name==='workshop'||['staff-settings','absence-approvals','bookkeeping'].includes(name)||name.startsWith('settings-')||name.startsWith('workshop-');}
+ function systemView(name=activeName()){return name==='settings'||name==='account'||name==='admin-options'||name==='logs'||name==='workshop'||['staff-settings','absence-approvals','bookkeeping','notifications'].includes(name)||name.startsWith('settings-')||name.startsWith('workshop-');}
  function syncSystemState(name=activeName(),resetScroll=false){
   const system=systemView(name),panel=q('.work-panel');
   document.documentElement.classList.toggle('pz-system-view',system);

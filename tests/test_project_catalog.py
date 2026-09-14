@@ -39,7 +39,7 @@ class ProjectCatalogTests(unittest.TestCase):
             c.execute("INSERT INTO entries(owner_id,project_id,category_id,started_at,ended_at,note) VALUES(?,?,?,'2026-09-01T08:00:00+00:00','2026-09-01T09:00:00+00:00','Original')",(self.uid,self.pids[0],self.cid))
             new=pc.clone(c,self.uid,{'project_id':self.pids[0],'name':'Update 2'})['project_id']
             p=pc.project(c,self.uid,new)
-            self.assertEqual((p['customer_id'],p['status'],p['active'],p['billing_state']),(self.customer,'active',1,''))
+            self.assertEqual((p['customer_id'],p['status'],p['active'],p['billing_state']),(self.customer,'open',1,''))
             self.assertEqual([r['tag_id'] for r in c.execute('SELECT tag_id FROM project_tag_links WHERE project_id=?',(new,))],[t])
             self.assertEqual(c.execute('SELECT COUNT(*) n FROM entries WHERE project_id=?',(new,)).fetchone()['n'],0)
             self.assertEqual(c.execute('SELECT template_id FROM project_origins WHERE project_id=?',(new,)).fetchone()['template_id'],self.pids[0])

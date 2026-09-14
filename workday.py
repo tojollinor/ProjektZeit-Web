@@ -18,6 +18,7 @@ def _reconcile_existing(c):
 
 
 def migrate(c):
+    __import__('system_features').migrate_audit(c)
     if getattr(c, 'dialect', '') == 'mariadb':
         c.executescript('''CREATE TABLE IF NOT EXISTS work_sessions (
             id INTEGER PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES users(id),
@@ -30,6 +31,8 @@ def migrate(c):
             ALTER TABLE entries ADD COLUMN IF NOT EXISTS is_idle INTEGER NOT NULL DEFAULT 0;
             ALTER TABLE entries ADD COLUMN IF NOT EXISTS work_session_id INTEGER REFERENCES work_sessions(id);
             ALTER TABLE projects ADD COLUMN IF NOT EXISTS active INTEGER NOT NULL DEFAULT 1;
+            ALTER TABLE projects ADD COLUMN IF NOT EXISTS assigned_user_id INTEGER;
+            ALTER TABLE projects ADD COLUMN IF NOT EXISTS status VARCHAR(24) NOT NULL DEFAULT '';
             ALTER TABLE projects ADD COLUMN IF NOT EXISTS is_system INTEGER NOT NULL DEFAULT 0;
             ALTER TABLE work_sessions ADD COLUMN IF NOT EXISTS open_owner INTEGER
               GENERATED ALWAYS AS (CASE WHEN ended_at IS NULL THEN owner_id ELSE NULL END) PERSISTENT;
@@ -49,6 +52,8 @@ def migrate(c):
         ('entries', 'is_idle', 'INTEGER NOT NULL DEFAULT 0'),
         ('entries', 'work_session_id', 'INTEGER REFERENCES work_sessions(id)'),
         ('projects', 'active', 'INTEGER NOT NULL DEFAULT 1'),
+        ('projects', 'assigned_user_id', 'INTEGER'),
+        ('projects', 'status', "VARCHAR(24) NOT NULL DEFAULT ''"),
         ('projects', 'is_system', 'INTEGER NOT NULL DEFAULT 0'),
     ):
         if column not in [r['name'] for r in c.execute('PRAGMA table_info(%s)' % table)]:
@@ -128,7 +133,7 @@ def reconcile(c, uid):
             if row['id'] not in keep:c.execute('DELETE FROM entries WHERE id=?',(row['id'],))
 
 
-def transition(c, uid, action, body, now):
+def _transition(c, uid, action, body, now):
     c.execute('BEGIN IMMEDIATE')
     current=c.execute('SELECT * FROM work_sessions WHERE owner_id=? AND ended_at IS NULL',(uid,)).fetchone();t=iso(now)
     if action=='begin':
@@ -148,7 +153,7 @@ def transition(c, uid, action, body, now):
         else:raise ValueError('Bitte zuerst die Pause beenden.')
     if action=='switch':
         pid,cid=body.get('project_id'),body.get('category_id')
-        if not c.execute('SELECT 1 FROM projects WHERE id=? AND owner_id=? AND active=1 AND is_system=0',(pid,uid)).fetchone():raise ValueError('Bitte ein aktives Projekt auswählen.')
+        if not __import__('project_access').can_work(c,uid,pid):raise ValueError('Bitte ein aktives Projekt auswählen.')
         if not c.execute('SELECT 1 FROM categories WHERE id=? AND owner_id=?',(cid,uid)).fetchone():raise ValueError('Bitte eine Zeitkategorie auswählen.')
         running=c.execute('SELECT * FROM entries WHERE owner_id=? AND is_idle=0 AND ended_at IS NULL',(uid,)).fetchone()
         if running and running['project_id']==pid and running['category_id']==cid:return
@@ -158,6 +163,25 @@ def transition(c, uid, action, body, now):
         overlap(c,uid,now,None);created=c.execute('INSERT INTO entries(owner_id,project_id,category_id,started_at,note,work_session_id) VALUES(?,?,?,?,?,?)',(uid,pid,cid,t,str(body.get('note',''))[:2000],current['id']))
         if entry_context_hook:entry_context_hook(c,uid,created.lastrowid,cid)
     reconcile(c,uid)
+
+
+def transition(c, uid, action, body, now):
+    import system_features
+    before=c.execute('SELECT * FROM work_sessions WHERE owner_id=? AND ended_at IS NULL',(uid,)).fetchone()
+    running=c.execute('SELECT id,project_id FROM entries WHERE owner_id=? AND is_idle=0 AND ended_at IS NULL',(uid,)).fetchone()
+    pause_before=active_pause(c,uid,before['id']) if before else None
+    _transition(c,uid,action,body,now)
+    after=c.execute('SELECT * FROM work_sessions WHERE owner_id=? ORDER BY id DESC LIMIT 1',(uid,)).fetchone()
+    session=before or after
+    if action=='switch' and running:
+        unchanged=c.execute('SELECT ended_at FROM entries WHERE id=?',(running['id'],)).fetchone()
+        if unchanged and not unchanged['ended_at']:return
+    labels={'begin':'Eingestempelt um','end':'Ausgestempelt um','pause':'Pause eingestempelt um','resume':'Pause ausgestempelt um','switch':'Projekt gestartet um','idle':'Projekt beendet um'}
+    if running and action in ('switch','idle','pause','end'):
+        current=c.execute('SELECT ended_at FROM entries WHERE id=?',(running['id'],)).fetchone()
+        if current and current['ended_at']:system_features.audit(c,uid,uid,'worktime',session['id'],'Projekt beendet um',{'at':iso(now),'project_id':running['project_id']},source='stamp')
+    if action=='end' and pause_before:system_features.audit(c,uid,uid,'worktime',session['id'],'Pause ausgestempelt um',{'at':iso(now),'automatic':True},source='stamp')
+    if action!='idle':system_features.audit(c,uid,uid,'worktime',session['id'],labels.get(action,action),{'at':iso(now),'project_id':body.get('project_id') if action=='switch' else None},source='stamp')
 
 
 def edit(c, uid, body, now):
@@ -171,7 +195,7 @@ def edit(c, uid, body, now):
     a,b=stamp(body['started_at']),stamp(body['ended_at'])
     if b<=a or b>now:raise ValueError('Das Ende muss nach dem Start und darf nicht in der Zukunft liegen.')
     pid,cid=body.get('project_id'),body.get('category_id')
-    if not c.execute('SELECT 1 FROM projects WHERE id=? AND owner_id=? AND is_system=0',(pid,uid)).fetchone() or not c.execute('SELECT 1 FROM categories WHERE id=? AND owner_id=?',(cid,uid)).fetchone():raise ValueError('Projekt oder Kategorie ist ungültig.')
+    if not __import__('project_access').get(c,uid,pid) or not c.execute('SELECT 1 FROM categories WHERE id=? AND owner_id=?',(cid,uid)).fetchone():raise ValueError('Projekt oder Kategorie ist ungültig.')
     if row['work_session_id']:
         work=c.execute('SELECT * FROM work_sessions WHERE id=?',(row['work_session_id'],)).fetchone()
         if a<stamp(work['started_at']) or (work['ended_at'] and b>stamp(work['ended_at'])):raise ValueError('Die Stempelung muss innerhalb ihrer Arbeitszeit bleiben.')

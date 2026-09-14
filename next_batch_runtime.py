@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 import admin_controls
 import system_features
 
-PROJECT_STATUSES = {"active": "Aktiv", "parked": "Geparkt", "closed": "Geschlossen"}
+PROJECT_STATUSES = {"open": "Offen", "active": "Aktiv", "parked": "Geparkt", "closed": "Abgeschlossen"}
 BILLING_STATES = {"": "Nicht vorgemerkt", "pending": "Zur Abrechnung", "in_progress": "In Bearbeitung", "billed": "Abgerechnet"}
 PERMISSIONS = {
     "Buchhaltung": [
@@ -73,6 +73,7 @@ def migrate(c):
     """)
     cols = _columns(c, "projects")
     additions = [
+        ("assigned_user_id", "INTEGER"),
         ("status", "VARCHAR(24) NOT NULL DEFAULT 'active'"),
         ("billing_state", "VARCHAR(24) NOT NULL DEFAULT ''"),
         ("status_updated_at", "VARCHAR(40) NOT NULL DEFAULT ''"),
@@ -324,22 +325,24 @@ def install(app):
                     status = str(body.get("status") or "")
                     if status not in PROJECT_STATUSES:
                         raise ValueError("Ungültiger Projektstatus.")
-                    row = c.execute("SELECT * FROM projects WHERE id=? AND owner_id=? AND is_system=0", (pid, uid)).fetchone()
-                    if not row:
-                        raise ValueError("Projekt nicht gefunden.")
-                    if status != "active" and c.execute(
-                        "SELECT 1 FROM entries WHERE owner_id=? AND project_id=? AND ended_at IS NULL", (uid, pid)
+                    import project_access
+                    row=project_access.get(c,uid,pid,accounting=True)
+                    if uid not in (row['owner_id'],row.get('assigned_user_id')):admin_controls.require_permission(c,uid,'bookkeeping.manage')
+                    if status not in ("open","active") and c.execute(
+                        "SELECT 1 FROM entries WHERE project_id=? AND ended_at IS NULL", (pid,)
                     ).fetchone():
                         raise ValueError("Das Projekt läuft gerade. Bitte zuerst die laufende Zeiterfassung beenden.")
                     old = str(row["status"] or ("active" if row["active"] else "closed"))
+                    if body.get("original_status") is not None and body["original_status"]!=old:raise ValueError("Projektstatus wurde inzwischen geändert. Bitte Details neu öffnen.")
                     billing = str(row["billing_state"] or "")
                     if status == "closed" and _bool(body.get("send_to_billing")):
                         import company_projects
+                        c.execute("UPDATE projects SET status='closed',active=0 WHERE id=?",(pid,))
                         result=company_projects.billing_submit(c,uid,{**body,'project_id':pid})
                         return self.send_json(200,result)
-                    c.execute("""UPDATE projects SET status=?,active=?,billing_state=?,status_updated_at=? WHERE id=? AND owner_id=?""",
-                              (status, 1 if status == "active" else 0, billing, now_iso(), pid, uid))
-                    system_features.audit(c, uid, uid, "project", pid, "Status geändert",
+                    c.execute("""UPDATE projects SET status=?,active=?,billing_state=?,status_updated_at=? WHERE id=?""",
+                              (status, 1 if status in ("open","active") else 0, billing, now_iso(), pid))
+                    system_features.audit(c, row["owner_id"], uid, "project", pid, "Status geändert",
                                           {"status": {"old": old, "new": status},
                                            "billing_state": {"old": row["billing_state"], "new": billing}})
                     return self.send_json(200, {"ok": True, "status": status, "billing_state": billing})
@@ -349,9 +352,9 @@ def install(app):
                     for r in c.execute("""SELECT p.id,p.name,p.status,p.billing_state,p.status_updated_at,
                                          COALESCE(cu.name,'') customer
                                          FROM projects p LEFT JOIN customers cu ON cu.id=p.customer_id
-                                         WHERE p.owner_id=? AND p.is_system=0 AND p.billing_state<>''
+                                         WHERE p.is_system=0 AND p.billing_state<>''
                                          ORDER BY CASE p.billing_state WHEN 'pending' THEN 0 WHEN 'in_progress' THEN 1 ELSE 2 END,
-                                                  p.status_updated_at DESC,p.name""", (uid,)):
+                                                  p.status_updated_at DESC,p.name"""):
                         rows.append(dict(r))
                     return self.send_json(200, {"projects": rows})
                 if path == "/api/v1/bookkeeping/status":
@@ -360,12 +363,13 @@ def install(app):
                     value = str(body.get("billing_state") or "")
                     if value not in BILLING_STATES:
                         raise ValueError("Ungültiger Abrechnungsstatus.")
-                    row = c.execute("SELECT billing_state FROM projects WHERE id=? AND owner_id=? AND is_system=0", (pid, uid)).fetchone()
+                    row = c.execute("SELECT billing_state,owner_id FROM projects WHERE id=? AND is_system=0", (pid,)).fetchone()
                     if not row:
                         raise ValueError("Projekt nicht gefunden.")
-                    c.execute("UPDATE projects SET billing_state=?,status_updated_at=? WHERE id=? AND owner_id=?",
-                              (value, now_iso(), pid, uid))
-                    system_features.audit(c, uid, uid, "project", pid, "Abrechnungsstatus geändert",
+                    c.execute("UPDATE projects SET billing_state=?,status_updated_at=? WHERE id=?",
+                              (value, now_iso(), pid))
+                    c.execute("UPDATE billing_descriptions SET billing_state=? WHERE project_id=? AND billing_state<>'billed'",(value,pid))
+                    system_features.audit(c, row['owner_id'], uid, "project", pid, "Abrechnungsstatus geändert",
                                           {"billing_state": {"old": row["billing_state"], "new": value}})
                     return self.send_json(200, {"ok": True})
                 if path == "/api/v1/dashboard/preferences":

@@ -81,7 +81,7 @@
  }
  function ensureAdminApi(){
   const section=q('#view-admin-options');if(!section||q('[data-admin-tab="api"]',section))return;const tabs=q('.admin-tabs',section);if(!tabs)return;
-  const button=document.createElement('button');button.className='secondary';button.dataset.adminTab='api';button.textContent='API · Beta';tabs.append(button);
+  const button=document.createElement('button');button.className='secondary';button.dataset.adminTab='api';button.innerHTML='API <span class="beta-tag">BETA</span>';tabs.append(button);
   const pane=document.createElement('div');pane.className='hidden';pane.dataset.adminPane='api';pane.innerHTML='<article class="panel api-admin-panel"><div class="panel-head"><div><p class="eyebrow">API · BETA</p><h3>Persönliche API-Tokens</h3></div></div><div data-api-body></div></article>';section.append(pane);
   button.onclick=()=>{qa('[data-admin-tab]',section).forEach(b=>b.className=b===button?'primary':'secondary');qa('[data-admin-pane]',section).forEach(p=>p.classList.toggle('hidden',p!==pane));renderTokens('user',pane);};
  }
