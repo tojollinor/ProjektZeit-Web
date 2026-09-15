@@ -30,3 +30,5 @@ jobs:
           print('Parsed capabilities:')
           print(json.dumps(data,ensure_ascii=False,indent=2)[:4000])
           PY
+
+# rerun after main publish
