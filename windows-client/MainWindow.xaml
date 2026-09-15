@@ -1,27 +1,59 @@
-<Window x:Class="ProjektZeit.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="ProjektZeit" Width="520" Height="770" MinWidth="460" MinHeight="550" Background="#101722" FontFamily="Segoe UI" FontSize="14">
- <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="24">
-  <StackPanel Orientation="Horizontal"><Image Source="logo.png" Width="40" Height="40" Margin="0,0,12,0"/><TextBlock Text="ProjektZeit" FontSize="27" FontWeight="Bold"/></StackPanel>
-  <TextBlock x:Name="WebState" Text="● Nicht verbunden" FontSize="12" Foreground="#FDBA74" ToolTip="ProjektZeit-Verbindung wird alle 30 Sekunden geprüft."/>
-  <StackPanel x:Name="Controls">
-   <StackPanel x:Name="LoginPanel">
-   <TextBlock Text="PROJEKTZEIT WEBSERVER" Foreground="#98ABC6" Margin="0,18,0,3"/>
-   <TextBlock Text="Serveradresse (HTTPS)"/><TextBox x:Name="Server"/>
-   <TextBlock Text="Beispiel: https://projektzeit.firma.de" FontSize="12" Foreground="#98ABC6"/>
-   <TextBlock Text="Benutzername"/><TextBox x:Name="User"/>
-   <TextBlock Text="Passwort"/><PasswordBox x:Name="Password"/>
-   <Button Content="Anmelden und speichern" Click="Login"/>
-   <TextBlock x:Name="LoginStatus" TextWrapping="Wrap"/>
-   </StackPanel>
-   <TextBlock Text="STARFACE" Foreground="#98ABC6" Margin="0,24,0,3"/>
-   <TextBlock x:Name="PbxState" Text="● Nicht verbunden" Foreground="#FDBA74"/>
-   <TextBlock Text="STARFACE-Adresse (HTTPS)"/><TextBox x:Name="Pbx"/>
-   <TextBlock Text="Beispiel: https://telefon.firma.de" FontSize="12" Foreground="#98ABC6"/>
-   <Button Content="Mit STARFACE im Browser anmelden" Click="Connect"/>
-   <Button Content="Verbindungsstatus prüfen" Click="Check" Background="#334155"/>
-   <WrapPanel Margin="0,15,0,0"><Button Content="Arbeitsbeginn" Click="Begin"/><Button Content="Arbeitsende" Click="End"/><Button Content="Webübersicht" Click="OpenWeb" Background="#334155"/></WrapPanel>
-   <Button Content="Abmelden / Server wechseln" Click="Logout" Background="#334155"/>
-  </StackPanel>
-  <Button x:Name="Cancel" Content="Anmeldung abbrechen" Click="CancelLogin" Visibility="Collapsed" Background="#7C3947"/>
-  <TextBlock x:Name="Status" Text="Bitte anmelden. Zugangsdaten werden nicht als Passwort gespeichert." TextWrapping="Wrap" Margin="0,18,0,0"/>
- </StackPanel></ScrollViewer>
+<Window x:Class="ProjektZeit.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="ProjektZeit für Windows" Width="1060" Height="750" MinWidth="860" MinHeight="640"
+        WindowStartupLocation="CenterScreen" Background="{StaticResource WindowBrush}"
+        FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="14" Foreground="{StaticResource TextBrush}">
+  <Grid>
+    <Grid x:Name="AppShell" Margin="24">
+      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="16"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+      <Grid Grid.Row="0">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+          <Border Width="48" Height="48" CornerRadius="13" Background="#EAF3FF" Margin="0,0,13,0"><Image Source="logo.png" Width="40" Height="40" Stretch="Uniform"/></Border>
+          <StackPanel><TextBlock Text="ProjektZeit" FontSize="23" FontWeight="Bold"/><TextBlock x:Name="IdentityText" Text="Windows-Client" Foreground="{StaticResource MutedBrush}" FontSize="12"/></StackPanel>
+        </StackPanel>
+        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+          <Border x:Name="ConnectionPill" CornerRadius="14" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" Padding="11,7" Background="{StaticResource CardBrush}">
+            <StackPanel Orientation="Horizontal"><Ellipse x:Name="ConnectionDot" Width="8" Height="8" Fill="#FDBA74" Margin="0,0,8,0"/><TextBlock x:Name="ConnectionText" Text="Nicht verbunden" FontSize="12"/></StackPanel>
+          </Border>
+          <Button Style="{StaticResource SecondaryButton}" Content="Portal öffnen" Click="OpenWeb" Margin="9,0,0,0"/>
+        </StackPanel>
+      </Grid>
+      <Grid Grid.Row="2">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="1.25*"/><ColumnDefinition Width="16"/><ColumnDefinition Width="0.75*"/></Grid.ColumnDefinitions>
+        <Grid Grid.Column="0">
+          <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="14"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+          <Border Style="{StaticResource Card}">
+            <Grid>
+              <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+              <StackPanel><TextBlock Text="ARBEITSTAG" Foreground="#7FA4D4" FontWeight="Bold" FontSize="11"/><TextBlock x:Name="WorkStateText" Text="Noch nicht begonnen" FontSize="19" FontWeight="SemiBold" Margin="0,5,0,2"/><TextBlock x:Name="CurrentProjectText" Text="Kein Projekt läuft" Foreground="{StaticResource MutedBrush}"/></StackPanel>
+              <StackPanel Grid.Column="1" HorizontalAlignment="Right"><TextBlock x:Name="ElapsedText" Text="00:00:00" FontSize="30" FontWeight="Light" HorizontalAlignment="Right"/><StackPanel Orientation="Horizontal" HorizontalAlignment="Right"><Button x:Name="WorkButton" Content="Arbeit beginnen" Click="ToggleWork" MinWidth="126"/><Button x:Name="PauseButton" Style="{StaticResource SecondaryButton}" Content="Pause" Click="TogglePause" MinWidth="96" Margin="8,0,0,0"/></StackPanel></StackPanel>
+            </Grid>
+          </Border>
+          <Border Grid.Row="2" Style="{StaticResource Card}">
+            <Grid>
+              <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+              <TextBlock Text="PROJEKT STARTEN ODER WECHSELN" Foreground="#7FA4D4" FontWeight="Bold" FontSize="11"/>
+              <Grid Grid.Row="1" Margin="0,14,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><StackPanel><Label Content="Kunde"/><ComboBox x:Name="CustomerSelect" SelectionChanged="CustomerChanged" DisplayMemberPath="Name"/></StackPanel><StackPanel Grid.Column="2"><Label Content="Projekt"/><ComboBox x:Name="ProjectSelect" SelectionChanged="SelectionChanged" DisplayMemberPath="Name"/></StackPanel></Grid>
+              <StackPanel Grid.Row="2" Margin="0,13,0,0"><Label Content="Zeitkategorie"/><ComboBox x:Name="CategorySelect" SelectionChanged="SelectionChanged" DisplayMemberPath="Name"/></StackPanel>
+              <StackPanel Grid.Row="3" Margin="0,13,0,0"><Label Content="Bemerkung (optional)"/><TextBox x:Name="NoteText" Height="72" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top"/></StackPanel>
+              <TextBlock Grid.Row="5" x:Name="ProjectHint" Text="Beginne zuerst deinen Arbeitstag." Foreground="{StaticResource MutedBrush}" Margin="0,14,0,10" VerticalAlignment="Bottom"/>
+              <Grid Grid.Row="6"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="10"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Button x:Name="StartProjectButton" Content="Projekt starten" Click="StartProject" IsEnabled="False"/><Button Grid.Column="2" x:Name="StopProjectButton" Style="{StaticResource SecondaryButton}" Content="Projekt stoppen" Click="StopProject" IsEnabled="False" MinWidth="126"/></Grid>
+            </Grid>
+          </Border>
+        </Grid>
+        <Grid Grid.Column="2">
+          <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="14"/><RowDefinition Height="Auto"/><RowDefinition Height="14"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+          <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="VERBINDUNG" Foreground="#7FA4D4" FontWeight="Bold" FontSize="11"/><TextBlock x:Name="ServerText" Text="–" FontSize="15" FontWeight="SemiBold" Margin="0,7,0,2" TextTrimming="CharacterEllipsis"/><TextBlock Text="Die Anmeldung läuft sicher im Standardbrowser. Das Kennwort wird nie an den Client übergeben." Foreground="{StaticResource MutedBrush}" FontSize="12"/><Button Style="{StaticResource SecondaryButton}" Content="Abmelden / Server wechseln" Click="Logout" Margin="0,14,0,0"/></StackPanel></Border>
+          <Border Grid.Row="2" Style="{StaticResource Card}"><StackPanel><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="STARFACE" Foreground="#7FA4D4" FontWeight="Bold" FontSize="11"/><TextBlock x:Name="StarfaceState" Text="Nicht geprüft" FontSize="16" FontWeight="SemiBold" Margin="0,6,0,0"/></StackPanel><Ellipse Grid.Column="1" x:Name="StarfaceDot" Width="10" Height="10" Fill="#718096" VerticalAlignment="Top" Margin="8,5,0,0"/></Grid><TextBlock x:Name="StarfaceDomain" Text="Keine Serveradresse hinterlegt" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,3,0,0"/><Grid Margin="0,13,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="8"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Button x:Name="StarfaceConnectButton" Content="Im Browser verbinden" Click="ConnectStarface"/><Button Grid.Column="2" Style="{StaticResource SecondaryButton}" Content="Prüfen" Click="Check" MinWidth="78"/></Grid></StackPanel></Border>
+          <Border Grid.Row="4" Style="{StaticResource Card}"><StackPanel><TextBlock Text="STATUS" Foreground="#7FA4D4" FontWeight="Bold" FontSize="11"/><TextBlock x:Name="StatusText" Text="Bereit" Margin="0,7,0,0"/><ProgressBar x:Name="BusyBar" Height="3" Margin="0,14,0,0" IsIndeterminate="True" Visibility="Collapsed" Foreground="{StaticResource BlueBrush}" Background="{StaticResource CardAltBrush}"/><Button x:Name="CancelButton" Style="{StaticResource DangerButton}" Content="Vorgang abbrechen" Click="CancelOperation" Visibility="Collapsed" Margin="0,14,0,0"/></StackPanel></Border>
+        </Grid>
+      </Grid>
+      <TextBlock Grid.Row="3" Text="ProjektZeit für Windows · keine Offlinebuchungen · alle Zeiten werden direkt am Server gespeichert" Foreground="#60738E" FontSize="11" HorizontalAlignment="Center" Margin="0,14,0,0"/>
+    </Grid>
+    <Grid x:Name="LoginShell" Background="{StaticResource WindowBrush}" Visibility="Collapsed">
+      <Border Width="500" Padding="34" Style="{StaticResource Card}" HorizontalAlignment="Center" VerticalAlignment="Center"><StackPanel><Border Width="66" Height="66" CornerRadius="18" Background="#EAF3FF" HorizontalAlignment="Left"><Image Source="logo.png" Width="57" Height="57"/></Border><TextBlock Text="PROJEKTZEIT FÜR WINDOWS" Foreground="#7FA4D4" FontWeight="Bold" FontSize="11" Margin="0,22,0,0"/><TextBlock Text="Mit deinem Server verbinden" FontSize="27" FontWeight="Bold" Margin="0,5,0,7"/><TextBlock Text="Gib nur die Adresse deines ProjektZeit-Servers ein. Anmeldung und 2FA erfolgen anschließend geschützt im Browser." Foreground="{StaticResource MutedBrush}"/><Label Content="Serveradresse" Margin="0,23,0,6"/><TextBox x:Name="ServerInput" ToolTip="Beispiel: https://projektzeit.firma.de"/><TextBlock Text="Beispiel: https://projektzeit.firma.de" Foreground="#72849C" FontSize="11" Margin="0,6,0,0"/><Button x:Name="LoginButton" Content="Im Browser anmelden" Click="BrowserLogin" Margin="0,22,0,0"/><Button x:Name="LoginCancelButton" Style="{StaticResource SecondaryButton}" Content="Anmeldung abbrechen" Click="CancelOperation" Visibility="Collapsed" Margin="0,8,0,0"/><TextBlock x:Name="LoginStatus" Text="Noch nicht verbunden." Foreground="{StaticResource MutedBrush}" Margin="0,16,0,0"/></StackPanel></Border>
+    </Grid>
+  </Grid>
 </Window>

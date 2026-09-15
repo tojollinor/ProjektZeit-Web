@@ -10,6 +10,7 @@ import socket
 import ssl
 import threading
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlsplit, urlencode
 from http.cookies import SimpleCookie
@@ -150,7 +151,7 @@ class Client:
     def request(self,path,headers=None,body=None,allow_discovery_redirect=False):
         started=time.monotonic()
         conn=Connection(self.host,self.port,timeout=8,context=ssl.create_default_context())
-        outgoing={'Accept':'application/json','Content-Type':'application/json','User-Agent':'ProjektZeit/0.7.0',**(headers or {})}
+        outgoing={'Accept':'application/json','Content-Type':'application/json','User-Agent':'ProjektZeit/0.7.7',**(headers or {})}
         if self.cookies:
             outgoing['Cookie']='; '.join(k+'='+v for k,v in self.cookies.items())
         try:
@@ -189,7 +190,7 @@ class Client:
             conn.close()
 
 
-SAFE_FIELDS={'id','userid','user_id','login','name','firstname','lastname','email','number','title','customer_id','organization_id','state_id','created_at','updated_at','start','end','start_date','end_date','duration','deviceid','devicename','username','sessionid','remotecontrol_id','billing_state','version','firstName','lastName','loginId'}
+SAFE_FIELDS={'id','userid','user_id','login','name','firstname','lastname','email','company_name','number','title','customer_id','organization_id','state_id','created_at','updated_at','start','end','start_date','end_date','duration','deviceid','devicename','username','sessionid','remotecontrol_id','billing_state','version','firstName','lastName','loginId'}
 
 
 def preview(value,secrets):
@@ -210,10 +211,12 @@ def preview(value,secrets):
 def diagnose(data, client_factory=Client):
     started=time.monotonic();steps=[];secrets=[data['secret']]
     client=client_factory(data['domain'])
-    def call(label,path,headers=None,body=None,show=True):
+    provider_details={}
+    def call(label,path,headers=None,body=None,show=True,required=True):
         begin=time.monotonic()
         status,payload,message=client.request(path,headers,body)
-        entry=dict(name=label,path=path,status=status,ok=payload is not None,message=message,duration_ms=round((time.monotonic()-begin)*1000))
+        entry=dict(name=label,path=path,status=status,ok=payload is not None,message=message,
+                   required=required,duration_ms=round((time.monotonic()-begin)*1000))
         if show and payload is not None:
             value=payload.get('records',payload.get('connections',payload)) if isinstance(payload,dict) else payload
             entry.update(count=len(value) if isinstance(value,list) else 1,preview=preview(value,secrets))
@@ -229,10 +232,51 @@ def diagnose(data, client_factory=Client):
             headers={'Authorization':'Bearer '+data['secret']}
             secrets.append(headers['Authorization'])
             ping=call('Token prüfen','/api/v1/ping',headers,show=False)
+            provider_details={
+                'state':'token_invalid',
+                'account_verified':False,
+                'reports_access':False,
+                'recent_window_days':30,
+                'recent_connections':0,
+                'latest_connection_at':'',
+                'settings_path':'TeamViewer → Einstellungen → Verbindungsprotokolle',
+                'settings_api_supported':False,
+                'permission_hint':'Für die vollständige Prüfung werden Leserechte für Kontoinformationen und Verbindungsberichte benötigt.',
+                'token_immutable':True,
+            }
             if not isinstance(ping,dict) or ping.get('token_valid') is not True:
                 if ping is not None: steps[-1].update(ok=False,message='Token wurde nicht als gültig bestätigt.')
             else:
-                call('Fernwartungsverbindungen','/api/v1/reports/connections?limit=5',headers)
+                account=call('TeamViewer-Konto und Unternehmen prüfen','/api/v1/account',headers,required=False)
+                if isinstance(account,dict):
+                    provider_details['account_verified']=True
+                    license_data=account.get('license') if isinstance(account.get('license'),dict) else {}
+                    provider_details['account']={
+                        'userid':str(account.get('userid') or '')[:100],
+                        'name':str(account.get('name') or '')[:150],
+                        'email':str(account.get('email') or '')[:250],
+                        'company_name':str(account.get('company_name') or '')[:250],
+                        'license':str(license_data.get('type') or license_data.get('details') or '')[:150],
+                    }
+                elif steps[-1].get('status')==403:
+                    steps[-1]['message']='Kontoinformationen dürfen nicht gelesen werden. Für den vollständigen Abgleich einen neuen Script-Token mit Leserechten für Kontoinformationen und Verbindungsberichte anlegen; bestehende Tokens lassen sich in TeamViewer nicht erweitern.'
+                since=(datetime.now(timezone.utc)-timedelta(days=30)).replace(microsecond=0).isoformat().replace('+00:00','Z')
+                reports_path='/api/v1/reports/connections?'+urlencode({'from_date':since})
+                reports=call('Verbindungsberichte der letzten 30 Tage',reports_path,headers)
+                if isinstance(reports,dict) and isinstance(reports.get('records'),list):
+                    records=reports['records']
+                    provider_details['reports_access']=True
+                    provider_details['recent_connections']=len(records)
+                    dates=[str(row.get('end_date') or row.get('start_date') or '') for row in records if isinstance(row,dict)]
+                    dates=[value for value in dates if value]
+                    if dates:
+                        provider_details['latest_connection_at']=max(dates)
+                    provider_details['state']='recent_reports' if records else 'no_recent_reports'
+                elif steps[-1].get('status')==403:
+                    provider_details['state']='reports_permission_missing'
+                    steps[-1]['message']='Verbindungsberichte dürfen mit diesem Token nicht gelesen werden. Bitte einen neuen Script-Token mit Leserecht für Verbindungsberichte anlegen.'
+                else:
+                    provider_details['state']='reports_unavailable'
         elif p=='zammad':
             authorization=base64.b64encode((data['username']+':'+data['secret']).encode()).decode()
             secrets.extend([authorization,'Basic '+authorization])
@@ -272,13 +316,17 @@ def diagnose(data, client_factory=Client):
         steps.append(dict(name='Verbindung',ok=False,message='Dienst nicht erreichbar. Domain, Port und DNS prüfen.'))
     except ValueError as error:
         steps.append(dict(name='Verbindung',ok=False,message=str(error)))
-    good=bool(steps) and all(step['ok'] for step in steps)
+    good=bool(steps) and all(step['ok'] for step in steps if step.get('required',True))
     notes={'starface':'Die REST-Probe prüft Anmeldung und Benutzerdaten. Anrufbeginn, Anrufende und Gesprächsdauer sind damit noch nicht nachgewiesen; dafür ist die passende UCI-/Anruflisten-Schnittstelle deiner STARFACE zu prüfen.',
-           'teamviewer':'Verbindungsberichte benötigen entsprechende Token-Rechte und eine unterstützte Lizenz. Eine leere Liste bestätigt noch keine verwertbaren Sitzungszeiten.',
+           'teamviewer':'ProjektZeit prüft Token, Konto, Unternehmensprofil und Verbindungsberichte soweit die erteilten Leserechte reichen. Den persönlichen Schalter für ausgehende Verbindungsprotokolle veröffentlicht TeamViewer nicht in der API; er muss unter Einstellungen → Verbindungsprotokolle aktiviert werden. Verbindungen müssen mit dem angemeldeten Firmenkonto gestartet werden. Im TeamViewer-Verlauf dürfen keine Benutzer-, Gruppen- oder Datumsfilter aktiv sein, und das Konto muss weiterhin demselben Unternehmensprofil angehören.',
            'zammad':'Ticket-IDs, Kundenbezug und Zeitfelder dienen als Datenprobe. Erstellungs-/Änderungszeitpunkte sind keine automatisch erfasste Arbeitsdauer.'}
     groups={'teamviewer': [('Verbindungs-ID',['id','sessionid']),('Startzeit',['start_date','start']),('Endzeit',['end_date','end']),('Gerätebezug',['deviceid','devicename','remotecontrol_id'])],
             'zammad':[('Ticket-ID',['id','number']),('Kundenbezug',['customer_id','organization_id']),('Titel',['title']),('Zeitstempel',['created_at','updated_at'])],
             'starface':[('Benutzer-ID',['id','userId','userid']),('Login-ID',['login','loginId']),('Name',['name','firstName','firstname'])]}
     fields=set(steps[-1].get('fields',[])) if steps else set()
     checks=[dict(name=name,found=bool(fields.intersection(aliases))) for name,aliases in groups[data['provider']]]
-    return dict(ok=good,steps=steps,checks=checks,duration_ms=round((time.monotonic()-started)*1000),note=notes[data['provider']],checked_at=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()))
+    result=dict(ok=good,steps=steps,checks=checks,duration_ms=round((time.monotonic()-started)*1000),note=notes[data['provider']],checked_at=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()))
+    if data['provider']=='teamviewer':
+        result['teamviewer']=provider_details
+        result['attention']=provider_details.get('state')!='recent_reports' or not provider_details.get('account_verified')
+    return result

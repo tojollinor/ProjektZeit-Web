@@ -50,4 +50,5 @@
  stylesheet('/time-workspace.css','timeWorkspace');script('/time-workspace.js','timeWorkspace');
  stylesheet('/company-ui.css','companyUi');script('/company-ui.js','companyUi');script('/notifications.js','notifications');script('/provider-visibility.js','providerVisibility');
  stylesheet('/collected-update-076.css','collectedUpdate076');script('/collected-update-076.js','collectedUpdate076');
+ stylesheet('/release-080.css','release080');script('/release-080.js','release080');
 })();

@@ -7,14 +7,14 @@
  document.addEventListener('click',e=>{const b=e.target.closest('button,input[type=submit]');if(b&&pending.has(b)){e.preventDefault();e.stopImmediatePropagation();return;}if(b)capture(b);},true);
  document.addEventListener('submit',e=>capture(e.submitter||e.target.querySelector('button[type=submit],button:not([type])')),true);
  function paint(b,phase,text){if(!b?.isConnected)return;b.dataset.actionPhase=phase;b.setAttribute('aria-busy',String(phase==='busy'||phase==='uncertain'));if(b.tagName==='INPUT')b.value=text;else b.textContent=text;}
- function begin(b,disabled){if(!b)return null;b.parentElement?.querySelector('[data-action-error]')?.remove();let a=pending.get(b);if(a){a.count++;return a;}a={count:1,html:b.innerHTML,value:b.value,disabled:!!disabled,error:false,uncertain:false};pending.set(b,a);b.disabled=true;paint(b,'busy','Wird gespeichert …');return a;}
+ function begin(b,disabled){if(!b)return null;b.parentElement?.querySelector('[data-action-error]')?.remove();let a=pending.get(b);if(a){a.count++;return a;}a={count:1,html:b.innerHTML,value:b.value,disabled:!!disabled,error:false,uncertain:false,minWidth:b.style.minWidth,width:b.style.width};const width=Math.ceil(b.getBoundingClientRect().width)+'px';b.style.minWidth=width;b.style.width=width;pending.set(b,a);b.disabled=true;paint(b,'busy','Wird gespeichert …');return a;}
  function end(b,a,ok,message,uncertain=false){if(ok&&!uncertain)window.pzUI?.clean(b?.closest('form'));if(!a)return;a.error||=!ok;a.uncertain||=uncertain;if(--a.count)return;
   const phase=a.uncertain?'uncertain':a.error?'error':'success';paint(b,phase,a.uncertain?'Status ungeklärt':a.error?'Fehler':a.successText||'Gespeichert');
   if(a.error&&b.isConnected){let note=b.closest('form')?.querySelector('[data-form-error]')||b.parentElement.querySelector('[data-action-error]');if(!note){note=document.createElement('p');note.dataset.actionError='';note.setAttribute('role','alert');b.after(note);}note.textContent=message||'Speichern fehlgeschlagen. Eingaben bleiben erhalten.';}
   setTimeout(()=>{if(!b.isConnected){pending.delete(b);return;}if(a.uncertain){b.disabled=true;pending.delete(b);return;}
    // Preserve new semantic actions installed by a successful rerender.
    if(['Gespeichert','Gestartet','Beantragt','Fehler'].includes(b.textContent)||b.tagName==='INPUT'){if(b.tagName==='INPUT')b.value=a.value;else b.innerHTML=a.html;}
-   b.disabled=b.dataset.actionComplete==='1'||a.disabled;delete b.dataset.actionPhase;b.removeAttribute('aria-busy');pending.delete(b);
+   b.disabled=b.dataset.actionComplete==='1'||a.disabled;b.style.minWidth=a.minWidth;b.style.width=a.width;delete b.dataset.actionPhase;b.removeAttribute('aria-busy');pending.delete(b);
   },a.error?4000:3000);
  }
  window.fetch=async(input,init={})=>{

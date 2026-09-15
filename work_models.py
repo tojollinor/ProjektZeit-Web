@@ -152,8 +152,14 @@ def save(c, actor, body):
     if current and valid < today and effective_mode != 'retroactive':
         raise ValueError('Für ein früheres Datum bitte „Rückwirkend ab“ auswählen.')
     existing = next((m for m in current if m['id'] == ident), None) if ident else None
-    if ident and (not existing or existing['valid_from'] < str(today)):
-        raise ValueError('Nur heutige oder zukünftige Modelle können bearbeitet werden.')
+    if ident and not existing:
+        raise ValueError('Arbeitszeitmodell nicht gefunden.')
+    if existing:
+        old_valid = date.fromisoformat(existing['valid_from'])
+        old_next = min((date.fromisoformat(m['valid_from']) for m in current
+                        if m['id'] != ident and m['valid_from'] > existing['valid_from']), default=None)
+        if closed_month_in_range(c, uid, old_valid, old_next):
+            raise ValueError('Das bestehende Arbeitszeitmodell berührt einen abgeschlossenen Abrechnungsmonat. Bitte den Monat zuerst wieder öffnen.')
     next_valid=min((date.fromisoformat(m['valid_from']) for m in current if m['id']!=ident and m['valid_from']>str(valid)),default=None)
     if closed_month_in_range(c,uid,valid,next_valid):
         raise ValueError('Arbeitszeitmodelle dürfen keinen abgeschlossenen Abrechnungsmonat verändern. Bitte den Monat zuerst wieder öffnen.')
@@ -171,6 +177,26 @@ def save(c, actor, body):
         ident = c.execute('''INSERT INTO work_models(user_id,valid_from,mode,target_seconds,weekdays_json,subdivision,created_by,created_at)
           VALUES(?,?,?,?,?,?,?,?)''', (uid,str(valid),mode,seconds,json.dumps(weekdays),subdivision,actor,iso(now()))).lastrowid
     system_features.audit(c, uid, actor, 'work_model', ident, 'Arbeitszeitmodell gespeichert', {'before':existing,'after':{'valid_from':str(valid),'effective_mode':effective_mode,'mode':mode,'target_seconds':seconds,'weekdays':weekdays,'subdivision':subdivision}})
+    return {'ok':True, 'id':ident}
+
+
+def delete(c, actor, body):
+    """Delete a model unless its effective range touches a frozen payroll month."""
+    acl.require_permission(c, actor, PERMISSION)
+    ident = int(body.get('id') or 0)
+    uid = int(body.get('user_id') or 0)
+    row = c.execute('SELECT * FROM work_models WHERE id=? AND user_id=?', (ident, uid)).fetchone()
+    if not row:
+        raise ValueError('Arbeitszeitmodell nicht gefunden.')
+    valid = date.fromisoformat(row['valid_from'])
+    following = c.execute('SELECT valid_from FROM work_models WHERE user_id=? AND valid_from>? ORDER BY valid_from LIMIT 1', (uid, row['valid_from'])).fetchone()
+    next_valid = date.fromisoformat(following['valid_from']) if following else None
+    if closed_month_in_range(c, uid, valid, next_valid):
+        raise ValueError('Das Arbeitszeitmodell berührt einen abgeschlossenen Abrechnungsmonat.')
+    before = dict(row)
+    before['weekdays'] = json.loads(before.pop('weekdays_json'))
+    c.execute('DELETE FROM work_models WHERE id=? AND user_id=?', (ident, uid))
+    system_features.audit(c, uid, actor, 'work_model', ident, 'Arbeitszeitmodell gelöscht', {'before':before})
     return {'ok':True, 'id':ident}
 
 
@@ -286,7 +312,7 @@ def install(app):
     previous=app.App.do_POST
     def post(self):
         path=urlparse(self.path).path
-        handlers={'/api/v1/work-models/save':save,'/api/v1/work-models/admin':admin_list,'/api/v1/work-models/overview':overview}
+        handlers={'/api/v1/work-models/save':save,'/api/v1/work-models/delete':delete,'/api/v1/work-models/admin':admin_list,'/api/v1/work-models/overview':overview}
         if path not in handlers:return previous(self)
         session=self.require(csrf=True)
         if not session:return

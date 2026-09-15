@@ -33,7 +33,7 @@ PERMISSIONS={
  'sync.diagnostics':'Isolierte Schnittstellentests durchführen',
  'projects.manage_templates':'Projektvorlagen und Tags verwalten',
 }
-DEFAULT_POLICY={'approval_paid':True,'approval_unpaid':True,'hourly_paid':False,'minimum_minutes':30,'correction_mode':'direct','self_approval':False}
+DEFAULT_POLICY={'approval_paid':True,'approval_unpaid':True,'hourly_paid':False,'minimum_minutes':30,'correction_mode':'direct','self_approval':False,'allow_negative_balance':False}
 KINDS=[('vacation','Bezahlter Urlaub','paid',1,'#62a5fa'),('sick','Krank','paid',0,'#c58be2'),('unpaid','Unbezahlte Abwesenheit','debit',0,'#b8a36a'),('timeoff','Freizeitausgleich','debit',0,'#64bfa9'),('release','Unbezahlte Freistellung (Soll reduzieren)','reduce',0,'#a7a7a7')]
 
 def iso(x):return x.astimezone(timezone.utc).isoformat(timespec='seconds')
@@ -233,7 +233,7 @@ def save_policy(c,actor,body):
     if p['correction_mode'] not in ('none','request','direct'):raise ValueError('Korrekturmodus ungültig.')
     p['minimum_minutes']=int(p['minimum_minutes'])
     if not 1<=p['minimum_minutes']<=480:raise ValueError('Mindestdauer muss zwischen 1 und 480 Minuten liegen.')
-    for k in ('approval_paid','approval_unpaid','hourly_paid','self_approval'):
+    for k in ('approval_paid','approval_unpaid','hourly_paid','self_approval','allow_negative_balance'):
         if not isinstance(p[k],bool):raise ValueError('Ungültige Richtlinie.')
     c.execute('INSERT INTO staff_policy_versions(valid_from,settings_json,created_by,created_at) VALUES(?,?,?,?)',(str(d),json.dumps(p),actor,iso(now())))
     audit(c,actor,actor,'staff_policy',str(d),'created',p);return {'ok':True}
@@ -330,7 +330,11 @@ def apply_correction(c,actor,r,payload):
     if parse(a).astimezone(TZ).date()!=date.fromisoformat(day) or parse(b)>now():raise ValueError('Korrektur muss am gewählten Tag beginnen und in der Vergangenheit liegen.')
     if (parse(b)-parse(a)).total_seconds()>48*3600:raise ValueError('Eine Stempelung darf höchstens 48 Stunden umfassen. Bitte mehrtägige Einträge aufteilen.')
     for w in c.execute('SELECT * FROM work_sessions WHERE owner_id=? AND id<>?',(uid,ident or 0)):
-        if parse(w['started_at'])<parse(b) and (not w['ended_at'] or parse(w['ended_at'])>parse(a)):raise ValueError('Arbeitszeiten überschneiden sich.')
+        if parse(w['started_at'])<parse(b) and (not w['ended_at'] or parse(w['ended_at'])>parse(a)):
+            conflict_start=parse(w['started_at']).astimezone(TZ).strftime('%d.%m.%Y, %H:%M:%S')
+            conflict_end=(parse(w['ended_at']).astimezone(TZ).strftime('%d.%m.%Y, %H:%M:%S')
+                          if w['ended_at'] else 'offen')
+            raise ValueError(f'Arbeitszeiten überschneiden sich: Der gewählte Zeitraum kollidiert mit {conflict_start} – {conflict_end}.')
     projects=[dict(x) for x in c.execute('SELECT * FROM entries WHERE work_session_id=? AND is_idle=0',(ident,))] if ident else []
     if any(parse(e['started_at'])<parse(a) or not e['ended_at'] or parse(e['ended_at'])>parse(b) for e in projects):raise ValueError('Projektzeiten liegen außerhalb der korrigierten Arbeitszeit. Bitte zuerst klären.')
     raw=payload.get('pauses',old_pauses)
@@ -414,7 +418,7 @@ def movement(c,actor,body):
     if not amount:raise ValueError('Bitte einen Stundenbetrag größer als null eintragen.')
     if kind=='payout':amount=-amount
     elif Fraction(str(body['hours']))<0:amount=-amount
-    if kind=='payout' and account_balance(c,uid,d)['balance_seconds']+amount<0:raise ValueError('Nicht genügend gebuchte Überstunden für diese Auszahlung.')
+    if kind=='payout' and not policy(c,d)['allow_negative_balance'] and account_balance(c,uid,d)['balance_seconds']+amount<0:raise ValueError('Nicht genügend gebuchte Überstunden für diese Auszahlung. Negative Stundenkonten können in den Richtlinien freigegeben werden.')
     import uuid
     c.execute('INSERT INTO staff_movements(user_id,day,seconds,kind,note,created_by,created_at,source_key) VALUES(?,?,?,?,?,?,?,?)',(uid,str(d),amount,kind,note[:2000],actor,iso(now()),uuid.uuid4().hex))
     audit(c,actor,uid,'time_account',str(d),kind,{'seconds':amount,'note':note})
@@ -567,7 +571,19 @@ def conflicts(c,uid,a,b,kind,exclude=0,approved_only=False):
 
 def account_balance(c,uid,through=None):
     through=through or now().astimezone(TZ).date();models=model_list(c,uid)
-    if not models:return {'balance_seconds':0,'unresolved_days':0,'configured':False}
+    if not models:
+        # Without a work schedule there is no target/actual comparison.  Closed
+        # project entries are nevertheless real, payable work.  Count their
+        # union once and deliberately ignore running entries until they end.
+        boundary=midnight(through+timedelta(days=1))
+        spans=[]
+        for row in c.execute('''SELECT started_at,ended_at FROM entries
+          WHERE owner_id=? AND is_idle=0 AND ended_at IS NOT NULL AND started_at<?''',(uid,iso(boundary))):
+            start=parse(row['started_at']);end=min(parse(row['ended_at']),boundary)
+            if end>start:spans.append([start,end])
+        completed=sum(int((b-a).total_seconds()) for a,b in merge(spans))
+        movements=int(c.execute('SELECT COALESCE(SUM(seconds),0) AS total FROM staff_movements WHERE user_id=? AND day<=?',(uid,str(through))).fetchone()['total'])
+        return {'balance_seconds':completed+movements,'completed_project_seconds':completed,'unresolved_days':0,'configured':bool(spans or movements),'basis':'completed_projects'}
     start=date.fromisoformat(models[0]['valid_from']);end=through+timedelta(days=1)
     if start>end:return {'balance_seconds':0,'unresolved_days':0,'configured':True}
     closures={r['month']:json.loads(r['snapshot_json']) for r in c.execute('SELECT * FROM staff_month_closures WHERE user_id=? AND month<=?',(uid,str(through)[:7]))}
@@ -583,7 +599,7 @@ def account_balance(c,uid,through=None):
                 value=daily(data,d);total+=value['posted_seconds'];unresolved+=value['state']=='unresolved'
         cursor=next_month
     total+=int(c.execute('SELECT COALESCE(SUM(seconds),0) AS total FROM staff_movements WHERE user_id=? AND day<=?',(uid,str(through))).fetchone()['total'])
-    return {'balance_seconds':total,'unresolved_days':unresolved,'configured':True}
+    return {'balance_seconds':total,'completed_project_seconds':0,'unresolved_days':unresolved,'configured':True,'basis':'work_model'}
 
 
 def entry_correction(c,actor,body):
