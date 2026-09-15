@@ -1,0 +1,41 @@
+name: Inspect STARFACE callback API
+
+on:
+  push:
+    branches: [automation/inspect-starface-callback-api]
+    paths: ['.github/workflows/inspect-starface-callback-api.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download and inspect official STARFACE 7.3 client
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://www.starface-cdn.de/starface/clients/Windows/7.3.0.x/7.3.0.162/STARFACE_Windows_v7.3.0.162.exe'
+          EXPECTED='3280bb442866f219dc36414bcc449eef54a5052c73ad85877d43adb30b896714'
+          curl -fL --retry 3 --max-time 180 "$URL" -o starface.exe
+          echo "$EXPECTED  starface.exe" | sha256sum -c -
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq p7zip-full >/dev/null
+          mkdir extracted
+          7z x -y starface.exe -oextracted >/tmp/7z.log || true
+          echo '=== Extract summary ==='
+          tail -30 /tmp/7z.log || true
+          find extracted -type f | sed -n '1,160p'
+          echo '=== Candidate API strings (ASCII/UTF-16LE) ==='
+          find extracted -type f -size -120M -print0 | while IFS= read -r -d '' f; do
+            a=$(strings -a -n 5 "$f" 2>/dev/null | grep -iE 'UciCallListRequests|called.?back|calledbackauthor|calledbackmodified|callList\.(set|update|mark)|set.*call.*back|mark.*call.*back' | head -80 || true)
+            u=$(strings -el -n 5 "$f" 2>/dev/null | grep -iE 'UciCallListRequests|called.?back|calledbackauthor|calledbackmodified|callList\.(set|update|mark)|set.*call.*back|mark.*call.*back' | head -80 || true)
+            if [ -n "$a$u" ]; then
+              echo "--- FILE: $f ---"
+              [ -n "$a" ] && printf '%s\n' "$a"
+              [ -n "$u" ] && printf '%s\n' "$u"
+            fi
+          done | head -1200
+          echo '=== Java/JAR candidates ==='
+          find extracted -type f \( -iname '*.jar' -o -iname '*uci*' -o -iname '*starface*' \) -print | head -300
