@@ -52,13 +52,15 @@ jobs:
           base64 -d /tmp/final.patch.gz.b64 | gunzip > /tmp/final.patch
           echo "be47443cc6aa477f31dec62c4378ea79e31b68257e558fb5c1fbe15809092c04  /tmp/final.patch" | sha256sum -c -
 
-      - name: Build clean rescue commit from main base
+      - name: Build clean commit without workflow change
         shell: bash
         run: |
           set -euo pipefail
           git reset --hard 521f2072839c76e265d58302b8f63aebf5930198
           git apply --index /tmp/final.patch
+          git checkout 521f2072839c76e265d58302b8f63aebf5930198 -- .github/workflows/windows-client.yml
+          git add .github/workflows/windows-client.yml
           git config user.name "ChatGPT Rescue"
           git config user.email "109473660+tojollinor@users.noreply.github.com"
           git commit -m "feat: restore collected update 0.8.0 from backup"
-          git push --force-with-lease origin HEAD:rescue/collected-update-078
+          git push origin HEAD:feat/collected-update-078
