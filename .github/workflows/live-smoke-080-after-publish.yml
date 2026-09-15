@@ -1,0 +1,27 @@
+name: Live smoke 0.8.0 after publish
+
+on:
+  push:
+    branches: [automation/live-smoke-080]
+    paths: ['.github/workflows/live-smoke-080-after-publish.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check live capabilities
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSIL --max-time 20 https://projektzeit.itomi.de/ | sed -n '1,15p'
+          curl -fsSL --max-time 20 https://projektzeit.itomi.de/api/v1/capabilities | tee /tmp/capabilities.json
+          echo
+          python - <<'PY'
+          import json
+          d=json.load(open('/tmp/capabilities.json',encoding='utf-8'))
+          print('server_version='+str(d.get('server_version')))
+          print(json.dumps(d,ensure_ascii=False,indent=2))
+          PY
