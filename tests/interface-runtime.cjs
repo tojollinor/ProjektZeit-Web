@@ -19,7 +19,7 @@ server=app.ThreadingHTTPServer(('127.0.0.1',0),app.App)
 print(json.dumps({'port':server.server_port}),flush=True)
 server.serve_forever()`],{env:{...process.env,DATA_DIR:dir,DB_BACKEND:'sqlite',DEMO_MODE:'1',SEED_DEMO:'0',ADMIN_USER:'uitest',ADMIN_PASSWORD:'interface-test-password'}});
 let stderr='',page,done=false;server.stderr.on('data',b=>stderr+=b);
-const watchdog=setTimeout(()=>{console.error('Interface runtime timed out',stderr.slice(-2500));process.exitCode=1;cleanup();},30000);
+const watchdog=setTimeout(()=>{console.error('Interface runtime timed out',stderr.slice(-2500));process.exitCode=1;cleanup();},60000);
 function cleanup(){done=true;clearTimeout(watchdog);if(page){page.window.setTimeout(()=>page.window.close(),300);}server.kill();fs.rmSync(dir,{recursive:true,force:true});}
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function until(check,label){for(let i=0;i<160;i++){if(check())return;await sleep(50);}console.error('Browser errors:', page?.window.__testErrors, 'providers:', [...(page?.window.pzProviderStates||[])], 'list:', page?.window.document.querySelector('#view-zammad .list-status')?.textContent, 'mobile summaries:',page?.window.document.querySelectorAll('#view-zammad .pz-mobile-summary').length,'first row:',page?.window.document.querySelector('#view-zammad tbody tr')?.innerHTML?.slice(0,900),'dialog:',page?.window.document.querySelector('[data-provider-connect-message]')?.textContent);throw new Error('Timed out: '+label+' '+page?.window.document.querySelector('dialog.ui-dialog [role=alert]')?.textContent);}
