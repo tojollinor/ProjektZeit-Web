@@ -12,23 +12,26 @@ jobs:
   inspect:
     runs-on: ubuntu-latest
     steps:
-      - name: Resolve UCI 3.0.3 download and inspect call-list interface
+      - name: Inspect official UCI 3.0.3 call-list interface
         shell: bash
         run: |
           set -euo pipefail
-          PAGE='https://knowledge.starface.de/pages/viewpage.action?pageId=46564626'
-          curl -fL --retry 3 --max-time 60 -A 'Mozilla/5.0' "$PAGE" -o /tmp/uci.html || true
-          echo '=== Links around UCI 3.0.3 ==='
-          python - <<'PY'
-          import re, html
-          from pathlib import Path
-          s=Path('/tmp/uci.html').read_text(errors='ignore') if Path('/tmp/uci.html').exists() else ''
-          for m in re.finditer(r'<a\b[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',s,re.I|re.S):
-              href=html.unescape(m.group(1)); text=re.sub('<[^>]+>',' ',m.group(2)); text=' '.join(html.unescape(text).split())
-              if '3.0.3' in text or '3.0.3' in href or ('demopack' in text.lower() and 'uci' in text.lower()):
-                  print(text,'=>',href)
-          PY
-          echo '=== Attachment/download URLs ==='
-          grep -Eo 'https?://[^"<> ]+|/download/attachments/[^"<> ]+|/pages/downloadallattachments.action[^"<> ]*' /tmp/uci.html 2>/dev/null | sed 's/&amp;/\&/g' | grep -iE 'uci|46564626|zip|jar' | head -200 || true
-          echo '=== Page snippets ==='
-          grep -ioE '.{0,180}UCI.{0,80}3\.0\.3.{0,300}' /tmp/uci.html | head -40 || true
+          URL='https://www.starface-cdn.de/starface/clients/starface-uci-democlient-javasource-3.0.3.zip'
+          curl -fL --retry 3 --max-time 120 "$URL" -o /tmp/uci303.zip
+          mkdir /tmp/uci303
+          unzip -q /tmp/uci303.zip -d /tmp/uci303
+          echo '=== Files ==='
+          find /tmp/uci303 -type f | head -300
+          echo '=== UciCallListRequests references ==='
+          grep -RniE 'UciCallListRequests|called.?back|calledback|CallListEntryId|callback' /tmp/uci303 | head -1200 || true
+          echo '=== JARs ==='
+          find /tmp/uci303 -type f -name '*.jar' -print
+          for jar in $(find /tmp/uci303 -type f -name '*.jar'); do
+            echo "--- $jar ---"
+            jar tf "$jar" | grep -iE 'UciCallListRequests|CallListEntry' | head -200 || true
+            cls=$(jar tf "$jar" | grep 'UciCallListRequests.class' | head -1 || true)
+            if [ -n "$cls" ]; then
+              class=${cls%.class}; class=${class//\//.}
+              javap -classpath "$jar" -public "$class" || true
+            fi
+          done
