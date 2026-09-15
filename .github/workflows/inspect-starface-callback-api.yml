@@ -12,7 +12,7 @@ jobs:
   inspect:
     runs-on: ubuntu-latest
     steps:
-      - name: Inspect official UCI 3.0.3 call-list interface
+      - name: Print official UCI 3.0.3 callback interface
         shell: bash
         run: |
           set -euo pipefail
@@ -20,18 +20,12 @@ jobs:
           curl -fL --retry 3 --max-time 120 "$URL" -o /tmp/uci303.zip
           mkdir /tmp/uci303
           unzip -q /tmp/uci303.zip -d /tmp/uci303
-          echo '=== Files ==='
-          find /tmp/uci303 -type f | head -300
-          echo '=== UciCallListRequests references ==='
-          grep -RniE 'UciCallListRequests|called.?back|calledback|CallListEntryId|callback' /tmp/uci303 | head -1200 || true
-          echo '=== JARs ==='
-          find /tmp/uci303 -type f -name '*.jar' -print
-          for jar in $(find /tmp/uci303 -type f -name '*.jar'); do
-            echo "--- $jar ---"
-            jar tf "$jar" | grep -iE 'UciCallListRequests|CallListEntry' | head -200 || true
-            cls=$(jar tf "$jar" | grep 'UciCallListRequests.class' | head -1 || true)
-            if [ -n "$cls" ]; then
-              class=${cls%.class}; class=${class//\//.}
-              javap -classpath "$jar" -public "$class" || true
-            fi
-          done
+          ROOT='/tmp/uci303/eai-uci/uci/src/main/java/de/starface/integration/uci/java/v30'
+          echo '=== UciCallListRequests.java ==='
+          cat "$ROOT/messages/requests/UciCallListRequests.java"
+          echo '=== CallListEntry.java ==='
+          cat "$ROOT/types/CallListEntry.java"
+          echo '=== CallListEntryProperties.java ==='
+          cat "$ROOT/values/CallListEntryProperties.java"
+          echo '=== Called-back references ==='
+          grep -RniE 'called.?back|calledback|callListEntryId' "$ROOT" || true
