@@ -172,10 +172,12 @@ class Release080Tests(unittest.TestCase):
         with app.db() as c:
             c.execute("UPDATE user_profiles SET email='admin@example.test' WHERE user_id=?", (self.uid,))
             email_runtime._replace_state(c, self.uid, 'admin@example.test', stamp)
-            c.execute("""INSERT OR REPLACE INTO user_mfa
+            c.execute('DELETE FROM user_mfa WHERE user_id=?', (self.uid,))
+            c.execute("""INSERT INTO user_mfa
                 (user_id,secret,pending_secret,enabled,last_counter,recovery_json,pending_until)
                 VALUES(?,'encrypted-secret','',1,-1,'[]',0)""", (self.uid,))
-            c.execute('INSERT OR REPLACE INTO user_email_mfa(user_id,email,enabled,created_at) VALUES(?,?,1,?)',
+            c.execute('DELETE FROM user_email_mfa WHERE user_id=?', (self.uid,))
+            c.execute('INSERT INTO user_email_mfa(user_id,email,enabled,created_at) VALUES(?,?,1,?)',
                       (self.uid, 'admin@example.test', stamp))
             context = email_runtime.mfa_context(c, self.uid)
             self.assertEqual(context['method'], 'multiple')
