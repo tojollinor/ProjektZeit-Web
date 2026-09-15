@@ -1,0 +1,32 @@
+name: Live smoke 0.8.0
+
+on:
+  push:
+    branches: [automation/live-smoke-080]
+    paths: ['.github/workflows/live-smoke-080.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check live root and capabilities
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== DNS ==='
+          getent ahosts projektzeit.itomi.de || true
+          echo '=== ROOT ==='
+          curl -fsSIL --max-time 20 https://projektzeit.itomi.de/ | sed -n '1,20p'
+          echo '=== CAPABILITIES ==='
+          curl -fsSL --max-time 20 https://projektzeit.itomi.de/api/v1/capabilities | tee /tmp/capabilities.json
+          echo
+          python - <<'PY'
+          import json
+          p='/tmp/capabilities.json'
+          data=json.load(open(p,encoding='utf-8'))
+          print('Parsed capabilities:')
+          print(json.dumps(data,ensure_ascii=False,indent=2)[:4000])
+          PY
