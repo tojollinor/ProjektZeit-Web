@@ -1,0 +1,107 @@
+/* ProjektZeit 0.8.0 – consistent spacing, resilient navigation and mobile layout. */
+:root{--pz-space-1:6px;--pz-space-2:10px;--pz-space-3:16px;--pz-space-4:22px;--pz-control-h:40px}
+
+/* The identity and account controls stay fixed; only the navigation itself scrolls. */
+.sidebar{overflow:hidden!important;padding-top:18px!important;padding-bottom:14px!important}
+.sidebar .brand{flex:0 0 auto;margin-bottom:20px!important}
+.sidebar nav{display:flex!important;flex:1 1 auto;min-height:0;flex-direction:column;align-items:stretch;overflow-y:auto!important;overflow-x:hidden!important;scrollbar-gutter:stable;padding:1px 4px 8px 0;overscroll-behavior:contain}
+.sidebar nav>*{flex:0 0 auto;min-width:0}
+.sidebar-bottom{flex:0 0 auto;margin-top:8px!important;padding-top:5px;background:inherit;position:relative;z-index:2}
+.sidebar .nav{min-height:44px;margin:2px 0!important}
+.pz-nav-group,.admin-nav-group{align-content:start;min-height:max-content}
+.pz-nav-toggle.active,.admin-nav-toggle.active{background:#21304a!important;color:#fff!important}
+.pz-nav-submenu,.admin-nav-submenu{padding-left:34px!important;padding-bottom:6px!important}
+.pz-subnav,.admin-subnav{min-height:36px;padding:7px 9px!important;line-height:1.3}
+
+/* A single rhythm across top-level pages and panels. */
+main>header{margin-bottom:var(--pz-space-4)}
+.view.active-view>.panel+.panel,.view.active-view>article+article,.view.active-view>.settings-intro+*,.view.active-view>.pz-context-tabs+*{margin-top:var(--pz-space-3)!important}
+#view-dashboard>[data-open-day-review]{margin:0 0 var(--pz-space-3)!important}
+#view-projects>.tracking-grid+[data-time-workspace]{margin-top:var(--pz-space-3)}
+#view-projects>.tracking-grid{grid-template-columns:minmax(0,1fr)!important;margin-bottom:var(--pz-space-3)}
+#view-projects>.tracking-grid>.stack{display:none!important}
+.panel-head{gap:var(--pz-space-3)}
+.panel-actions{gap:8px!important}
+.company-toolbar{gap:10px!important;margin:14px 0!important}
+.company-view>.panel,.company-view>article{margin-bottom:0!important}
+.company-tracking>details{margin-top:var(--pz-space-3);padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:color-mix(in srgb,var(--panel2) 55%,transparent)}
+.company-tracking+.panel{margin-top:var(--pz-space-3)!important}
+.staff-policy-panels{gap:12px!important}.staff-policy-panels details{margin:0!important}
+.policy-save-row{clear:both;display:flex!important;justify-content:flex-end!important;margin:12px 0 0!important}
+
+/* Compact tab bars are reused for every menu group with subpages. */
+.ui-tabs,.tw-tabs,.employee-billing-tabs,.admin-tabs,.customer-tabs,.pz-context-tabs{min-height:0!important;gap:3px!important;padding:3px!important;border-radius:10px!important;margin:0 0 14px!important;scrollbar-width:thin}
+.ui-tabs button,.tw-tabs button,.employee-billing-tabs button,.admin-tabs button,.customer-tabs button,.pz-context-tabs button{min-height:34px!important;height:34px;padding:6px 11px!important;border-radius:7px!important;font-size:.8rem!important;line-height:1.15;white-space:nowrap;flex:0 0 auto}
+.pz-context-tabs{width:max-content;max-width:100%;overflow-x:auto}
+.pc-tabs{margin-bottom:14px!important}.pc-tab-actions{margin-left:auto;display:flex;gap:5px;align-items:center}
+.pc-tabs .pc-tab-actions button{width:34px!important;min-width:34px!important;padding:0!important}
+.pz-view-toggle{margin:0!important;width:max-content}.pz-view-toggle button{min-width:62px}
+
+/* Inline creation stays attached to its select without altering its indentation. */
+.pz-select-action{display:grid!important;grid-template-columns:minmax(0,1fr) 36px!important;gap:7px!important;align-items:center!important;width:100%}
+.pz-select-action>select{min-width:0;margin:0}
+.pz-inline-add{width:36px!important;min-width:36px!important;height:36px!important;min-height:36px!important;padding:0!important;display:grid!important;place-items:center!important;font-size:1.05rem!important;line-height:1!important}
+.pz-create-dialog,.pz-client-authorization{width:min(560px,calc(100vw - 24px));max-height:calc(100dvh - 24px);overflow:auto;border:1px solid var(--line);border-radius:17px;padding:24px;background:var(--panel);color:var(--text);box-shadow:var(--shadow)}
+.pz-create-dialog::backdrop,.pz-client-authorization::backdrop{background:#05080dcc}
+.pz-create-dialog form,.pz-client-authorization form{display:grid;gap:14px}.pz-create-dialog h2,.pz-client-authorization h2{margin:0}.pz-client-authorization ul{display:grid;gap:7px;margin:0;padding-left:22px;color:var(--muted)}.pz-auth-account{padding:11px 13px;border:1px solid var(--line);border-radius:10px;background:var(--panel2)}
+
+/* Detail and table actions keep one stable vertical line and stable dimensions. */
+.company-stamp-table td:last-child{display:grid!important;grid-template-columns:minmax(115px,1fr) 148px!important;align-items:center!important;gap:9px!important}
+.company-stamp-table button[data-day]{width:148px!important;min-width:148px!important;justify-self:end;white-space:nowrap!important}
+.employee-billing-table .table-actions>button,.admin-user-card .panel-actions>button,.wm-model-actions>button{min-width:126px}
+button[data-action-phase]{width:auto;overflow:hidden;white-space:nowrap}
+.duty-rotation-card>.icon-action{flex:0 0 42px}
+.time-detail-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin-bottom:16px}.time-detail-summary>div{display:grid;gap:4px;padding:12px;border:1px solid var(--line);border-radius:11px;background:var(--panel2)}.time-detail-summary small{color:var(--muted)}.time-detail-summary strong{font-size:1.2rem;font-variant-numeric:tabular-nums}.time-detail-section{margin-top:16px}.time-detail-section h4,.time-history h4{margin:0 0 10px}.time-detail-list{display:grid;gap:9px}.time-detail-list article{display:grid;gap:7px;padding:12px 13px;border:1px solid var(--line);border-radius:11px;background:var(--panel2)}.time-detail-list article>div{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}.time-detail-list article small{color:var(--muted)}.time-history{margin-top:18px;padding-top:18px;border-top:1px solid var(--line)}.time-history article{display:grid;gap:4px;padding:11px 0;border-bottom:1px solid var(--line)}
+
+/* Assignment dots: desktop and mobile each render exactly one indicator. */
+.provider-view .pz-mobile-summary>.pz-assignment-dot,.provider-view .pz-mobile-summary .pz-assignment-dot{display:none!important}
+.provider-view tbody tr>td:not(.pz-mobile-summary) .mobile-assignment-dot{display:none!important}
+.provider-view .mobile-summary-main>.mobile-assignment-dot{margin-right:1px!important;flex:0 0 9px}
+.provider-view tbody tr>td:not(.pz-mobile-summary):first-of-type>.pz-assignment-dot{margin-right:8px}
+
+/* Every time rail owns zoom gestures while ordinary one-finger scrolling remains intact. */
+.timeline-scroll,.tw-timeline-scroll,.customer-timeline-scroll{touch-action:pan-x pan-y;overscroll-behavior:contain;scrollbar-gutter:stable}
+.tw-timeline,.customer-timeline-layout{max-width:none!important;transform-origin:left center}
+.tw-timeline-scroll{cursor:grab}.tw-timeline-scroll.is-dragging{cursor:grabbing;user-select:none}
+
+/* Customer card/list switch. */
+.customer-tile-list{display:grid!important;grid-template-columns:repeat(auto-fill,minmax(245px,1fr));gap:14px!important}
+.compact-customer-list{display:grid!important;grid-template-columns:1fr!important;gap:8px!important}
+.compact-customer-row{min-height:64px!important;padding:11px 13px!important}
+
+@media(max-width:900px){
+ main{padding:18px!important}.sidebar{width:min(286px,88vw)!important;padding-top:16px!important}
+ main>header{margin-bottom:10px!important}.view{padding-top:0!important}
+ .view.active-view>.panel+.panel,.view.active-view>article+article,.view.active-view>.settings-intro+*,.view.active-view>.pz-context-tabs+*{margin-top:12px!important}
+ .panel,.timer-card{padding:16px!important;border-radius:14px!important}.panel-head{margin-bottom:13px!important}
+ .tracking-grid{gap:12px!important}.timer-card #timer{font-size:clamp(2.5rem,13vw,4rem)!important;margin:7px 0 18px!important}
+ .company-toolbar{align-items:stretch!important}.company-toolbar input,.company-toolbar select{min-width:0!important}
+ .pz-context-tabs{margin-bottom:10px!important}
+}
+
+@media(max-width:700px){
+ main{padding:14px!important}.panel,.timer-card{padding:14px!important}
+ .work-panel{margin-bottom:12px!important}.work-panel-compact-actions{grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:6px!important}.work-panel-compact-actions button{min-width:0!important;min-height:36px!important;height:36px!important;padding:5px 6px!important;font-size:.72rem!important}.work-panel.work-is-paused .work-panel-compact-actions{grid-template-columns:1fr!important}
+ .company-calendar-desktop{display:none!important}.company-calendar-mobile{display:grid!important;grid-template-columns:1fr!important;gap:9px!important}.company-calendar-agenda{display:grid!important;grid-template-columns:1fr!important;gap:9px!important}
+ .company-calendar-day{padding:10px!important;gap:6px!important;border-radius:10px!important}.company-calendar-day>.company-calendar-event{width:100%!important;margin:0!important;min-height:36px!important;padding:7px 9px!important;line-height:1.3!important}
+ #view-calendar .panel-head{display:grid!important;grid-template-columns:1fr 1fr!important;align-items:center!important;gap:8px!important}#view-calendar .panel-head h3{grid-column:1/-1}#view-calendar .panel-head button{width:100%;min-width:0;padding-inline:8px}
+ #view-calendar .company-toolbar:first-of-type{display:grid!important;grid-template-columns:36px minmax(0,1fr) 36px!important;gap:7px!important;align-items:center!important}#view-calendar .company-toolbar:first-of-type>[data-calendar-prev]{grid-column:1;grid-row:1}#view-calendar .company-toolbar:first-of-type>strong{grid-column:2;grid-row:1;text-align:center;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#view-calendar .company-toolbar:first-of-type>[data-calendar-next]{grid-column:3;grid-row:1}#view-calendar .company-toolbar:first-of-type>[data-calendar-prev],#view-calendar .company-toolbar:first-of-type>[data-calendar-next]{width:36px;padding:0}#view-calendar .company-toolbar:first-of-type>[data-calendar-today]{grid-column:1/-1;grid-row:2;width:100%}#view-calendar .company-toolbar:first-of-type>[data-date]{grid-column:1/-1;grid-row:3;width:100%}#view-calendar .company-toolbar:first-of-type>[data-mode]{grid-column:1/2;grid-row:4;width:100%}#view-calendar .company-toolbar:first-of-type>[data-person]{grid-column:2/-1;grid-row:4;width:100%}
+ #view-calendar .company-toolbar:nth-of-type(2){display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;padding:9px;border:1px solid var(--line);border-radius:10px;background:var(--panel2)}#view-calendar .company-toolbar:nth-of-type(2) label{display:flex!important;align-items:center!important;gap:7px!important;margin:0!important;min-height:32px}#view-calendar .company-toolbar:nth-of-type(2) input{width:18px!important;height:18px!important;flex:0 0 18px}
+ .company-stamp-table tr{grid-template-columns:1fr 1fr!important}.company-stamp-table td:last-child{grid-template-columns:1fr!important}.company-stamp-table button[data-day]{width:100%!important;min-width:0!important;justify-self:stretch}
+ .time-detail-summary{grid-template-columns:1fr!important}.company-time-detail{padding:16px!important}.time-detail-list article>div{display:grid}
+ .provider-view .raw-provider-table tr{padding:9px 0!important}.provider-view .pz-mobile-summary{padding:3px 1px!important}.provider-view .mobile-summary-main,.provider-view .mobile-summary-sub{gap:6px!important}.provider-view .mobile-summary-main{align-items:flex-start!important}.provider-view .mobile-summary-sub{padding-left:15px}
+ .provider-view .pz-assignment-dot{display:none!important}.provider-view .mobile-assignment-dot{display:inline-block!important}
+ .pc-toolbar.pc-filterbar{grid-template-columns:1fr!important}.pc-tabs{width:100%!important}.pc-tab-actions{position:sticky;right:0;background:var(--panel2);padding-left:4px}
+ .customer-tile-list{grid-template-columns:1fr!important}.pz-view-toggle button{min-width:54px!important}
+ .pz-create-dialog,.pz-client-authorization{padding:18px!important}
+}
+
+@media(min-width:701px){.provider-view .pz-mobile-summary{display:none!important}.provider-view tbody tr>td:not(.pz-mobile-summary):first-of-type>.pz-assignment-dot{display:inline-block!important}}
+
+@media(max-width:430px){
+ main{padding:10px!important}.panel,.timer-card{padding:12px!important;border-radius:12px!important}
+ .ui-tabs button,.tw-tabs button,.employee-billing-tabs button,.admin-tabs button,.customer-tabs button,.pz-context-tabs button{padding-inline:9px!important;font-size:.76rem!important}
+ .work-panel-compact-main{padding-right:20px!important}.work-panel-compact-actions button{font-size:.68rem!important}
+ #view-calendar .company-toolbar:nth-of-type(2){grid-template-columns:1fr!important}
+ #view-calendar .company-toolbar:first-of-type>[data-mode],#view-calendar .company-toolbar:first-of-type>[data-person]{grid-column:1/-1}#view-calendar .company-toolbar:first-of-type>[data-mode]{grid-row:4}#view-calendar .company-toolbar:first-of-type>[data-person]{grid-row:5}
+}

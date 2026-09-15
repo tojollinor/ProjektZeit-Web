@@ -169,6 +169,11 @@ def cached_list(c, uid):
         raw['id']=row['ticket_id'];raw['number']=row['number'];raw['title']=row['title'];raw['organization_name']=row['organization']
         raw['status']=row['state'];raw['created_at']=row['created_at'];raw['updated_at']=row['updated_at']
         employee=ticket_employee(raw,employees);raw['owner_display']=employee['owner_display']
+        # Zammad's built-in placeholder user represents an unassigned ticket.
+        # Such tickets remain in the authoritative cache, but are not work items
+        # for a ProjektZeit employee and therefore must not be shown here.
+        if employee['unowned']:
+            continue
         rows.append({'cells':[row['ticket_id'],row['number'],row['title'],row['organization'],row['state'],row['created_at'],row['updated_at']],
                      'ticket_id':row['ticket_id'],'raw':raw,'external_key':'zammad:id:'+row['ticket_id'],'customer_hint':hint,
                      'cache_status':'current','synced_at':row['synced_at'],**employee})
@@ -198,7 +203,12 @@ def _full_refresh(app, uid, incremental=False):
                 if _upsert(c,uid,ticket,generation,config['secret']): received+=1
                 tid=str(ticket.get('id') or '')
                 if not tid: continue
-                raw,hint=_normalize(ticket,config['secret']);key='zammad:id:'+tid;current_keys.add(key)
+                raw,hint=_normalize(ticket,config['secret']);key='zammad:id:'+tid
+                # Keep the complete Zammad cache authoritative while excluding
+                # unassigned tickets from the provider event/work-time database.
+                if ticket_employee(raw,{})['unowned']:
+                    continue
+                current_keys.add(key)
                 archive_rows.append({'raw':raw,'external_key':key,'customer_hint':hint})
             if archive_rows: provider_archive.cache_with_stats(c,uid,'zammad',{'rows':archive_rows})
         if incremental and payload and all(provider_lists.stamp(t.get('updated_at')) and provider_lists.stamp(t.get('updated_at'))<cutoff for t in payload):break

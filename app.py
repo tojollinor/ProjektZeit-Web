@@ -142,7 +142,7 @@ def seed_demo(c, user_id):
 
 
 class App(SimpleHTTPRequestHandler):
-    server_version = "ProjektZeit/0.7.6"
+    server_version = "ProjektZeit/0.8.0"
 
     def log_message(self, fmt, *args):
         if urlparse(self.path).path in ('/health', starface_oauth.CALLBACK):
@@ -253,7 +253,7 @@ class App(SimpleHTTPRequestHandler):
             try:
                 with db() as c:
                     c.execute('SELECT 1')
-                return self.send_json(200, {"status": "ok", "version": "0.7.6"})
+                return self.send_json(200, {"status": "ok", "version": "0.8.0"})
             except Exception:
                 return self.send_json(503, {'status': 'database_unavailable'})
         if path == '/api/v1/capabilities':
@@ -263,11 +263,13 @@ class App(SimpleHTTPRequestHandler):
                     token_lifetime = max(3600, int(__import__('admin_controls').setting(c, 'policy.session_max_hours', 12)) * 3600)
             except Exception:
                 pass
-            return self.send_json(200, {'api_version': 'v1', 'server_version': '0.7.6',
-                'authentication': ['session_cookie', 'bearer'], 'token_endpoint': '/api/v1/auth/token',
+            return self.send_json(200, {'api_version': 'v1', 'server_version': '0.8.0',
+                'authentication': ['session_cookie', 'bearer', 'authorization_code_pkce'], 'token_endpoint': '/api/v1/client-auth/token',
+                'authorization_endpoint': '/client/authorize', 'oauth_client_id': 'projektzeit-windows',
                 'token_lifetime_seconds': token_lifetime, 'refresh_tokens': False,
                 'features': ['workday', 'project_switch', 'entries_edit', 'csv', 'integration_previews',
-                             'time_workspace', 'totp', 'email_templates', 'employee_payroll']})
+                             'time_workspace', 'timeline_zoom', 'totp', 'email_mfa', 'mfa_method_selection',
+                             'email_templates', 'employee_payroll', 'account_deletion', 'windows_oauth']})
         if path == starface_oauth.CALLBACK:
             session = self.require(admin=True)
             if not session: return

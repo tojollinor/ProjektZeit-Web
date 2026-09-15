@@ -360,9 +360,14 @@ def email_changed(c, root, uid, old_email, new_email):
 
 
 def two_factor_changed(c, root, uid, enabled, method=''):
+    label = 'E-Mail-Code' if method == 'email' else 'Authenticator-App'
+    if not enabled and method:
+        return _security_notice(c, root, uid, 'notify_two_factor_change', 'ProjektZeit-2FA-Methode entfernt',
+                                f'Die 2FA-Methode „{label}“ wurde aus deinem ProjektZeit-Konto entfernt. '
+                                'Andere eingerichtete Methoden bleiben aktiv. Falls du das nicht veranlasst hast, '
+                                'ändere dein Passwort und wende dich bitte an einen Administrator.')
     action = 'eingerichtet' if enabled else 'zurückgesetzt'
-    detail = (' Als Methode wird ' + ('E-Mail-Code.' if method == 'email' else 'eine Authenticator-App.')
-              if enabled and method else '')
+    detail = f' Als Methode wird {label} verwendet.' if enabled and method else ''
     return _security_notice(c, root, uid, 'notify_two_factor_change', f'ProjektZeit-2FA {action}',
                             f'Die Zwei-Faktor-Authentifizierung deines ProjektZeit-Kontos wurde {action}.{detail} '
                             'Falls du das nicht veranlasst hast, ändere dein Passwort und wende dich bitte an einen Administrator.')
@@ -475,7 +480,6 @@ def verify_email_mfa(c, uid, code):
     c.execute('DELETE FROM user_email_mfa WHERE user_id=?', (int(uid),))
     c.execute('INSERT INTO user_email_mfa(user_id,email,enabled,created_at) VALUES(?,?,1,?)',
               (int(uid), email, stamp))
-    c.execute('DELETE FROM user_mfa WHERE user_id=?', (int(uid),))
     _replace_state(c, uid, email, stamp)
     return not was_enabled
 
@@ -488,10 +492,13 @@ def reset_email_mfa(c, uid):
 def mfa_context(c, uid):
     user = c.execute('SELECT * FROM users WHERE id=?', (int(uid),)).fetchone()
     totp = c.execute('SELECT enabled FROM user_mfa WHERE user_id=?', (int(uid),)).fetchone()
-    method = 'email' if email_mfa_enabled(c, uid) else ('totp' if totp and totp['enabled'] else '')
+    methods=[]
+    if totp and totp['enabled']:methods.append('totp')
+    if email_mfa_enabled(c, uid):methods.append('email')
+    method = methods[0] if len(methods)==1 else ('multiple' if methods else '')
     profile, email, verified = _state(c, uid)
     import auth_mfa
-    return {'method': method, 'required': bool(user and auth_mfa.required(c, dict(user))),
+    return {'method': method, 'methods':methods, 'required': bool(user and auth_mfa.required(c, dict(user))),
             'email_available': email_mfa_available(c, uid), 'email_configured': configured(c),
             'email': _mask_email(email), 'email_verified': verified}
 
@@ -699,7 +706,6 @@ def install(app):
         result = original_verify(c, uid, code, root, enroll=enroll, clock=clock)
         after = c.execute('SELECT enabled FROM user_mfa WHERE user_id=?', (uid,)).fetchone()
         if not (before and before['enabled']) and after and after['enabled']:
-            reset_email_mfa(c, uid)
             two_factor_changed(c, root, uid, True, 'totp')
         return result
     auth_mfa.verify = verify_mfa
@@ -709,17 +715,23 @@ def install(app):
         email_enabled = email_mfa_enabled(c, user['id'])
         totp = c.execute('SELECT enabled FROM user_mfa WHERE user_id=?', (user['id'],)).fetchone()
         totp_enabled = bool(totp and totp['enabled'])
-        if email_enabled:
+        configured_methods=[name for name,enabled in (('totp',totp_enabled),('email',email_enabled)) if enabled]
+        requested = str(body.get('mfa_method') or '').strip().lower()
+        if len(configured_methods)>1 and not requested:
+            return {'mfa_required':True,'method_selection':True,'methods':configured_methods,
+                    'email_available':True}
+        if configured_methods and not requested:
+            requested=configured_methods[0]
+        if requested=='email' and email_enabled:
             if body.get('otp'):
                 verify_email_mfa(c, user['id'], body.get('otp'))
                 return {'_mfa_verified': True, 'mfa_method': 'email'}
             return begin_email_mfa(c, root, user, force=bool(body.get('resend_mfa')))
-        if totp_enabled:
+        if requested=='totp' and totp_enabled:
             result = original_mfa_login(c, user, body, root)
             if result.get('mfa_required'): result['mfa_method'] = 'totp'
             return result
         mandatory = auth_mfa.required(c, user)
-        requested = str(body.get('mfa_method') or '').strip().lower()
         if not requested and body.get('enroll_2fa'):
             requested = 'totp'
         if not requested and body.get('enroll_email_2fa'):
@@ -729,6 +741,7 @@ def install(app):
         available = email_mfa_available(c, user['id'])
         if not requested:
             return {'mfa_required': True, 'enrollment_required': True, 'method_selection': True,
+                    'methods':['totp']+(['email'] if available else []),
                     'email_available': available,
                     'email_unavailable_reason': '' if available else ('E-Mail ist nicht eingerichtet.' if not configured(c)
                                                                       else 'Für dein Konto ist keine E-Mail-Adresse hinterlegt.')}
@@ -807,7 +820,8 @@ def install(app):
     def do_POST(self):
         path = urlsplit(self.path).path
         account_paths = {'/api/v1/account/password', '/api/v1/account/mfa/context',
-                         '/api/v1/account/mfa/begin', '/api/v1/account/mfa/complete'}
+                         '/api/v1/account/mfa/begin', '/api/v1/account/mfa/complete',
+                         '/api/v1/account/mfa/delete'}
         if path not in public_paths and path not in account_paths:
             return previous_post(self)
         try:
@@ -859,6 +873,23 @@ def install(app):
                         result = auth_mfa.verify(c, session['id'], body.get('otp'), app.DATA_DIR, enroll=True)
                     else: raise ValueError('Bitte eine gültige 2FA-Methode auswählen.')
                     return self.send_json(200, {'ok': True, **mfa_context(c, session['id']), **result})
+                if path == '/api/v1/account/mfa/delete':
+                    user = _require_current_password(c, session['id'], body.get('current_password'), app.verify_password)
+                    method = str(body.get('method') or '').strip().lower()
+                    context = mfa_context(c, session['id'])
+                    if method not in context['methods']:
+                        raise ValueError('Diese 2FA-Methode ist nicht eingerichtet.')
+                    remaining=[name for name in context['methods'] if name!=method]
+                    import auth_mfa
+                    if auth_mfa.required(c,user) and not remaining:
+                        raise ValueError('Die letzte 2FA-Methode kann wegen der geltenden Richtlinie nicht gelöscht werden.')
+                    if method=='totp':
+                        c.execute('DELETE FROM user_mfa WHERE user_id=?',(session['id'],))
+                    else:
+                        reset_email_mfa(c,session['id'])
+                    _end_sessions(c,session['id'],session['token_hash'])
+                    two_factor_changed(c,app.DATA_DIR,session['id'],False,method)
+                    return self.send_json(200,{'ok':True,**mfa_context(c,session['id'])})
                 change_password(c, app.DATA_DIR, session['id'], body.get('current_password'), body.get('password'),
                                 body.get('confirmation'), app.hash_password, app.verify_password, session['token_hash'])
             return self.send_json(200, {'ok': True})

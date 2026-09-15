@@ -64,13 +64,45 @@ class IntegrationTests(unittest.TestCase):
         return integrations.diagnose(self.data(provider),FakeClient),calls
 
     def test_teamviewer_script_token_and_reports(self):
-        result,calls=self.run_probe('teamviewer',[(200,{'token_valid':True},'OK'),(200,{'records':[{'id':'c1','start_date':'2026-09-10T08:00:00Z','end_date':'2026-09-10T09:00:00Z','deviceid':'pc1','password':'TopSecret-password'}]},'OK')])
+        result,calls=self.run_probe('teamviewer',[
+            (200,{'token_valid':True},'OK'),
+            (200,{'userid':'u1','name':'Tobi','email':'tobi@example.test','company_name':'Beispiel GmbH','license':{'type':'Corporate'}},'OK'),
+            (200,{'records':[{'id':'c1','start_date':'2026-09-10T08:00:00Z','end_date':'2026-09-10T09:00:00Z','deviceid':'pc1','password':'TopSecret-password'}]},'OK')])
         self.assertTrue(result['ok'])
         self.assertTrue(all(c['found'] for c in result['checks']))
         self.assertEqual(calls[0][1]['Authorization'],'Bearer TopSecret-password')
+        self.assertEqual(calls[1][0],'/api/v1/account')
+        self.assertIn('/api/v1/reports/connections?from_date=',calls[2][0])
+        self.assertEqual(result['teamviewer']['account']['company_name'],'Beispiel GmbH')
+        self.assertEqual(result['teamviewer']['state'],'recent_reports')
+        self.assertFalse(result['teamviewer']['settings_api_supported'])
         self.assertNotIn('TopSecret-password',json.dumps(result))
         result,calls=self.run_probe('teamviewer',[(200,{'token_valid':False},'OK')])
         self.assertFalse(result['ok']);self.assertEqual(len(calls),1)
+
+    def test_teamviewer_missing_optional_account_permission_and_empty_reports(self):
+        result,calls=self.run_probe('teamviewer',[
+            (200,{'token_valid':True},'OK'),
+            (403,None,'Zugriff verweigert.'),
+            (200,{'records':[]},'OK')])
+        self.assertTrue(result['ok'])
+        self.assertTrue(result['attention'])
+        self.assertFalse(result['teamviewer']['account_verified'])
+        self.assertTrue(result['teamviewer']['reports_access'])
+        self.assertEqual(result['teamviewer']['state'],'no_recent_reports')
+        self.assertFalse(result['steps'][1]['required'])
+        self.assertIn('bestehende Tokens lassen sich',result['steps'][1]['message'])
+        self.assertEqual(len(calls),3)
+
+    def test_teamviewer_report_permission_is_required(self):
+        result,_=self.run_probe('teamviewer',[
+            (200,{'token_valid':True},'OK'),
+            (200,{'userid':'u1'},'OK'),
+            (403,None,'Zugriff verweigert.')])
+        self.assertFalse(result['ok'])
+        self.assertTrue(result['attention'])
+        self.assertEqual(result['teamviewer']['state'],'reports_permission_missing')
+        self.assertIn('neuen Script-Token',result['steps'][2]['message'])
 
     def test_zammad_basic_auth_and_permission_failure(self):
         result,calls=self.run_probe('zammad',[(200,{'id':1,'email':'person@example.com'},'OK'),(403,None,'Zugriff verweigert.')])

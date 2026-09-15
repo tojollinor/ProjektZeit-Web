@@ -6,6 +6,11 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>ProjektZeit-Windows</AssemblyName>
+    <Version>0.8.0</Version>
+    <AssemblyVersion>0.8.0.0</AssemblyVersion>
+    <FileVersion>0.8.0.0</FileVersion>
+    <Product>ProjektZeit für Windows</Product>
+    <Description>ProjektZeit Arbeitszeit- und Projektclient mit sicherer Browseranmeldung</Description>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />

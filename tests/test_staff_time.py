@@ -109,4 +109,28 @@ class StaffTimeTest(unittest.TestCase):
         with app.db() as c:
             with self.assertRaisesRegex(ValueError,'Nicht genügend'):st.movement(c,self.uid,dict(user_id=self.uid,day='2026-09-13',hours=100,kind='payout',note='Test'))
 
+    def test_policy_can_allow_payout_into_negative_balance(self):
+        with app.db() as c:
+            c.execute('INSERT INTO staff_policy_versions(valid_from,settings_json,created_by,created_at) VALUES(?,?,?,?)',
+                      ('2026-01-01',json.dumps({**st.DEFAULT_POLICY,'allow_negative_balance':True}),self.uid,st.iso(st.now())))
+            st.movement(c,self.uid,dict(user_id=self.uid,day='2026-09-13',hours=100,kind='payout',note='Freigegeben'))
+            movement=c.execute("SELECT seconds FROM staff_movements WHERE kind='payout'").fetchone()
+            self.assertEqual(movement['seconds'],-100*3600)
+
+    def test_without_work_model_only_finished_project_time_is_counted(self):
+        with app.db() as c:
+            c.execute('DELETE FROM work_models WHERE user_id=?',(self.uid,))
+            rows=(
+                ('2026-09-13T08:00:00+00:00','2026-09-13T10:00:00+00:00'),
+                ('2026-09-13T09:00:00+00:00','2026-09-13T11:00:00+00:00'),
+                ('2026-09-13T11:00:00+00:00',None),
+            )
+            for start,end in rows:
+                c.execute('INSERT INTO entries(owner_id,project_id,category_id,started_at,ended_at,note,is_idle) VALUES(?,?,?,?,?,\'\',0)',
+                          (self.uid,self.pids[0],self.cid,start,end))
+            balance=st.account_balance(c,self.uid,date(2026,9,13))
+            self.assertEqual(balance['basis'],'completed_projects')
+            self.assertEqual(balance['completed_project_seconds'],3*3600)
+            self.assertEqual(balance['balance_seconds'],3*3600)
+
 if __name__=='__main__':unittest.main()

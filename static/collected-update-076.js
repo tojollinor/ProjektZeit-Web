@@ -33,13 +33,14 @@
   d.showModal();
  }
  function targetsFor(provider){
-  const targets=qa(`#integration-cards [data-provider="${provider}"]`);
+  const targets=[];
   for(const details of qa('[data-admin-pane="integrations"] details.service-fold'))if((q('summary',details)?.textContent||'').toLowerCase().includes(provider))targets.push(details);
   return [...new Set(targets)];
  }
  async function decorateSync(force=false){
   qa('[data-company-sync]').forEach(node=>node.remove());
-  const hasTarget=qa('#integration-cards [data-provider],[data-admin-pane="integrations"] details.service-fold').length;if(!hasTarget)return;
+  qa('#integration-cards [data-integration-sync],#view-settings-connections [data-integration-sync]').forEach(node=>node.remove());
+  const hasTarget=qa('[data-admin-pane="integrations"] details.service-fold').length;if(!hasTarget)return;
   const data=await getSync(force);if(!data)return;
   for(const setting of data.settings||[]){
    const budget=(data.budget||[]).find(row=>row.provider===setting.provider),jobs=(data.jobs||[]).filter(row=>row.provider===setting.provider),job=jobs.sort((a,b)=>String(b.started_at).localeCompare(String(a.started_at)))[0];

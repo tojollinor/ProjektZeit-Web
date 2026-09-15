@@ -4,6 +4,7 @@ HELP = {
  'users.create':'Legt neue aktive Benutzer mit der Standardrolle Benutzer an. Andere Rollen zuweisen, Arbeitszeitmodelle und Urlaubskonten verwalten sind gesonderte Rechte.',
  'users.edit':'Ändert Namen, E-Mail, Telefon und interne Notizen anderer Benutzer. Status, Rollen und 2FA werden damit nicht geändert.',
  'users.disable':'Ändert den Zugang anderer Benutzer zwischen aktiv und deaktiviert. Deaktivieren beendet Sitzungen und widerruft API-Tokens; Zeiten bleiben erhalten. Der eigene Zugang ist ausgenommen. Für Administratoren ist zusätzlich Systemoptionen ändern nötig.',
+ 'users.delete':'Löscht den Zugang, persönliche Anmeldedaten und Providerverbindungen eines Benutzers dauerhaft. Historische Arbeits-, Projekt- und Abrechnungsdaten bleiben unter einer neutralen Kennzeichnung nachvollziehbar. Das über ADMIN_USER konfigurierte Notfallkonto ist geschützt.',
  'users.roles.assign':'Weist Benutzern vorhandene Rollen zu und entfernt Zuweisungen. Dadurch können weitreichende Rechte vergeben werden. Rollen selbst ändern erfordert Rollen bearbeiten.',
  'roles.view':'Zeigt Rollen und ihre Berechtigungen. Erlaubt allein keine Änderung oder Zuweisung.',
  'roles.create':'Erstellt eigene Rollen. Die Zuweisung an Mitarbeiter bleibt ein gesondertes Recht.',
@@ -47,7 +48,7 @@ HELP = {
  'bookkeeping.view':'Zeigt Projekte zur Abrechnung und die Mitarbeiterabrechnung. Auszahlen, Monatsabschluss und Abrechnungsstatus ändern haben eigene Rechte.',
  'bookkeeping.manage':'Ändert den Abrechnungsstatus von Projekten und erlaubt der Buchhaltung das Wiederöffnen und Zuweisen. Mitarbeiterstunden auszahlen benötigt Stunden auszahlen und Monate abschließen.',
  'api.tokens.manage_own':'Erstellt und widerruft eigene API-Tokens. Ein Token erhält nur freigegebene Bereiche innerhalb der aktuellen Rechte des Benutzers; keine administrativen Tokens.',
- 'staff.models.manage':'Verwaltet Sollstunden, Arbeitstage und Feiertagsregion der Mitarbeiter ab Gültigkeitsdatum. Alte Modelle bleiben erhalten. Urlaubstage werden über Urlaubskonten verwalten gepflegt.',
+ 'staff.models.manage':'Verwaltet Sollstunden, Arbeitstage und Feiertagsregion der Mitarbeiter ab Gültigkeitsdatum. Gespeicherte Modelle können bearbeitet oder gelöscht werden, solange kein abgeschlossener Abrechnungsmonat betroffen ist. Urlaubstage werden über Urlaubskonten verwalten gepflegt.',
  'staff.view':'Zeigt Arbeitszeiten und Stundenkonten anderer Mitarbeiter. Ändern, Auszahlen und Genehmigen sind eigenständige Rechte. Die eigenen Zeiten bleiben ohne dieses Recht sichtbar.',
  'staff.manage':'Verwaltet Urlaubstage und Urlaubskonten der Mitarbeiter. Genehmigt allein noch keine Urlaubsanträge und ändert keine Sollstunden.',
  'staff.policy':'Ändert Arbeitszeit- und Abwesenheitsrichtlinien sowie Abwesenheitsarten. Neue Regeln gelten ab ihrem Gültigkeitsdatum; bestehende Anträge behalten ihre ursprünglichen Regeln.',
@@ -93,6 +94,7 @@ POLICIES = {
  'minimum_minutes':'Kleinster zulässiger Zeitschritt bei stundenweisen Abwesenheiten. Ändert keine vorhandenen Stempelzeiten.',
  'correction_mode':'Nicht erlaubt sperrt eigene manuelle Stempelkorrekturen. Direkt mit Verlauf speichert sie mit Begründung ohne Genehmigung. Fremde Zeiten benötigen das eigene Korrekturrecht.',
  'self_approval':'Erlaubt Eigengenehmigungen nur zusammen mit dem gesonderten Rollenrecht und dem passenden fachlichen Genehmigungsrecht.',
+ 'allow_negative_balance':'Erlaubt Auszahlungen oder Korrekturen über das aktuell verfügbare Stundenkonto hinaus. Das Konto darf dadurch ins Minus fallen; alle Bewegungen bleiben mit Begründung im Verlauf erhalten.',
  'valid_from':'Neue Arbeitszeit- und Abwesenheitsregeln gelten ab diesem Datum. Bereits eingereichte Anträge behalten ihre beim Einreichen gespeicherten Regeln.',
 }
 PREPARED_POLICIES = set()

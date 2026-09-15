@@ -70,7 +70,12 @@ def worker(uid,provider,key,full=False):
         if not row or row['id']!=key or row['state']!='running':return
     import feature_runtime,provider_archive,provider_cache_runtime,zammad_cache_runtime
     try:
-        if provider=='zammad':result=zammad_cache_runtime._full_refresh(app,uid,incremental=not full)
+        # Zammad is authoritative.  A complete reconciliation on every run also
+        # removes locally cached tickets that were deleted, reassigned or lost
+        # their owner in Zammad instead of keeping them until the weekly pass.
+        if provider=='zammad':
+            full=True
+            result=zammad_cache_runtime._full_refresh(app,uid,incremental=False)
         else:
             config=feature_runtime.integration_config(app,uid,provider)
             if provider=='teamviewer':result=provider_archive.sync_teamviewer(app.db,uid,config,full=full)

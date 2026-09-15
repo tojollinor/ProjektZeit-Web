@@ -1,4 +1,4 @@
-# ProjektZeit Web 0.7.6
+# ProjektZeit Web 0.8.0
 
 Webbasierte Zeiterfassung mit Kunden, Projekten, Zeitkategorien, bearbeitbaren Stempelungen und Tageszeitstrahl. Arbeitsbeginn/-ende begrenzen die Arbeitszeit; Lücken werden als „unproduktiv“ erfasst. Projektwechsel beendet den laufenden Timer atomar.
 
@@ -13,10 +13,16 @@ MariaDB 11.4 speichert die Daten dauerhaft im Volume `mariadb-data`. Der Schlüs
 ## Schnittstellen
 
 - STARFACE 10: OAuth 2.0 Authorization Code + PKCE. STARFACE-Adresse, Client-ID und Client-Secret werden in der ProjektZeit-Weboberfläche konfiguriert und serverseitig verschlüsselt gespeichert. Der Windows-Client übernimmt nur den lokalen Loopback-Callback. Access- und Refresh-Token liegen anschließend ebenfalls verschlüsselt auf dem Server und können ohne laufenden Windows-Client weiterverwendet werden. Siehe [Upgrade und OAuth-Konfiguration](UPGRADE-0.7.md).
-- TeamViewer: Script-Token mit Leserechten für Verbindungsberichte; kein Benutzername oder TOTP nötig.
+- TeamViewer: Script-Token mit Leserechten für Kontoinformationen und Verbindungsberichte; kein Benutzername oder TOTP nötig. Die Verbindungsdiagnose gleicht Konto, Unternehmensprofil, Lizenz und die letzten 30 Tage der Berichte direkt mit der API ab. Der persönliche TeamViewer-Schalter unter **Einstellungen → Verbindungsprotokolle** ist nicht Bestandteil der öffentlichen API und muss bei fehlenden Berichten im TeamViewer-Konto kontrolliert werden.
 - Zammad: Benutzername/Passwort über Basic Authentication, sofern auf der Instanz freigegeben.
 
-Eigene Seiten für Zammad, STARFACE und TeamViewer enthalten durchsuchbare, klar gekennzeichnete Beispiellisten. „Echte Daten laden“ lädt für Administratoren TeamViewer-Verbindungen der letzten 30 Tage (maximal 100 angezeigt, mit Gerätenamen und Dauer) beziehungsweise bis zu 100 Zammad-Tickets mit Ticketnummer und Organisationsnamen. Ein Ticketklick öffnet die Ticketdetails und Nachrichten direkt in ProjektZeit. STARFACE prüft das aktuell angemeldete Konto über `/rest/users/me`; echte Anruflisten sind noch nicht umgesetzt. Beispiele erzeugen keine Stempelungen.
+Eigene Seiten für Zammad, STARFACE und TeamViewer enthalten durchsuchbare
+Arbeitslisten und lokale Archive. Zammad gilt beim vollständigen Abgleich als
+führender Bestand; persönliche Ticketlisten enthalten nur tatsächlich
+zugeordnete Tickets. STARFACE-Anruflisten erkennen anhand des gelieferten
+Verlaufs erfolgreiche Rückrufe und
+schließen dazugehörige ältere verpasste Anrufe. Providerdaten erzeugen keine
+Stempelungen, bis sie bewusst einem Projekt zugeordnet werden.
 
 Compose verwendet die festen Containernamen `projektzeit-web` und `projektzeit-db`. Die Zeitzone wird für beide über `TZ=Europe/Berlin` in der separaten `.env` gesetzt. Bei mehreren Installationen auf demselben Docker-Host müssen die Containernamen angepasst werden.
 
@@ -24,11 +30,11 @@ Compose verwendet die festen Containernamen `projektzeit-web` und `projektzeit-d
 
 Die API unter `/api/v1` unterstützt Bearer-Anmeldung, Ablauf und Widerruf. [API-Vertrag mit Beispielen](API-CLIENTS.md).
 
-Ein nativer Windows-Client ist als WPF-Anwendung unter `windows-client/` enthalten. GitHub Actions baut daraus eine selbstständige Windows-EXE und veröffentlicht sie im Release `windows-client`. Der Client speichert den ProjektZeit-Sitzungstoken benutzergebunden mit Windows DPAPI, kann Arbeitsbeginn/-ende schreiben und dient bei STARFACE als lokaler OAuth-Helfer.
+Ein nativer Windows-Client ist als WPF-Anwendung unter `windows-client/` enthalten. GitHub Actions baut daraus eine selbstständige Windows-EXE und veröffentlicht sie im Release `windows-client`. Der Client startet die ProjektZeit-Anmeldung mit Authorization Code und PKCE im Standardbrowser, speichert den daraus erzeugten Sitzungstoken benutzergebunden mit Windows DPAPI und unterstützt Arbeitsbeginn/-ende, Pausen sowie Projektstart, -wechsel und -stopp. Ein ProjektZeit-Passwort wird im Client nicht mehr eingegeben.
 
-Beim manuellen Start registriert die portable EXE den URI-Handler `projektzeit://`, sofern noch kein gültiger Handler vorhanden ist. Dadurch kann die Weboberfläche mit **STARFACE verbinden** den Client direkt öffnen. Der Handler verweist immer nur auf die lokale EXE; Client-Secret, STARFACE-Passwort und OAuth-Tokens werden niemals in den URI geschrieben. Ein späterer Installer kann denselben Handler auf den Installationspfad registrieren; eine portable EXE überschreibt einen weiterhin gültigen Handler nicht.
+Beim manuellen Start registriert beziehungsweise aktualisiert die portable EXE den URI-Handler `projektzeit://` für ihren aktuellen Speicherort. Dadurch kann die Weboberfläche mit **STARFACE verbinden** den Client direkt öffnen. Der Handler verweist immer nur auf die lokale EXE; Client-Secret, STARFACE-Passwort und OAuth-Tokens werden niemals in den URI geschrieben. Ein späterer Installer kann denselben Handler auf seinen Installationspfad umstellen.
 
-Ein vollständiger nativer Projekt-Timer und Offlinebetrieb sind noch nicht umgesetzt. Eine Smartphone-App ist noch nicht enthalten.
+Offlinebetrieb und eine Smartphone-App sind nicht enthalten.
 
 ## GitHub / Komodo
 
@@ -64,4 +70,4 @@ Mit `DB_BACKEND=sqlite`, `DEMO_MODE=1` und `ADMIN_PASSWORD=admin` ist ein isolie
 
 Das enthaltene ProjektZeit-Logo wurde für dieses Projekt erstellt und stammt aus der bisherigen Windows-Anwendung.
 
-Die vollständigen Änderungen dieser Version stehen in [UPDATE-0.7.6.md](UPDATE-0.7.6.md).
+Die vollständigen Änderungen dieser Version stehen in [UPDATE-0.8.0.md](UPDATE-0.8.0.md).
