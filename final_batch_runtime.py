@@ -221,9 +221,36 @@ def _valid_customer(c,uid,cid):
     return row
 
 
-def mark_manual_callbacks(c,uid,values):
+def _callback_keys(values):
     keys=list(dict.fromkeys(str(value or '').strip() for value in values if str(value or '').strip()))
     if not keys or len(keys)>100:raise ValueError('Bitte eine gültige Anrufgruppe auswählen.')
+    return keys
+
+
+def starface_callback_targets(c,uid,values):
+    """Resolve ProjektZeit event keys to native STARFACE call-list entry ids."""
+    keys=_callback_keys(values)
+    placeholders=','.join('?' for _ in keys)
+    rows=list(c.execute("SELECT external_key,raw_json FROM provider_events WHERE owner_id=? AND provider='starface' AND external_key IN ("+placeholders+")",(uid,*keys)))
+    by_key={r['external_key']:r for r in rows}
+    if set(by_key)!=set(keys):raise ValueError('Mindestens ein Anruf wurde nicht gefunden.')
+    targets=[]
+    for key in keys:
+        row=by_key[key]
+        try:raw=json.loads(row['raw_json'] or '{}')
+        except (ValueError,TypeError):raise ValueError('STARFACE-Anrufdaten sind beschädigt. Bitte die Anrufliste neu synchronisieren.') from None
+        if str(raw.get('direction') or '').upper()!='INBOUND' or str(raw.get('result') or '').upper()!='MISSED':
+            raise ValueError('Nur verpasste eingehende STARFACE-Anrufe können als zurückgerufen markiert werden.')
+        entry_id=str(raw.get('id') or '').strip()
+        if not entry_id and key.startswith('starface:id:'):entry_id=key[len('starface:id:'):].strip()
+        if not entry_id or len(entry_id)>180:
+            raise ValueError('STARFACE-Anruflisten-ID fehlt. Bitte die STARFACE-Anrufliste neu synchronisieren.')
+        targets.append({'external_key':key,'call_list_entry_id':entry_id})
+    return targets
+
+
+def mark_manual_callbacks(c,uid,values):
+    keys=_callback_keys(values)
     placeholders=','.join('?' for _ in keys)
     found={r['external_key'] for r in c.execute("SELECT external_key FROM provider_events WHERE owner_id=? AND provider='starface' AND external_key IN ("+placeholders+")",(uid,*keys))}
     if found!=set(keys):raise ValueError('Mindestens ein Anruf wurde nicht gefunden.')
@@ -232,6 +259,14 @@ def mark_manual_callbacks(c,uid,values):
         c.execute('DELETE FROM starface_manual_callbacks WHERE owner_id=? AND external_key=?',(uid,key))
         c.execute('INSERT INTO starface_manual_callbacks(owner_id,external_key,marked_by,marked_at) VALUES(?,?,?,?)',(uid,key,uid,stamp))
     return keys
+
+
+def sync_starface_callbacks(app,c,uid,values):
+    """Write callback flags to STARFACE first, then mirror the confirmed state locally."""
+    targets=starface_callback_targets(c,uid,values)
+    config=app.starface_oauth.access(c,uid,app.DATA_DIR)
+    app.starface_calls.set_called_back(config,[target['call_list_entry_id'] for target in targets],True)
+    return mark_manual_callbacks(c,uid,[target['external_key'] for target in targets])
 
 
 def install(app):
@@ -356,8 +391,9 @@ def install(app):
                     return self.send_json(200,result)
                 if path=='/api/v1/starface/callback/manual':
                     supplied=body.get('external_keys') if isinstance(body.get('external_keys'),list) else [body.get('external_key')]
-                    keys=mark_manual_callbacks(c,uid,supplied)
-                    _audit(c,uid,'starface_call_group',keys[0],'manually_called_back',{'count':len(keys)});return self.send_json(200,{'ok':True,'marked':len(keys)})
+                    keys=sync_starface_callbacks(app,c,uid,supplied)
+                    _audit(c,uid,'starface_call_group',keys[0],'manually_called_back',{'count':len(keys),'server_synced':True})
+                    return self.send_json(200,{'ok':True,'marked':len(keys),'server_synced':True})
                 if path=='/api/v1/customers/archive':
                     admin_controls.require_permission(c,uid,'customers.archive');cid=int(body.get('customer_id'));_valid_customer(c,uid,cid);state=1 if body.get('archived',True) else 0;c.execute('UPDATE customers SET archived=? WHERE id=?',(state,cid));_audit(c,uid,'customer',cid,'archived' if state else 'restored',{});return self.send_json(200,{'ok':True,'archived':bool(state)})
                 if path=='/api/v1/customers/delete':

@@ -55,6 +55,24 @@ class CallsTest(unittest.TestCase):
         with self.assertRaises(ValueError):sf.load(CONFIG,lambda _:rpc)
         self.assertEqual(rpc.call.call_args.args,('connection.logout',))
 
+
+    def test_set_called_back_uses_one_uci_session_and_logs_out(self):
+        rpc=Mock();rpc.call.side_effect=[True,None,None,True]
+        result=sf.set_called_back(CONFIG,['entry-1','entry-2','entry-1'],True,lambda _:rpc)
+        self.assertEqual(result,['entry-1','entry-2'])
+        self.assertEqual(rpc.call.call_args_list[0].args,('connection.login',))
+        self.assertEqual(rpc.call.call_args_list[1].args,('callList.setCallListEntryCalledBack',('entry-1',True)))
+        self.assertEqual(rpc.call.call_args_list[2].args,('callList.setCallListEntryCalledBack',('entry-2',True)))
+        self.assertEqual(rpc.call.call_args_list[-1].args,('connection.logout',))
+
+    def test_set_called_back_logs_out_when_starface_rejects_write(self):
+        rpc=Mock();rpc.call.side_effect=[True,ValueError('denied'),True]
+        with self.assertRaisesRegex(ValueError,'denied'):
+            sf.set_called_back(CONFIG,['entry-1'],True,lambda _:rpc)
+        self.assertEqual(rpc.call.call_args_list[-1].args,('connection.logout',))
+        with self.assertRaises(ValueError):sf.set_called_back(CONFIG,[],True,lambda _:rpc)
+        with self.assertRaises(ValueError):sf.set_called_back(CONFIG,['entry-1'],'true',lambda _:rpc)
+
     def test_version_unavailable_does_not_break_connection(self):
         client=Mock();client.request.return_value=(403,None,'forbidden')
         self.assertIsNone(sf.server_info(CONFIG,lambda _:client)['version'])
@@ -73,6 +91,8 @@ class CallsTest(unittest.TestCase):
         sent=connection.request.call_args
         self.assertEqual(parse_qs(urlsplit(sent.args[1]).query)['de.vertico.starface.jwt'],['private-token'])
         params,method=loads(sent.kwargs['body']);self.assertEqual(method,'ucp.v30.requests.connection.login')
+        reply(True);rpc.call('callList.setCallListEntryCalledBack',('entry-42',True))
+        params,method=loads(connection.request.call_args.kwargs['body']);self.assertEqual(method,'ucp.v30.requests.callList.setCallListEntryCalledBack');self.assertEqual(params,('entry-42',True))
         reply(True);rpc.call('connection.logout')
         self.assertEqual(connection.request.call_args.kwargs['headers']['Cookie'],'JSESSIONID=session')
         response.read1.side_effect=[dumps(Fault(403,'private-token')).encode(),b'']

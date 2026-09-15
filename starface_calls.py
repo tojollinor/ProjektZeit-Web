@@ -105,8 +105,8 @@ class UciClient:
         self.cookies = {}
 
     def call(self, method, params=()):
-        if method not in ('connection.login', 'connection.logout', 'callList.getCallList'):
-            raise ValueError('Nicht unterstützte STARFACE-Abfrage.')
+        if method not in ('connection.login', 'connection.logout', 'callList.getCallList', 'callList.setCallListEntryCalledBack'):
+            raise ValueError('Nicht unterstützte STARFACE-Anfrage.')
         body = dumps(tuple(params), methodname=PREFIX+method, allow_none=True).encode()
         conn = integrations.Connection(self.host, self.port, timeout=8, context=ssl.create_default_context())
         headers = {'Content-Type': 'text/xml', 'Accept': 'text/xml', 'User-Agent': 'ProjektZeit/0.7.0'}
@@ -142,6 +142,36 @@ class UciClient:
         finally:
             conn.close()
 
+
+
+def set_called_back(config, call_list_entry_ids, called_back=True, rpc_factory=UciClient):
+    """Set STARFACE's native called-back flag for one or more call-list entries.
+
+    STARFACE UCI 3.0.3 exposes
+    callList.setCallListEntryCalledBack(String callListEntryId, boolean calledBack).
+    The server records author and modification time itself.
+    """
+    if type(called_back) is not bool:
+        raise ValueError('Ungültiger STARFACE-Rückrufstatus.')
+    if isinstance(call_list_entry_ids, str):
+        call_list_entry_ids = [call_list_entry_ids]
+    if not isinstance(call_list_entry_ids, (list, tuple)):
+        raise ValueError('Ungültige STARFACE-Anruflisten-ID.')
+    ids = list(dict.fromkeys(str(value or '').strip() for value in call_list_entry_ids if str(value or '').strip()))
+    if not ids or len(ids) > 100 or any(len(value) > 180 for value in ids):
+        raise ValueError('Ungültige STARFACE-Anruflisten-ID.')
+    rpc = rpc_factory(config)
+    if rpc.call('connection.login') is not True:
+        raise ValueError('STARFACE-UCI-Anmeldung abgewiesen. Berechtigungen prüfen.')
+    try:
+        for entry_id in ids:
+            rpc.call('callList.setCallListEntryCalledBack', (entry_id, called_back))
+    finally:
+        try:
+            rpc.call('connection.logout')
+        except (ValueError, OSError):
+            pass
+    return ids
 
 def server_info(config, client_factory=integrations.Client):
     headers = {'Authorization': 'Bearer '+config['secret'], 'X-Version': '2'}
