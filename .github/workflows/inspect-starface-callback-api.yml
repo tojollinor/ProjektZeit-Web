@@ -12,43 +12,23 @@ jobs:
   inspect:
     runs-on: ubuntu-latest
     steps:
-      - name: Download and inspect official STARFACE 7.3 client
+      - name: Resolve UCI 3.0.3 download and inspect call-list interface
         shell: bash
         run: |
           set -euo pipefail
-          URL='https://www.starface-cdn.de/starface/clients/Windows/7.3.0.x/7.3.0.162/STARFACE_Windows_v7.3.0.162.exe'
-          EXPECTED='3280bb442866f219dc36414bcc449eef54a5052c73ad85877d43adb30b896714'
-          curl -fL --retry 3 --max-time 180 "$URL" -o starface.exe
-          echo "$EXPECTED  starface.exe" | sha256sum -c -
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq p7zip-full file binutils unzip >/dev/null
-          mkdir bootstrap payloads
-          7z x -y starface.exe -obootstrap >/tmp/7z-bootstrap.log || true
-          echo '=== Embedded BIN resources ==='
-          find bootstrap -type f -path '*/BIN/*' -print0 | while IFS= read -r -d '' f; do
-            echo "--- $f ---"
-            file "$f" || true
-            ls -lh "$f"
-          done
-          i=0
-          find bootstrap -type f -path '*/BIN/*' -print0 | while IFS= read -r -d '' f; do
-            i=$((i+1)); out="payloads/$i"; mkdir -p "$out"
-            cp "$f" "$out/payload.bin"
-            7z x -y "$f" -o"$out/unpacked" >"/tmp/7z-payload-$i.log" 2>&1 || true
-            echo "=== PAYLOAD $i ==="
-            file "$f" || true
-            tail -25 "/tmp/7z-payload-$i.log" || true
-            find "$out/unpacked" -type f 2>/dev/null | head -120 || true
-          done
-          echo '=== Candidate API strings across payloads ==='
-          find payloads bootstrap -type f -size -150M -print0 | while IFS= read -r -d '' f; do
-            a=$(strings -a -n 4 "$f" 2>/dev/null | grep -iE 'UciCallListRequests|called.?back|calledbackauthor|calledbackmodified|callList\.(set|update|mark)|set.*call.*back|mark.*call.*back|callback.*author|call.*list.*request' | head -100 || true)
-            u=$(strings -el -n 4 "$f" 2>/dev/null | grep -iE 'UciCallListRequests|called.?back|calledbackauthor|calledbackmodified|callList\.(set|update|mark)|set.*call.*back|mark.*call.*back|callback.*author|call.*list.*request' | head -100 || true)
-            if [ -n "$a$u" ]; then
-              echo "--- FILE: $f ---"
-              [ -n "$a" ] && printf '%s\n' "$a"
-              [ -n "$u" ] && printf '%s\n' "$u"
-            fi
-          done | head -1800
-          echo '=== DLL/EXE/JAR candidates ==='
-          find payloads -type f \( -iname '*.dll' -o -iname '*.exe' -o -iname '*.jar' -o -iname '*uci*' -o -iname '*starface*' \) -print | head -500
+          PAGE='https://knowledge.starface.de/pages/viewpage.action?pageId=46564626'
+          curl -fL --retry 3 --max-time 60 -A 'Mozilla/5.0' "$PAGE" -o /tmp/uci.html || true
+          echo '=== Links around UCI 3.0.3 ==='
+          python - <<'PY'
+          import re, html
+          from pathlib import Path
+          s=Path('/tmp/uci.html').read_text(errors='ignore') if Path('/tmp/uci.html').exists() else ''
+          for m in re.finditer(r'<a\b[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',s,re.I|re.S):
+              href=html.unescape(m.group(1)); text=re.sub('<[^>]+>',' ',m.group(2)); text=' '.join(html.unescape(text).split())
+              if '3.0.3' in text or '3.0.3' in href or ('demopack' in text.lower() and 'uci' in text.lower()):
+                  print(text,'=>',href)
+          PY
+          echo '=== Attachment/download URLs ==='
+          grep -Eo 'https?://[^"<> ]+|/download/attachments/[^"<> ]+|/pages/downloadallattachments.action[^"<> ]*' /tmp/uci.html 2>/dev/null | sed 's/&amp;/\&/g' | grep -iE 'uci|46564626|zip|jar' | head -200 || true
+          echo '=== Page snippets ==='
+          grep -ioE '.{0,180}UCI.{0,80}3\.0\.3.{0,300}' /tmp/uci.html | head -40 || true
