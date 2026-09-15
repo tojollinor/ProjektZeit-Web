@@ -19,10 +19,35 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Reconstruct backup patch
+      - name: Repair and reconstruct backup patch
         shell: bash
         run: |
           set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+
+          path = Path('.rescue-chunks/part-06')
+          data = path.read_bytes()
+          expected = '12b75233d0659e697348b68d8309f7add3fe3b5b'
+
+          def git_blob_sha(raw):
+              return hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest()
+
+          if git_blob_sha(data) != expected:
+              repaired = None
+              for i in range(len(data)):
+                  candidate = data[:i] + data[i+1:]
+                  if git_blob_sha(candidate) == expected:
+                      repaired = candidate
+                      print(f'Removed unexpected byte at offset {i}')
+                      break
+              if repaired is None:
+                  raise SystemExit('Unable to repair part-06 to expected Git blob hash')
+              path.write_bytes(repaired)
+
+          assert git_blob_sha(path.read_bytes()) == expected
+          PY
           cat .rescue-chunks/part-* > /tmp/final.patch.gz.b64
           base64 -d /tmp/final.patch.gz.b64 | gunzip > /tmp/final.patch
           echo "be47443cc6aa477f31dec62c4378ea79e31b68257e558fb5c1fbe15809092c04  /tmp/final.patch" | sha256sum -c -
