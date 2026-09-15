@@ -1,5 +1,6 @@
 import sqlite3
 import unittest
+from unittest.mock import Mock
 
 import final_batch_runtime as final
 import final_batch_fix_runtime as final_fix
@@ -41,6 +42,56 @@ class FinalBatchTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'nicht gefunden'):
             final.mark_manual_callbacks(c,7,['call-1','call-3'])
         self.assertEqual(c.execute('SELECT COUNT(*) n FROM starface_manual_callbacks WHERE owner_id=7').fetchone()['n'],2)
+
+
+    def test_starface_callback_targets_use_native_call_list_id_and_owner(self):
+        c=sqlite3.connect(':memory:')
+        c.row_factory=sqlite3.Row
+        c.executescript("""
+          CREATE TABLE provider_events(owner_id INTEGER,provider TEXT,external_key TEXT,raw_json TEXT);
+          INSERT INTO provider_events VALUES(7,'starface','starface:id:event-1','{"id":"event-1","direction":"INBOUND","result":"MISSED"}');
+          INSERT INTO provider_events VALUES(7,'starface','starface:id:event-2','{"id":"event-2","direction":"INBOUND","result":"MISSED"}');
+          INSERT INTO provider_events VALUES(8,'starface','starface:id:event-3','{"id":"event-3","direction":"INBOUND","result":"MISSED"}');
+        """)
+        targets=final.starface_callback_targets(c,7,['starface:id:event-1','starface:id:event-2'])
+        self.assertEqual(targets,[
+            {'external_key':'starface:id:event-1','call_list_entry_id':'event-1'},
+            {'external_key':'starface:id:event-2','call_list_entry_id':'event-2'},
+        ])
+        with self.assertRaisesRegex(ValueError,'nicht gefunden'):
+            final.starface_callback_targets(c,7,['starface:id:event-3'])
+
+    def test_starface_callback_targets_reject_non_missed_and_missing_native_id(self):
+        c=sqlite3.connect(':memory:')
+        c.row_factory=sqlite3.Row
+        c.executescript("""
+          CREATE TABLE provider_events(owner_id INTEGER,provider TEXT,external_key TEXT,raw_json TEXT);
+          INSERT INTO provider_events VALUES(7,'starface','answered','{"id":"answered-1","direction":"INBOUND","result":"ANSWERED"}');
+          INSERT INTO provider_events VALUES(7,'starface','missing-id','{"direction":"INBOUND","result":"MISSED"}');
+        """)
+        with self.assertRaisesRegex(ValueError,'Nur verpasste'):
+            final.starface_callback_targets(c,7,['answered'])
+        with self.assertRaisesRegex(ValueError,'Anruflisten-ID'):
+            final.starface_callback_targets(c,7,['missing-id'])
+
+    def test_starface_callback_sync_writes_server_before_local_marker(self):
+        c=sqlite3.connect(':memory:')
+        c.row_factory=sqlite3.Row
+        c.executescript("""
+          CREATE TABLE provider_events(owner_id INTEGER,provider TEXT,external_key TEXT,raw_json TEXT);
+          CREATE TABLE starface_manual_callbacks(owner_id INTEGER,external_key TEXT,marked_by INTEGER,marked_at TEXT,PRIMARY KEY(owner_id,external_key));
+          INSERT INTO provider_events VALUES(7,'starface','starface:id:event-1','{"id":"event-1","direction":"INBOUND","result":"MISSED"}');
+        """)
+        app=Mock();app.DATA_DIR='/tmp/test';app.starface_oauth.access.return_value={'domain':'https://pbx.example','secret':'token'}
+        app.starface_calls.set_called_back.side_effect=ValueError('server rejected')
+        with self.assertRaisesRegex(ValueError,'server rejected'):
+            final.sync_starface_callbacks(app,c,7,['starface:id:event-1'])
+        self.assertEqual(c.execute('SELECT COUNT(*) n FROM starface_manual_callbacks').fetchone()['n'],0)
+        app.starface_calls.set_called_back.side_effect=None
+        keys=final.sync_starface_callbacks(app,c,7,['starface:id:event-1'])
+        self.assertEqual(keys,['starface:id:event-1'])
+        app.starface_calls.set_called_back.assert_called_with({'domain':'https://pbx.example','secret':'token'},['event-1'],True)
+        self.assertEqual(c.execute('SELECT COUNT(*) n FROM starface_manual_callbacks').fetchone()['n'],1)
 
     def test_worktime_totals_are_derived_and_persisted(self):
         c=sqlite3.connect(':memory:')

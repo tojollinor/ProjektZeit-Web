@@ -103,3 +103,8 @@ Vor dem Update Datenbank und Datenverzeichnis gemeinsam sichern. Für den
 Browserlogin des Windows-Clients muss ProjektZeit über eine gültige
 HTTPS-Adresse erreichbar sein. Eine Live-Abnahme der installierten Instanz oder
 echte Provideraufrufe gehören bewusst nicht zu den lokalen Codeprüfungen.
+
+
+## STARFACE-Rückrufstatus
+
+- Manuelles „als zurückgerufen markieren“ wird jetzt über die offizielle UCI-Methode `setCallListEntryCalledBack` an STARFACE zurückgeschrieben; lokal wird erst nach erfolgreicher Serverbestätigung quittiert.

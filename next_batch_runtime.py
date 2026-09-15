@@ -405,7 +405,7 @@ def install(app):
                     return self.send_json(200, {"ok": True, "current": token_hash == session["token_hash"]})
                 if path == "/api/v1/starface/missed":
                     status=__import__("provider_nav_runtime").provider_status(app,c,uid,"starface")
-                    return self.send_json(200, {"calls": _missed_calls(c, uid) if status["connected"] else [], "connection":status, "server_write_supported": False})
+                    return self.send_json(200, {"calls": _missed_calls(c, uid) if status["connected"] else [], "connection":status, "server_write_supported": bool(status["connected"])})
         except PermissionError as error:
             return self.send_json(403, {"error": str(error)})
         except (ValueError, TypeError) as error:
